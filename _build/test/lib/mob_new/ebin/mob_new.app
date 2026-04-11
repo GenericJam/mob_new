@@ -1,0 +1,1 @@
+{application,mob_new,[{modules,['Elixir.Mix.Tasks.Mob.New','Elixir.MobNew.ProjectGenerator']},{optional_applications,[]},{applications,[kernel,stdlib,elixir,logger,eex,jason]},{description,"Project generator for the Mob mobile framework"},{registered,[]},{vsn,"0.1.0"}]}.

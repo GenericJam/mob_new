@@ -1,0 +1,23 @@
+package <%= java_package %>;
+
+import android.app.Activity;
+import android.os.Bundle;
+import android.util.Log;
+
+public class MainActivity extends Activity {
+
+    private static final String TAG = "<%= display_name %>";
+
+    static { System.loadLibrary("<%= lib_name %>"); }
+
+    native void nativeSetActivity(Activity activity);
+    native void nativeStartBeam();
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        Log.i(TAG, "onCreate — handing off to BEAM");
+        nativeSetActivity(this);
+        new Thread(this::nativeStartBeam, "beam-main").start();
+    }
+}

@@ -1,0 +1,48 @@
+defmodule <%= module_name %>.HelloScreen do
+  @moduledoc "Starter screen for <%= module_name %>."
+  use Mob.Screen
+
+  def mount(_params, _session, socket) do
+    {:ok, Mob.Socket.assign(socket, :greeting, "Hello from <%= module_name %>!")}
+  end
+
+  def render(assigns) do
+    %{
+      type: :column,
+      props: %{background: 0xFFFFFFFF, padding: 24},
+      children: [
+        %{
+          type: :text,
+          props: %{
+            text: "⚡ <%= display_name %>",
+            text_size: 22.0,
+            text_color: 0xFFFFFFFF,
+            background: 0xFF2196F3,
+            padding: 16
+          },
+          children: []
+        },
+        %{
+          type: :text,
+          props: %{
+            text: assigns.greeting,
+            text_size: 20.0,
+            text_color: 0xFF212121,
+            padding: 24
+          },
+          children: []
+        },
+        %{
+          type: :text,
+          props: %{
+            text: "BEAM running on device \u2713",
+            text_size: 16.0,
+            text_color: 0xFF388E3C,
+            padding: 8
+          },
+          children: []
+        }
+      ]
+    }
+  end
+end

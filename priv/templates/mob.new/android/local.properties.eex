@@ -3,6 +3,5 @@
 # sdk.dir=/path/to/android/sdk
 
 # Mob build paths — configured by `mix mob.install`:
-mob.otp_build=/path/to/otp
 mob.otp_release=/path/to/otp
 mob.mob_dir=/path/to/mob

@@ -8,8 +8,7 @@ def localProps = new Properties()
 def localPropsFile = rootProject.file('local.properties')
 if (localPropsFile.exists()) localProps.load(localPropsFile.newDataInputStream())
 
-def mobOtpBuild   = localProps.getProperty('mob.otp_build',   System.getenv('MOB_OTP_SRC')              ?: '')
-def mobOtpRelease = localProps.getProperty('mob.otp_release', System.getenv('MOB_ANDROID_OTP_RELEASE')  ?: '/tmp/otp-android')
+def mobOtpRelease = localProps.getProperty('mob.otp_release', System.getenv('MOB_ANDROID_OTP_RELEASE') ?: '')
 def mobDir        = localProps.getProperty('mob.mob_dir',     System.getenv('MOB_DIR')                  ?: '')
 
 // Auto-detect ERTS version from the OTP release directory.
@@ -32,7 +31,6 @@ android {
         externalNativeBuild {
             cmake {
                 arguments "-DANDROID_STL=c++_static",
-                          "-DOTP_BUILD=${mobOtpBuild}",
                           "-DOTP_RELEASE=${mobOtpRelease}",
                           "-DERTS_VSN=${ertsVsn}",
                           "-DMOB_DIR=${mobDir}"

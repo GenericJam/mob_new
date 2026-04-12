@@ -19,8 +19,8 @@ defmodule <%= module_name %>.MixProject do
 
   defp deps do
     [
-      {:mob,     path: "../mob"},
-      {:mob_dev, path: "../mob_dev", only: :dev, runtime: false}
+      {:mob,     "~> 0.2"},
+      {:mob_dev, "~> 0.2", only: :dev, runtime: false}
     ]
   end
 end

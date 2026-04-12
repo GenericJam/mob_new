@@ -13,8 +13,8 @@ defmodule MobNew.ProjectGenerator do
     - `java_path`    → `"com/mob/my_cool_app"` (for directory structure)
   """
 
-  @templates_root :mob_new |> :code.priv_dir() |> Path.join("templates/mob.new")
-  @static_root    :mob_new |> :code.priv_dir() |> Path.join("static/mob.new")
+  defp templates_root, do: :mob_new |> :code.priv_dir() |> Path.join("templates/mob.new")
+  defp static_root,    do: :mob_new |> :code.priv_dir() |> Path.join("static/mob.new")
 
   @doc """
   Returns the EEx template assigns map for `app_name`.
@@ -72,10 +72,10 @@ defmodule MobNew.ProjectGenerator do
   @executable_files ["ios/build.sh"]
 
   defp render_templates(assigns, project_dir) do
-    @templates_root
+    templates_root()
     |> find_templates()
     |> Enum.each(fn template_path ->
-      rel = Path.relative_to(template_path, @templates_root)
+      rel = Path.relative_to(template_path, templates_root())
       dest_rel = expand_path(rel, assigns)
       dest = Path.join(project_dir, dest_rel)
       File.mkdir_p!(Path.dirname(dest))
@@ -92,12 +92,12 @@ defmodule MobNew.ProjectGenerator do
   @executable_static ["android/gradlew"]
 
   defp copy_static(project_dir) do
-    @static_root
+    static_root()
     |> Path.join("**/*")
     |> Path.wildcard(match_dot: true)
     |> Enum.reject(&File.dir?/1)
     |> Enum.each(fn src ->
-      rel  = Path.relative_to(src, @static_root)
+      rel  = Path.relative_to(src, static_root())
       dest = Path.join(project_dir, rel)
       File.mkdir_p!(Path.dirname(dest))
       File.copy!(src, dest)

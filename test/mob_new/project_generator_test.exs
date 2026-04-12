@@ -184,8 +184,9 @@ defmodule MobNew.ProjectGeneratorTest do
     test "CMakeLists.txt uses CMake variables not hardcoded paths", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/CMakeLists.txt"))
-      assert content =~ "${OTP_BUILD}"
+      assert content =~ "${OTP_RELEASE}"
       assert content =~ "${MOB_DIR}"
+      refute content =~ "${OTP_BUILD}"
       refute content =~ "/Users/"
     end
 
@@ -231,8 +232,9 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/build.gradle"))
       assert content =~ "local.properties"
-      assert content =~ "mob.otp_build"
-      assert content =~ "MOB_OTP_SRC"
+      assert content =~ "mob.otp_release"
+      refute content =~ "mob.otp_build"
+      refute content =~ "MOB_OTP_SRC"
     end
 
     test "assigns jni_package escapes underscores correctly" do
@@ -276,9 +278,10 @@ defmodule MobNew.ProjectGeneratorTest do
     test "build.sh uses env vars for paths", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "ios/build.sh"))
-      assert content =~ "MOB_OTP_SRC"
       assert content =~ "MOB_DIR"
       assert content =~ "MOB_ELIXIR_LIB"
+      assert content =~ "MOB_IOS_OTP_ROOT"
+      refute content =~ "MOB_OTP_SRC"
     end
 
     test "generates mob.exs config template", %{tmp: tmp} do
@@ -286,10 +289,12 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(Path.join(dir, "mob.exs"))
     end
 
-    test "mob.exs mentions otp_src", %{tmp: tmp} do
+    test "mob.exs mentions mob_dir and elixir_lib but not otp_src", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "mob.exs"))
-      assert content =~ "otp_src"
+      assert content =~ "mob_dir"
+      assert content =~ "elixir_lib"
+      refute content =~ "otp_src"
     end
 
     test "generates .gitignore", %{tmp: tmp} do

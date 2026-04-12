@@ -80,8 +80,9 @@ defmodule Mix.Tasks.Mob.New do
     Mix.shell().info("")
     Mix.shell().info("Fetching dependencies...")
     mix = System.find_executable("mix")
+    abs_dir = Path.expand(project_dir)
 
-    case System.cmd(mix, ["deps.get"], cd: project_dir, into: IO.stream()) do
+    case System.cmd(mix, ["deps.get"], cd: abs_dir, into: IO.stream()) do
       {_, 0} -> :ok
       {_, _} -> Mix.shell().info([:yellow, "* deps.get failed — run it manually inside #{project_dir}", :reset])
     end

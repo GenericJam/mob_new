@@ -1,0 +1,168 @@
+#!/bin/bash
+# ios/build.sh — Build and deploy <%= display_name %> to iOS simulator.
+# Reads paths from environment (set by `mix mob.deploy --native` via mob.exs,
+# or export them manually before running this script directly).
+#
+# Required env vars (set in mob.exs or export manually):
+#   MOB_DIR         — path to mob library repo
+#   MOB_ELIXIR_LIB  — path to Elixir lib dir
+#   MOB_IOS_OTP_ROOT — iOS OTP runtime root (set automatically by mob_dev OtpDownloader)
+set -e
+cd "$(dirname "$0")/.."     # project root (contains mix.exs)
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+MOB_DIR="${MOB_DIR:?MOB_DIR not set — configure mob.exs}"
+ELIXIR_LIB="${MOB_ELIXIR_LIB:?MOB_ELIXIR_LIB not set — configure mob.exs}"
+OTP_ROOT="${MOB_IOS_OTP_ROOT:?MOB_IOS_OTP_ROOT not set — run mix mob.install to download OTP}"
+
+# Auto-detect ERTS version from the OTP runtime root.
+ERTS_VSN=$(ls "$OTP_ROOT" | grep '^erts-' | sort -V | tail -1)
+if [ -z "$ERTS_VSN" ]; then
+    echo "ERROR: No erts-* directory found in $OTP_ROOT"
+    echo "       Have you built OTP for iOS simulator?"
+    exit 1
+fi
+
+BEAMS_DIR="$OTP_ROOT/<%= app_name %>"
+SDKROOT=$(xcrun -sdk iphonesimulator --show-sdk-path)
+CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=16.0 -isysroot $SDKROOT"
+
+IFLAGS="-I$OTP_ROOT/$ERTS_VSN/include \
+        -I$OTP_ROOT/$ERTS_VSN/include/aarch64-apple-iossimulator \
+        -I$MOB_DIR/ios"
+
+LIBS="
+  $OTP_ROOT/$ERTS_VSN/lib/libbeam.a
+  $OTP_ROOT/$ERTS_VSN/lib/internal/liberts_internal_r.a
+  $OTP_ROOT/$ERTS_VSN/lib/internal/libethread.a
+  $OTP_ROOT/$ERTS_VSN/lib/libzstd.a
+  $OTP_ROOT/$ERTS_VSN/lib/libepcre.a
+  $OTP_ROOT/$ERTS_VSN/lib/libryu.a
+  $OTP_ROOT/$ERTS_VSN/lib/asn1rt_nif.a
+"
+
+# ── Find booted simulator ──────────────────────────────────────────────────────
+if [ -n "$1" ]; then
+    SIM_ID="$1"
+else
+    SIM_ID=$(xcrun simctl list devices booted -j \
+        | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+for sims in d['devices'].values():
+    for s in sims:
+        if s.get('state') == 'Booted':
+            print(s['udid'])
+            exit()
+" 2>/dev/null || true)
+fi
+
+if [ -z "$SIM_ID" ]; then
+    echo "ERROR: No booted simulator found. Boot one in Simulator.app or pass UDID as argument."
+    exit 1
+fi
+echo "=== Target simulator: $SIM_ID ==="
+
+# ── Compile Erlang/Elixir ──────────────────────────────────────────────────────
+echo "=== Compiling Erlang/Elixir ==="
+mix compile
+
+echo "=== Copying BEAM files to $BEAMS_DIR ==="
+mkdir -p "$BEAMS_DIR"
+cp _build/dev/lib/<%= app_name %>/ebin/*.beam "$BEAMS_DIR/"
+cp _build/dev/lib/mob/ebin/*.beam             "$BEAMS_DIR/"
+
+echo "=== Copying Elixir stdlib ==="
+mkdir -p "$OTP_ROOT/lib/elixir/ebin"
+mkdir -p "$OTP_ROOT/lib/logger/ebin"
+cp "$ELIXIR_LIB/elixir/ebin/"*.beam  "$OTP_ROOT/lib/elixir/ebin/"
+cp "$ELIXIR_LIB/elixir/ebin/elixir.app" "$OTP_ROOT/lib/elixir/ebin/"
+cp "$ELIXIR_LIB/logger/ebin/"*.beam  "$OTP_ROOT/lib/logger/ebin/"
+cp "$ELIXIR_LIB/logger/ebin/logger.app" "$OTP_ROOT/lib/logger/ebin/"
+
+echo "=== Spot-check ==="
+ls "$BEAMS_DIR/Elixir.<%= module_name %>.App.beam"
+ls "$BEAMS_DIR/Elixir.<%= module_name %>.HelloScreen.beam"
+
+# ── Compile C/ObjC/Swift ──────────────────────────────────────────────────────
+echo "=== Compiling native sources ==="
+BUILD_DIR=$(mktemp -d)
+SWIFT_BRIDGING="$MOB_DIR/ios/MobDemo-Bridging-Header.h"
+
+$CC -fobjc-arc -fmodules $IFLAGS \
+    -c "$MOB_DIR/ios/MobNode.m" -o "$BUILD_DIR/MobNode.o"
+
+xcrun -sdk iphonesimulator swiftc \
+    -target arm64-apple-ios16.0-simulator \
+    -module-name <%= display_name %> \
+    -emit-objc-header -emit-objc-header-path "$BUILD_DIR/MobDemo-Swift.h" \
+    -import-objc-header "$SWIFT_BRIDGING" \
+    -I "$MOB_DIR/ios" \
+    -parse-as-library \
+    -wmo \
+    "$MOB_DIR/ios/MobViewModel.swift" \
+    "$MOB_DIR/ios/MobRootView.swift" \
+    -c -o "$BUILD_DIR/swift_mob.o"
+
+$CC -fobjc-arc -fmodules $IFLAGS \
+    -I "$BUILD_DIR" \
+    -DSTATIC_ERLANG_NIF \
+    -c "$MOB_DIR/ios/mob_nif.m"   -o "$BUILD_DIR/mob_nif.o"
+
+$CC -fobjc-arc -fmodules $IFLAGS \
+    -c "$MOB_DIR/ios/mob_beam.m"  -o "$BUILD_DIR/mob_beam.o"
+
+$CC $IFLAGS \
+    -c "$MOB_DIR/ios/driver_tab_ios.c" -o "$BUILD_DIR/driver_tab_ios.o"
+
+$CC -fobjc-arc -fmodules $IFLAGS \
+    -I "$BUILD_DIR" \
+    -c ios/AppDelegate.m  -o "$BUILD_DIR/AppDelegate.o"
+
+$CC -fobjc-arc -fmodules $IFLAGS \
+    -c ios/beam_main.m    -o "$BUILD_DIR/beam_main.o"
+
+# ── Link ───────────────────────────────────────────────────────────────────────
+echo "=== Linking <%= display_name %> binary ==="
+xcrun -sdk iphonesimulator swiftc \
+    -target arm64-apple-ios16.0-simulator \
+    "$BUILD_DIR/driver_tab_ios.o" \
+    "$BUILD_DIR/MobNode.o" \
+    "$BUILD_DIR/swift_mob.o" \
+    "$BUILD_DIR/mob_nif.o" \
+    "$BUILD_DIR/mob_beam.o" \
+    "$BUILD_DIR/AppDelegate.o" \
+    "$BUILD_DIR/beam_main.o" \
+    $LIBS \
+    -lz -lc++ -lpthread \
+    -Xlinker -framework -Xlinker UIKit \
+    -Xlinker -framework -Xlinker Foundation \
+    -Xlinker -framework -Xlinker CoreGraphics \
+    -Xlinker -framework -Xlinker QuartzCore \
+    -Xlinker -framework -Xlinker SwiftUI \
+    -o "$BUILD_DIR/<%= display_name %>"
+
+# ── Bundle + install ───────────────────────────────────────────────────────────
+echo "=== Building .app bundle ==="
+APP="$BUILD_DIR/<%= display_name %>.app"
+rm -rf "$APP"
+mkdir -p "$APP"
+cp "$BUILD_DIR/<%= display_name %>" "$APP/"
+cp ios/Info.plist "$APP/"
+if [ -d "ios/Assets.xcassets/AppIcon.appiconset" ]; then
+    ACTOOL_PLIST=$(mktemp /tmp/actool_XXXXXX.plist)
+    xcrun actool ios/Assets.xcassets \
+        --compile "$APP" \
+        --platform iphonesimulator \
+        --minimum-deployment-target 16.0 \
+        --app-icon AppIcon \
+        --output-partial-info-plist "$ACTOOL_PLIST" \
+        2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Merge $ACTOOL_PLIST" "$APP/Info.plist" 2>/dev/null || true
+    rm -f "$ACTOOL_PLIST"
+fi
+
+echo "=== Installing on simulator $SIM_ID ==="
+xcrun simctl install "$SIM_ID" "$APP"
+
+echo "=== Installing complete ==="

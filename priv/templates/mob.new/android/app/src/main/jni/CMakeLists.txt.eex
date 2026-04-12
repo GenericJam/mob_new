@@ -1,0 +1,40 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(<%= lib_name %>)
+
+# Paths injected by build.gradle (read from android/local.properties or env vars).
+# OTP_BUILD, OTP_RELEASE, ERTS_VSN, MOB_DIR are set via -D flags.
+
+add_library(<%= lib_name %> SHARED
+    beam_jni.c
+    ${MOB_DIR}/android/jni/mob_nif.c
+    ${MOB_DIR}/android/jni/mob_beam.c
+    ${MOB_DIR}/android/jni/driver_tab_android.c
+)
+
+target_include_directories(<%= lib_name %> PRIVATE
+    ${MOB_DIR}/android/jni
+    ${OTP_BUILD}/erts/include
+    ${OTP_BUILD}/erts/include/aarch64-unknown-linux-android
+    ${OTP_BUILD}/erts/emulator/beam
+    ${OTP_BUILD}/erts/emulator/sys/unix
+    ${OTP_BUILD}/erts/aarch64-unknown-linux-android
+)
+
+target_compile_definitions(<%= lib_name %> PRIVATE STATIC_ERLANG_NIF)
+
+target_link_libraries(<%= lib_name %>
+    -Wl,--allow-multiple-definition
+    -Wl,--whole-archive
+    ${OTP_RELEASE}/${ERTS_VSN}/lib/libbeam.a
+    ${OTP_RELEASE}/${ERTS_VSN}/lib/internal/liberts_internal_r.a
+    ${OTP_RELEASE}/${ERTS_VSN}/lib/internal/libethread.a
+    ${OTP_BUILD}/erts/emulator/zstd/obj/aarch64-unknown-linux-android/opt/libzstd.a
+    ${OTP_BUILD}/erts/emulator/pcre/obj/aarch64-unknown-linux-android/opt/libepcre.a
+    ${OTP_BUILD}/erts/emulator/ryu/obj/aarch64-unknown-linux-android/opt/libryu.a
+    ${OTP_BUILD}/lib/asn1/priv/lib/aarch64-unknown-linux-android/asn1rt_nif.a
+    -Wl,--no-whole-archive
+    android
+    log
+    z
+    c++_static
+)

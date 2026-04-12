@@ -1,0 +1,10 @@
+/_build/
+/deps/
+/doc/
+/.fetch
+*.ez
+*.beam
+mob.exs
+android/local.properties
+android/.gradle/
+android/app/build/

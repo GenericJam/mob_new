@@ -8,6 +8,7 @@ defmodule <%= module_name %>.MixProject do
       elixir: "~> 1.18",
       start_permanent: false,
       deps: deps(),
+      erlc_paths: ["src"],
       erlc_options: [:debug_info]
     ]
   end
@@ -18,7 +19,7 @@ defmodule <%= module_name %>.MixProject do
 
   defp deps do
     [
-      {:mob, path: "../mob"},
+      {:mob,     path: "../mob"},
       {:mob_dev, path: "../mob_dev", only: :dev, runtime: false}
     ]
   end

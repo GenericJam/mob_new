@@ -1,0 +1,19 @@
+%% <%= app_name %>.erl — BEAM bootstrap for <%= module_name %>.
+%% Called by the iOS/Android native launcher via -eval '<%= app_name %>:start().'.
+%% Starts the OTP ecosystem in order, then hands off to the Elixir app module.
+-module(<%= app_name %>).
+-export([start/0]).
+
+start() ->
+    step(1, fun() -> application:start(compiler) end),
+    step(2, fun() -> application:start(elixir)   end),
+    step(3, fun() -> application:start(logger)   end),
+    step(4, fun() -> mob_nif:create_column()     end),
+    step(5, fun() -> 'Elixir.<%= module_name %>.App':start() end),
+    timer:sleep(infinity).
+
+step(N, Fun) ->
+    mob_nif:log("step " ++ integer_to_list(N) ++ " starting"),
+    Result = (catch Fun()),
+    mob_nif:log("step " ++ integer_to_list(N) ++ " => " ++
+                lists:flatten(io_lib:format("~p", [Result]))).

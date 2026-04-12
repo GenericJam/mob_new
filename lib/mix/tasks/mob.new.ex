@@ -79,10 +79,11 @@ defmodule Mix.Tasks.Mob.New do
   defp fetch_deps(project_dir) do
     Mix.shell().info("")
     Mix.shell().info("Fetching dependencies...")
+    mix = System.find_executable("mix")
 
-    case Mix.shell().cmd("mix deps.get", cd: project_dir) do
-      0 -> :ok
-      _ -> Mix.shell().info([:yellow, "* deps.get failed — run it manually inside #{project_dir}", :reset])
+    case System.cmd(mix, ["deps.get"], cd: project_dir, into: IO.stream()) do
+      {_, 0} -> :ok
+      {_, _} -> Mix.shell().info([:yellow, "* deps.get failed — run it manually inside #{project_dir}", :reset])
     end
   end
 
@@ -116,11 +117,18 @@ defmodule Mix.Tasks.Mob.New do
     Your Mob app #{app_name} is ready!
     #{install_hint}
         cd #{app_name}
-        mix mob.install      # generates app icon + first-run setup
+        mix mob.install                # generates app icon + first-run setup
 
-    Then to run on a device:
-        mix mob.deploy       # build + push BEAMs + launch
-        mix mob.watch        # auto-push changes while developing
+    First deploy — edit mob.exs and android/local.properties with your local
+    paths, then build native binaries (APK + iOS app), install on device,
+    and push BEAMs:
+
+        mix mob.deploy --native        # first time, or after native code changes
+
+    Day-to-day development — just push changed BEAMs, no native rebuild needed:
+
+        mix mob.deploy                 # fast push + restart
+        mix mob.watch                  # auto-push on file save
     """)
   end
 

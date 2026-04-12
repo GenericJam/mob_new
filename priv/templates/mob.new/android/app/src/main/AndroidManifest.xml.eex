@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="<%= display_name %>"
+        android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:extractNativeLibs="true"
         android:theme="@android:style/Theme.NoTitleBar">

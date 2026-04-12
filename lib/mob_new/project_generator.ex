@@ -14,6 +14,7 @@ defmodule MobNew.ProjectGenerator do
   """
 
   @templates_root :mob_new |> :code.priv_dir() |> Path.join("templates/mob.new")
+  @static_root    :mob_new |> :code.priv_dir() |> Path.join("static/mob.new")
 
   @doc """
   Returns the EEx template assigns map for `app_name`.
@@ -27,12 +28,20 @@ defmodule MobNew.ProjectGenerator do
     lib_name     = String.replace(app_name, "_", "")
     java_path    = String.replace(bundle_id, ".", "/")
 
+    # JNI method name segment: dots→underscores, then underscores→_1
+    # e.g. "com.mob.test_app" → "com_mob_test_1app"
+    jni_package =
+      java_package
+      |> String.replace("_", "_1")
+      |> String.replace(".", "_")
+
     %{
       app_name:     app_name,
       module_name:  module_name,
       display_name: display_name,
       bundle_id:    bundle_id,
       java_package: java_package,
+      jni_package:  jni_package,
       lib_name:     lib_name,
       java_path:    java_path
     }
@@ -53,11 +62,14 @@ defmodule MobNew.ProjectGenerator do
       File.mkdir_p!(project_dir)
       a = assigns(app_name)
       render_templates(a, project_dir)
+      copy_static(project_dir)
       {:ok, project_dir}
     end
   end
 
   # ── private ──────────────────────────────────────────────────────────────────
+
+  @executable_files ["ios/build.sh"]
 
   defp render_templates(assigns, project_dir) do
     @templates_root
@@ -69,11 +81,28 @@ defmodule MobNew.ProjectGenerator do
       File.mkdir_p!(Path.dirname(dest))
       content = EEx.eval_file(template_path, Map.to_list(assigns))
       File.write!(dest, content)
+      if dest_rel in @executable_files, do: File.chmod!(dest, 0o755)
     end)
   end
 
   defp find_templates(dir) do
-    Path.wildcard(Path.join(dir, "**/*.eex"))
+    Path.wildcard(Path.join(dir, "**/*.eex"), match_dot: true)
+  end
+
+  @executable_static ["android/gradlew"]
+
+  defp copy_static(project_dir) do
+    @static_root
+    |> Path.join("**/*")
+    |> Path.wildcard(match_dot: true)
+    |> Enum.reject(&File.dir?/1)
+    |> Enum.each(fn src ->
+      rel  = Path.relative_to(src, @static_root)
+      dest = Path.join(project_dir, rel)
+      File.mkdir_p!(Path.dirname(dest))
+      File.copy!(src, dest)
+      if rel in @executable_static, do: File.chmod!(dest, 0o755)
+    end)
   end
 
   # Replace `app_name` placeholder in directory segments and strip .eex extension.

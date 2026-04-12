@@ -1,0 +1,209 @@
+package <%= java_package %>;
+
+import android.app.Activity;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * Java-side UI bridge. All methods are called from BEAM scheduler threads
+ * and dispatched to the main thread synchronously via CountDownLatch.
+ *
+ * Called from mob_nif.c.
+ */
+public class MobBridge {
+
+    static Activity sActivity;
+    private static final String TAG = "<%= display_name %>";
+
+    public static void init(Activity a) {
+        sActivity = a;
+    }
+
+    static void runOnUI(Runnable r) {
+        if (sActivity == null) {
+            android.util.Log.e(TAG, "runOnUI: sActivity is null — MobBridge.init() not called yet");
+            return;
+        }
+        if (sActivity.getMainLooper().getThread() == Thread.currentThread()) {
+            r.run();
+            return;
+        }
+        CountDownLatch latch = new CountDownLatch(1);
+        sActivity.runOnUiThread(() -> {
+            try {
+                r.run();
+            } catch (Throwable e) {
+                android.util.Log.e(TAG, "runOnUI threw: " + e, e);
+            } finally {
+                latch.countDown();
+            }
+        });
+        try { latch.await(); } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    public static View createColumn() {
+        AtomicReference<View> out = new AtomicReference<>();
+        runOnUI(() -> {
+            LinearLayout ll = new LinearLayout(sActivity);
+            ll.setOrientation(LinearLayout.VERTICAL);
+            ll.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+            out.set(ll);
+        });
+        return out.get();
+    }
+
+    public static View createRow() {
+        AtomicReference<View> out = new AtomicReference<>();
+        runOnUI(() -> {
+            LinearLayout ll = new LinearLayout(sActivity);
+            ll.setOrientation(LinearLayout.HORIZONTAL);
+            ll.setGravity(Gravity.CENTER_VERTICAL);
+            ll.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+            out.set(ll);
+        });
+        return out.get();
+    }
+
+    public static View createLabel(String text) {
+        AtomicReference<View> out = new AtomicReference<>();
+        runOnUI(() -> {
+            TextView tv = new TextView(sActivity);
+            tv.setText(text);
+            tv.setTextColor(Color.BLACK);
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
+            tv.setPadding(8, 8, 8, 8);
+            tv.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+            out.set(tv);
+        });
+        return out.get();
+    }
+
+    public static View createButton(String text) {
+        AtomicReference<View> out = new AtomicReference<>();
+        runOnUI(() -> {
+            Button btn = new Button(sActivity);
+            btn.setText(text);
+            btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f);
+            btn.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+            out.set(btn);
+        });
+        return out.get();
+    }
+
+    public static View createScrollView() {
+        AtomicReference<View> out = new AtomicReference<>();
+        runOnUI(() -> {
+            LinearLayout inner = new LinearLayout(sActivity);
+            inner.setOrientation(LinearLayout.VERTICAL);
+            inner.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            ScrollView sv = new ScrollView(sActivity);
+            sv.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0, 1.0f));
+            sv.addView(inner);
+            sv.setTag(inner);
+            out.set(sv);
+        });
+        return out.get();
+    }
+
+    public static void addChild(View parent, View child, boolean parentIsRow) {
+        runOnUI(() -> {
+            if (child.getParent() instanceof ViewGroup) {
+                ((ViewGroup) child.getParent()).removeView(child);
+            }
+            LinearLayout.LayoutParams lp;
+            if (parentIsRow) {
+                lp = new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
+            } else {
+                lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            }
+            child.setLayoutParams(lp);
+            ((ViewGroup) parent).addView(child);
+        });
+    }
+
+    public static void removeChild(View child) {
+        runOnUI(() -> {
+            if (child.getParent() instanceof ViewGroup) {
+                ((ViewGroup) child.getParent()).removeView(child);
+            }
+        });
+    }
+
+    public static void setText(View view, String text) {
+        runOnUI(() -> {
+            if (view instanceof TextView) ((TextView) view).setText(text);
+        });
+    }
+
+    public static void setTextSize(View view, float sp) {
+        runOnUI(() -> {
+            if (view instanceof TextView)
+                ((TextView) view).setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        });
+    }
+
+    public static void setTextColor(View view, int argb) {
+        runOnUI(() -> {
+            if (view instanceof TextView) ((TextView) view).setTextColor(argb);
+        });
+    }
+
+    public static void setBackgroundColor(View view, int argb) {
+        runOnUI(() -> view.setBackgroundColor(argb));
+    }
+
+    public static void setPadding(View view, int dp) {
+        runOnUI(() -> {
+            float d = sActivity.getResources().getDisplayMetrics().density;
+            int px = (int)(dp * d + 0.5f);
+            view.setPadding(px, px, px, px);
+        });
+    }
+
+    public static void setOnTapListener(View view, long resourcePtr) {
+        runOnUI(() -> view.setOnClickListener(new MobTapListener(resourcePtr)));
+    }
+
+    public static void setRoot(View view) {
+        android.util.Log.i(TAG, "setRoot — setting content view");
+        runOnUI(() -> sActivity.setContentView(view));
+        android.util.Log.i(TAG, "setRoot — done");
+    }
+
+    public static View getTag(View view) {
+        AtomicReference<View> out = new AtomicReference<>();
+        runOnUI(() -> {
+            Object tag = view.getTag();
+            if (tag instanceof View) out.set((View) tag);
+        });
+        return out.get();
+    }
+}

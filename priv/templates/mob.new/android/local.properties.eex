@@ -1,0 +1,8 @@
+# local.properties — machine-specific paths, NOT committed to version control.
+# Android SDK path (set automatically by Android Studio):
+# sdk.dir=/path/to/android/sdk
+
+# Mob build paths — configured by `mix mob.install`:
+mob.otp_build=/path/to/otp
+mob.otp_release=/path/to/otp
+mob.mob_dir=/path/to/mob

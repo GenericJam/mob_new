@@ -18,9 +18,15 @@ defmodule MobNew.ProjectGenerator do
 
   @doc """
   Returns the EEx template assigns map for `app_name`.
+
+  Options:
+  - `:local` — when `true`, generates `path:` deps pointing to local mob/mob_dev
+    repos instead of hex version constraints. Paths are resolved from the
+    `MOB_DIR` and `MOB_DEV_DIR` environment variables, falling back to
+    `../mob` and `../mob_dev` relative to the generated project location.
   """
-  @spec assigns(String.t()) :: map()
-  def assigns(app_name) do
+  @spec assigns(String.t(), keyword()) :: map()
+  def assigns(app_name, opts \\ []) do
     module_name  = Macro.camelize(app_name)
     display_name = module_name
     bundle_id    = "com.mob.#{app_name}"
@@ -35,15 +41,21 @@ defmodule MobNew.ProjectGenerator do
       |> String.replace("_", "_1")
       |> String.replace(".", "_")
 
+    {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib} = resolve_deps(opts)
+
     %{
-      app_name:     app_name,
-      module_name:  module_name,
-      display_name: display_name,
-      bundle_id:    bundle_id,
-      java_package: java_package,
-      jni_package:  jni_package,
-      lib_name:     lib_name,
-      java_path:    java_path
+      app_name:          app_name,
+      module_name:       module_name,
+      display_name:      display_name,
+      bundle_id:         bundle_id,
+      java_package:      java_package,
+      jni_package:       jni_package,
+      lib_name:          lib_name,
+      java_path:         java_path,
+      mob_dep:           mob_dep,
+      mob_dev_dep:       mob_dev_dep,
+      mob_exs_mob_dir:   mob_exs_mob_dir,
+      mob_exs_elixir_lib: mob_exs_elixir_lib
     }
   end
 
@@ -52,18 +64,62 @@ defmodule MobNew.ProjectGenerator do
 
   Returns `{:ok, project_dir}` or `{:error, reason}`.
   """
-  @spec generate(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
-  def generate(app_name, dest_dir \\ ".") do
+  @spec generate(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def generate(app_name, dest_dir \\ ".", opts \\ []) do
     project_dir = Path.join(dest_dir, app_name)
 
     if File.exists?(project_dir) do
       {:error, "Directory already exists: #{project_dir}"}
     else
       File.mkdir_p!(project_dir)
-      a = assigns(app_name)
+      a = assigns(app_name, opts)
       render_templates(a, project_dir)
       copy_static(project_dir)
       {:ok, project_dir}
+    end
+  end
+
+  # ── Dep resolution ────────────────────────────────────────────────────────────
+
+  defp resolve_deps(opts) do
+    if opts[:local] do
+      mob_dir     = resolve_local_path("MOB_DIR",     "mob")
+      mob_dev_dir = resolve_local_path("MOB_DEV_DIR", "mob_dev")
+      elixir_lib  = :code.lib_dir(:elixir) |> to_string() |> Path.dirname() |> Path.expand()
+
+      mob_dep          = ~s({:mob,     path: "#{mob_dir}"})
+      mob_dev_dep      = ~s({:mob_dev, path: "#{mob_dev_dir}", only: :dev, runtime: false})
+      mob_exs_mob_dir  = inspect(mob_dir)
+      mob_exs_elixir_lib = inspect(elixir_lib)
+
+      {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
+    else
+      mob_dep          = ~s({:mob,     "~> 0.2"})
+      mob_dev_dep      = ~s({:mob_dev, "~> 0.2", only: :dev, runtime: false})
+      mob_exs_mob_dir    = "System.get_env(\"MOB_DIR\", \"/path/to/mob\")"
+      mob_exs_elixir_lib = "System.get_env(\"MOB_ELIXIR_LIB\", System.get_env(\"HOME\") <> \"/.local/share/mise/installs/elixir/1.18.4-otp-28/lib\")"
+
+      {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
+    end
+  end
+
+  defp resolve_local_path(env_var, sibling_name) do
+    cond do
+      path = System.get_env(env_var) ->
+        Path.expand(path)
+
+      File.dir?(sibling = Path.expand("./#{sibling_name}")) ->
+        sibling
+
+      File.dir?(sibling = Path.expand("../#{sibling_name}")) ->
+        sibling
+
+      true ->
+        Mix.raise("""
+        Could not find local #{sibling_name} directory.
+        Set #{env_var} env var or ensure #{sibling_name} exists alongside your project:
+          export #{env_var}=/path/to/#{sibling_name}
+        """)
     end
   end
 

@@ -1,0 +1,1217 @@
+package <%= java_package %>
+
+import android.app.Activity
+import android.app.AlarmManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.location.LocationListener
+import android.location.LocationManager as AndroidLocationManager
+import android.media.MediaRecorder
+import android.net.Uri
+import android.os.SystemClock
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import androidx.fragment.app.FragmentActivity
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import java.io.File
+import java.lang.ref.WeakReference
+import java.util.concurrent.Executor
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DividerDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.runtime.*
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.graphics.Typeface
+import android.os.Build
+import android.view.HapticFeedbackConstants
+import org.json.JSONArray
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import org.json.JSONObject
+
+/**
+ * Bridge between the BEAM and Jetpack Compose.
+ *
+ * The BEAM calls setRootJson(json) (via mob_nif's set_root/1) whenever the
+ * screen re-renders. MutableState triggers recomposition automatically —
+ * no main-thread dispatch needed for state writes.
+ *
+ * Tap events: Compose onClick calls nativeSendTap(handle), which routes
+ * to mob_send_tap() in mob_nif.c and sends {:tap, tag} to the registered PID.
+ */
+/** Holds both the rendered tree and the nav transition to animate. */
+data class RootState(val node: MobNode?, val transition: String = "none")
+
+object MobBridge {
+
+    private val _rootState = mutableStateOf(RootState(null))
+    val rootState: State<RootState> get() = _rootState
+
+    // Persists LazyListState across re-renders so scroll position survives data
+    // updates. Keyed by the on_end_reached handle integer, which is stable within
+    // a screen (same render-order index after each clear_taps). Cleared on
+    // navigation transitions (push/pop/reset) where the list is genuinely new.
+    private val lazyListStates = mutableMapOf<Int, LazyListState>()
+
+    fun getOrCreateLazyListState(handle: Int): LazyListState =
+        lazyListStates.getOrPut(handle) { LazyListState() }
+
+    private var activityRef: WeakReference<Activity>? = null
+
+    /** Called from mob_nif.c via JNI — initialise anything activity-scoped. */
+    @JvmStatic
+    fun init(activity: Activity) {
+        activityRef = WeakReference(activity)
+        copyMobLogos(activity)
+    }
+
+    /** Extracts Mob logo PNGs from APK assets to the OTP root so Elixir can reference them. */
+    private fun copyMobLogos(activity: Activity) {
+        val otpDir = java.io.File(activity.filesDir, "otp").also { it.mkdirs() }
+        listOf("mob_logo_dark.png", "mob_logo_light.png").forEach { name ->
+            try {
+                activity.assets.open(name).use { input ->
+                    java.io.File(otpDir, name).outputStream().use { output -> input.copyTo(output) }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MobBridge", "Could not copy logo asset $name: $e")
+            }
+        }
+    }
+
+    /** Called from nif_exit_app via JNI — backgrounds the app without killing it. */
+    @JvmStatic
+    fun moveToBack() {
+        activityRef?.get()?.let { activity ->
+            activity.runOnUiThread { activity.moveTaskToBack(true) }
+        }
+    }
+
+    /** Called from mob_nif.c's nif_set_root — updates Compose state. */
+    @JvmStatic
+    fun setRootJson(json: String, transition: String) {
+        // Navigation transitions mean a genuinely different screen — old list state
+        // is no longer relevant and would scroll the wrong list to a stale position.
+        if (transition != "none") lazyListStates.clear()
+        _rootState.value = RootState(JSONObject(json).toMobNode(), transition)
+    }
+
+    /** Called from Compose onClick — routes tap back to BEAM via C. */
+    @JvmStatic
+    external fun nativeSendTap(handle: Int)
+
+    /** Called from Compose onChange — routes change value back to BEAM via C. */
+    @JvmStatic
+    external fun nativeSendChangeStr(handle: Int, value: String)
+    @JvmStatic
+    external fun nativeSendChangeBool(handle: Int, value: Boolean)
+    @JvmStatic
+    external fun nativeSendChangeFloat(handle: Int, value: Float)
+
+    @JvmStatic external fun nativeSendFocus(handle: Int)
+    @JvmStatic external fun nativeSendBlur(handle: Int)
+    @JvmStatic external fun nativeSendSubmit(handle: Int)
+
+    /** Called from BackHandler in MainActivity when the system back gesture fires. */
+    @JvmStatic external fun nativeHandleBack()
+
+    // ── Native delivery stubs — implemented in beam_jni.c ────────────────────
+    @JvmStatic external fun nativeDeliverAtom2(pid: Long, a1: String, a2: String)
+    @JvmStatic external fun nativeDeliverAtom3(pid: Long, a1: String, a2: String, a3: String)
+    @JvmStatic external fun nativeDeliverLocation(pid: Long, lat: Double, lon: Double, acc: Double, alt: Double)
+    @JvmStatic external fun nativeDeliverMotion(pid: Long, ax: Double, ay: Double, az: Double,
+                                                  gx: Double, gy: Double, gz: Double, ts: Long)
+    @JvmStatic external fun nativeDeliverFileResult(pid: Long, event: String, sub: String, json: String?)
+    @JvmStatic external fun nativeDeliverPushToken(pid: Long, token: String)
+    @JvmStatic external fun nativeDeliverNotification(pid: Long, json: String)
+    @JvmStatic external fun nativeSetLaunchNotification(json: String?)
+
+    // ── Pending callback PIDs ──────────────────────────────────────────────
+    var pendingPermissionPid:  Long = 0
+    var pendingPermissionCap:  String = ""
+    var pendingCameraPid:      Long = 0
+    var pendingCameraIsVideo:  Boolean = false
+    var pendingPhotosPid:      Long = 0
+    var pendingFilesPid:       Long = 0
+    var pendingScanPid:        Long = 0
+
+    // ── Permissions ────────────────────────────────────────────────────────
+    @JvmStatic
+    fun request_permission(pid: Long, cap: String) {
+        pendingPermissionPid = pid
+        pendingPermissionCap = cap
+        val activity = activityRef?.get() ?: run {
+            nativeDeliverAtom2(pid, "permission", "denied"); return
+        }
+        val perms = when (cap) {
+            "camera"        -> arrayOf(android.Manifest.permission.CAMERA)
+            "microphone"    -> arrayOf(android.Manifest.permission.RECORD_AUDIO)
+            "photo_library" -> if (android.os.Build.VERSION.SDK_INT >= 33)
+                arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO)
+            else arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+            "location"      -> arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
+            "notifications" -> if (android.os.Build.VERSION.SDK_INT >= 33)
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS)
+            else { nativeDeliverAtom2(pid, "permission", "granted"); return }
+            else -> { nativeDeliverAtom2(pid, "permission", "denied"); return }
+        }
+        if (perms.all { ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED }) {
+            nativeDeliverAtom2(pid, "permission", "granted")
+        } else {
+            ActivityCompat.requestPermissions(activity, perms, PERM_REQUEST_CODE)
+        }
+    }
+
+    @JvmStatic
+    fun onPermissionResult(granted: Boolean) {
+        nativeDeliverAtom2(pendingPermissionPid, "permission", if (granted) "granted" else "denied")
+    }
+
+    // ── Biometric ─────────────────────────────────────────────────────────
+    @JvmStatic
+    fun biometric_authenticate(pid: Long, reason: String) {
+        val activity = activityRef?.get() as? FragmentActivity ?: run {
+            nativeDeliverAtom2(pid, "biometric", "not_available"); return
+        }
+        val mgr = BiometricManager.from(activity)
+        if (mgr.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+                != BiometricManager.BIOMETRIC_SUCCESS) {
+            nativeDeliverAtom2(pid, "biometric", "not_available"); return
+        }
+        val executor: Executor = ContextCompat.getMainExecutor(activity)
+        val prompt = BiometricPrompt(activity, executor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                nativeDeliverAtom2(pid, "biometric", "success")
+            }
+            override fun onAuthenticationFailed() {
+                nativeDeliverAtom2(pid, "biometric", "failure")
+            }
+            override fun onAuthenticationError(code: Int, msg: CharSequence) {
+                nativeDeliverAtom2(pid, "biometric", if (code == BiometricPrompt.ERROR_CANCELED ||
+                    code == BiometricPrompt.ERROR_USER_CANCELED) "failure" else "not_available")
+            }
+        })
+        activity.runOnUiThread {
+            prompt.authenticate(BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Authenticate").setSubtitle(reason)
+                .setNegativeButtonText("Cancel")
+                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK).build())
+        }
+    }
+
+    // ── Location ──────────────────────────────────────────────────────────
+    private var locationClient: FusedLocationProviderClient? = null
+    private var locationCallback: LocationCallback? = null
+
+    @JvmStatic
+    fun location_get_once(pid: Long, accuracy: String) {
+        val activity = activityRef?.get() ?: run {
+            nativeDeliverAtom3(pid, "location", "error", "unavailable"); return
+        }
+        if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            nativeDeliverAtom3(pid, "location", "error", "permission_denied"); return
+        }
+        val client = LocationServices.getFusedLocationProviderClient(activity)
+        client.lastLocation.addOnSuccessListener { loc ->
+            if (loc != null) {
+                nativeDeliverLocation(pid, loc.latitude, loc.longitude,
+                    loc.accuracy.toDouble(), loc.altitude)
+            } else {
+                val req = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 1000).setMaxUpdates(1).build()
+                val cb = object : LocationCallback() {
+                    override fun onLocationResult(result: LocationResult) {
+                        result.lastLocation?.let { l ->
+                            nativeDeliverLocation(pid, l.latitude, l.longitude, l.accuracy.toDouble(), l.altitude)
+                        }
+                        client.removeLocationUpdates(this)
+                    }
+                }
+                client.requestLocationUpdates(req, cb, activity.mainLooper)
+            }
+        }
+    }
+
+    @JvmStatic
+    fun location_start(pid: Long, accuracy: String) {
+        val activity = activityRef?.get() ?: return
+        if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            nativeDeliverAtom3(pid, "location", "error", "permission_denied"); return
+        }
+        val priority = when (accuracy) {
+            "high" -> Priority.PRIORITY_HIGH_ACCURACY
+            "low"  -> Priority.PRIORITY_LOW_POWER
+            else   -> Priority.PRIORITY_BALANCED_POWER_ACCURACY
+        }
+        val client = LocationServices.getFusedLocationProviderClient(activity)
+        locationClient = client
+        val req = LocationRequest.Builder(priority, 5000).build()
+        val cb = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let { l ->
+                    nativeDeliverLocation(pid, l.latitude, l.longitude, l.accuracy.toDouble(), l.altitude)
+                }
+            }
+        }
+        locationCallback = cb
+        client.requestLocationUpdates(req, cb, activity.mainLooper)
+    }
+
+    @JvmStatic
+    fun location_stop() {
+        locationCallback?.let { locationClient?.removeLocationUpdates(it) }
+        locationCallback = null
+    }
+
+    // ── Camera ────────────────────────────────────────────────────────────
+    @JvmStatic
+    fun camera_capture_photo(pid: Long, quality: String) {
+        pendingCameraPid = pid
+        pendingCameraIsVideo = false
+        activityRef?.get()?.let { (it as? MainActivity)?.launchCameraPhoto() }
+            ?: nativeDeliverAtom2(pid, "camera", "cancelled")
+    }
+
+    @JvmStatic
+    fun camera_capture_video(pid: Long, maxDuration: String) {
+        pendingCameraPid = pid
+        pendingCameraIsVideo = true
+        activityRef?.get()?.let { (it as? MainActivity)?.launchCameraVideo() }
+            ?: nativeDeliverAtom2(pid, "camera", "cancelled")
+    }
+
+    @JvmStatic
+    fun handleCameraPhotoResult(uri: Uri?) {
+        val pid = pendingCameraPid
+        if (uri == null) { nativeDeliverAtom2(pid, "camera", "cancelled"); return }
+        val activity = activityRef?.get() ?: return
+        Thread {
+            try {
+                val tmp = File(activity.cacheDir, "mob_photo_${System.currentTimeMillis()}.jpg")
+                activity.contentResolver.openInputStream(uri)?.use { it.copyTo(tmp.outputStream()) }
+                val json = """[{"path":"${tmp.absolutePath}","width":0,"height":0}]"""
+                nativeDeliverFileResult(pid, "camera", "photo", json)
+            } catch (e: Exception) {
+                nativeDeliverAtom2(pid, "camera", "cancelled")
+            }
+        }.start()
+    }
+
+    @JvmStatic
+    fun handleCameraVideoResult(uri: Uri?) {
+        val pid = pendingCameraPid
+        if (uri == null) { nativeDeliverAtom2(pid, "camera", "cancelled"); return }
+        val activity = activityRef?.get() ?: return
+        Thread {
+            try {
+                val tmp = File(activity.cacheDir, "mob_video_${System.currentTimeMillis()}.mp4")
+                activity.contentResolver.openInputStream(uri)?.use { it.copyTo(tmp.outputStream()) }
+                val json = """[{"path":"${tmp.absolutePath}","duration":0.0}]"""
+                nativeDeliverFileResult(pid, "camera", "video", json)
+            } catch (e: Exception) {
+                nativeDeliverAtom2(pid, "camera", "cancelled")
+            }
+        }.start()
+    }
+
+    // ── Photos picker ─────────────────────────────────────────────────────
+    @JvmStatic
+    fun photos_pick(pid: Long, maxStr: String) {
+        pendingPhotosPid = pid
+        activityRef?.get()?.let { (it as? MainActivity)?.launchPhotosPicker(maxStr.toIntOrNull() ?: 1) }
+            ?: nativeDeliverAtom2(pid, "photos", "cancelled")
+    }
+
+    @JvmStatic
+    fun handlePhotosResult(uris: List<Uri>) {
+        val pid = pendingPhotosPid
+        if (uris.isEmpty()) { nativeDeliverAtom2(pid, "photos", "cancelled"); return }
+        val activity = activityRef?.get() ?: return
+        Thread {
+            try {
+                val items = uris.mapIndexed { i, uri ->
+                    val ext = if (uri.toString().contains("video")) "mp4" else "jpg"
+                    val tmp = File(activity.cacheDir, "mob_pick_${System.currentTimeMillis()}_$i.$ext")
+                    activity.contentResolver.openInputStream(uri)?.use { it.copyTo(tmp.outputStream()) }
+                    val type = if (ext == "mp4") "video" else "image"
+                    """{"path":"${tmp.absolutePath}","type":"$type","width":0,"height":0}"""
+                }
+                val json = "[${items.joinToString(",")}]"
+                nativeDeliverFileResult(pid, "photos", "picked", json)
+            } catch (e: Exception) {
+                nativeDeliverAtom2(pid, "photos", "cancelled")
+            }
+        }.start()
+    }
+
+    // ── File picker ───────────────────────────────────────────────────────
+    @JvmStatic
+    fun files_pick(pid: Long, typesJson: String) {
+        pendingFilesPid = pid
+        activityRef?.get()?.let { (it as? MainActivity)?.launchFilePicker() }
+            ?: nativeDeliverAtom2(pid, "files", "cancelled")
+    }
+
+    @JvmStatic
+    fun handleFilesResult(uris: List<Uri>) {
+        val pid = pendingFilesPid
+        if (uris.isEmpty()) { nativeDeliverAtom2(pid, "files", "cancelled"); return }
+        val activity = activityRef?.get() ?: return
+        Thread {
+            try {
+                val items = uris.mapIndexed { i, uri ->
+                    val name = uri.lastPathSegment ?: "file_$i"
+                    val tmp = File(activity.cacheDir, "mob_file_${System.currentTimeMillis()}_$name")
+                    activity.contentResolver.openInputStream(uri)?.use { it.copyTo(tmp.outputStream()) }
+                    val size = tmp.length()
+                    val mime = activity.contentResolver.getType(uri) ?: "application/octet-stream"
+                    """{"path":"${tmp.absolutePath}","name":"$name","mime":"$mime","size":$size}"""
+                }
+                val json = "[${items.joinToString(",")}]"
+                nativeDeliverFileResult(pid, "files", "picked", json)
+            } catch (e: Exception) {
+                nativeDeliverAtom2(pid, "files", "cancelled")
+            }
+        }.start()
+    }
+
+    // ── Audio recording ───────────────────────────────────────────────────
+    private var audioRecorder: MediaRecorder? = null
+    private var audioPath: String? = null
+    private var audioStartMs: Long = 0
+    private var audioPid: Long = 0
+
+    @JvmStatic
+    fun audio_start_recording(pid: Long, optsJson: String) {
+        audioPid = pid
+        val activity = activityRef?.get() ?: return
+        activity.runOnUiThread {
+            try {
+                val tmp = File(activity.cacheDir, "mob_audio_${System.currentTimeMillis()}.m4a")
+                audioPath = tmp.absolutePath
+                audioStartMs = SystemClock.elapsedRealtime()
+                val rec = if (android.os.Build.VERSION.SDK_INT >= 31)
+                    MediaRecorder(activity)
+                else @Suppress("DEPRECATION") MediaRecorder()
+                rec.setAudioSource(MediaRecorder.AudioSource.MIC)
+                rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                rec.setOutputFile(audioPath)
+                rec.prepare()
+                rec.start()
+                audioRecorder = rec
+            } catch (e: Exception) {
+                nativeDeliverAtom3(pid, "audio", "error", "setup_failed")
+            }
+        }
+    }
+
+    @JvmStatic
+    fun audio_stop_recording() {
+        val rec = audioRecorder ?: return
+        val pid = audioPid
+        val path = audioPath ?: return
+        val duration = (SystemClock.elapsedRealtime() - audioStartMs) / 1000.0
+        audioRecorder = null
+        try {
+            rec.stop()
+            rec.release()
+            val json = """[{"path":"$path","duration":$duration}]"""
+            nativeDeliverFileResult(pid, "audio", "recorded", json)
+        } catch (e: Exception) {
+            nativeDeliverAtom3(pid, "audio", "error", "stop_failed")
+        }
+    }
+
+    // ── Motion sensors ─────────────────────────────────────────────────────
+    private var sensorManager: SensorManager? = null
+    private var sensorListener: SensorEventListener? = null
+    private var motionPid: Long = 0
+    private var accelData = floatArrayOf(0f, 0f, 0f)
+    private var gyroData  = floatArrayOf(0f, 0f, 0f)
+
+    @JvmStatic
+    fun motion_start(pid: Long, intervalMsStr: String) {
+        motionPid = pid
+        val intervalMs = intervalMsStr.toLongOrNull() ?: 100L
+        val activity = activityRef?.get() ?: return
+        val sm = activity.getSystemService(android.content.Context.SENSOR_SERVICE) as SensorManager
+        sensorManager = sm
+        val listener = object : SensorEventListener {
+            var lastSendMs = 0L
+            override fun onSensorChanged(event: SensorEvent) {
+                when (event.sensor.type) {
+                    Sensor.TYPE_ACCELEROMETER -> accelData = event.values.copyOf()
+                    Sensor.TYPE_GYROSCOPE     -> gyroData  = event.values.copyOf()
+                }
+                val now = System.currentTimeMillis()
+                if (now - lastSendMs >= intervalMs) {
+                    lastSendMs = now
+                    nativeDeliverMotion(pid,
+                        accelData[0].toDouble(), accelData[1].toDouble(), accelData[2].toDouble(),
+                        gyroData[0].toDouble(),  gyroData[1].toDouble(),  gyroData[2].toDouble(),
+                        now)
+                }
+            }
+            override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+        }
+        sensorListener = listener
+        sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
+            sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+        sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let {
+            sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+    }
+
+    @JvmStatic
+    fun motion_stop() {
+        sensorListener?.let { sensorManager?.unregisterListener(it) }
+        sensorListener = null
+    }
+
+    // ── QR scanner ────────────────────────────────────────────────────────
+    @JvmStatic
+    fun scanner_scan(pid: Long, formatsJson: String) {
+        pendingScanPid = pid
+        activityRef?.get()?.let { (it as? MainActivity)?.launchQrScanner() }
+            ?: nativeDeliverAtom2(pid, "scan", "cancelled")
+    }
+
+    @JvmStatic
+    fun handleScanResult(value: String?, type: String?) {
+        val pid = pendingScanPid
+        if (value == null) { nativeDeliverAtom2(pid, "scan", "cancelled"); return }
+        val safeValue = value.replace("\"", "\\\"")
+        val safeType  = (type ?: "qr").replace("\"", "\\\"")
+        val json = """[{"type":"$safeType","value":"$safeValue"}]"""
+        nativeDeliverFileResult(pid, "scan", "result", json)
+    }
+
+    // ── Local notifications ────────────────────────────────────────────────
+    const val NOTIF_CHANNEL_ID = "mob_notifications"
+    private const val PERM_REQUEST_CODE = 9001
+
+    @JvmStatic
+    fun notify_schedule(pid: Long, optsJson: String) {
+        val activity = activityRef?.get() ?: return
+        try {
+            val opts = org.json.JSONObject(optsJson)
+            val id      = opts.getString("id")
+            val title   = opts.getString("title")
+            val body    = opts.getString("body")
+            val triggerAt = opts.getLong("trigger_at") * 1000L // to ms
+
+            // Ensure channel exists
+            val nm = activity.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(
+                    NotificationChannel(NOTIF_CHANNEL_ID, "Notifications", NotificationManager.IMPORTANCE_DEFAULT))
+            }
+
+            val intent = android.content.Intent(activity, NotificationReceiver::class.java).apply {
+                putExtra("title", title)
+                putExtra("body",  body)
+                putExtra("id",    id)
+                putExtra("data",  opts.optJSONObject("data")?.toString() ?: "{}")
+            }
+            val pi = PendingIntent.getBroadcast(activity, id.hashCode(), intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val am = activity.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
+            if (android.os.Build.VERSION.SDK_INT >= 23) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+            } else {
+                am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MobBridge", "notify_schedule failed: ${e.message}")
+        }
+    }
+
+    @JvmStatic
+    fun notify_cancel(id: String) {
+        val activity = activityRef?.get() ?: return
+        val intent = android.content.Intent(activity, NotificationReceiver::class.java)
+        val pi = PendingIntent.getBroadcast(activity, id.hashCode(), intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
+        pi?.let {
+            val am = activity.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
+            am.cancel(it)
+        }
+    }
+
+    @JvmStatic
+    fun notify_register_push(pid: Long, arg: String?) {
+        // FCM token retrieval — requires Firebase SDK in build.gradle.
+        // Uncomment when com.google.firebase:firebase-messaging is added:
+        // com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+        //     .addOnCompleteListener { task ->
+        //         if (task.isSuccessful) nativeDeliverPushToken(pid, task.result)
+        //     }
+        android.util.Log.w("MobBridge", "notify_register_push: add Firebase SDK to build.gradle")
+    }
+
+    @JvmStatic
+    fun setLaunchNotification(json: String?) {
+        nativeSetLaunchNotification(json)
+    }
+
+    /**
+     * Called from nif_safe_area via JNI — returns [top, right, bottom, left] in dp.
+     * Reads the window's system bar insets on the UI thread.
+     */
+    @JvmStatic
+    fun getSafeArea(): FloatArray {
+        val activity = activityRef?.get() ?: return FloatArray(4)
+        val density = activity.resources.displayMetrics.density
+        val result = FloatArray(4)
+        val latch = java.util.concurrent.CountDownLatch(1)
+        activity.runOnUiThread {
+            val insets = activity.window.decorView.rootWindowInsets
+            if (insets != null) {
+                result[0] = insets.systemWindowInsetTop    / density
+                result[1] = insets.systemWindowInsetRight  / density
+                result[2] = insets.systemWindowInsetBottom / density
+                result[3] = insets.systemWindowInsetLeft   / density
+            }
+            latch.countDown()
+        }
+        try { latch.await() } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
+        return result
+    }
+
+    /** Called from nif_haptic via JNI — fires haptic feedback on the UI thread. */
+    @JvmStatic
+    fun haptic(type: String) {
+        activityRef?.get()?.let { activity ->
+            activity.runOnUiThread {
+                val view     = activity.window.decorView
+                val constant = when (type) {
+                    "light"   -> HapticFeedbackConstants.VIRTUAL_KEY
+                    "medium"  -> HapticFeedbackConstants.CLOCK_TICK
+                    "heavy"   -> HapticFeedbackConstants.LONG_PRESS
+                    "success" -> if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM
+                                 else HapticFeedbackConstants.CLOCK_TICK
+                    "error"   -> if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.REJECT
+                                 else HapticFeedbackConstants.LONG_PRESS
+                    "warning" -> HapticFeedbackConstants.CLOCK_TICK
+                    else      -> HapticFeedbackConstants.VIRTUAL_KEY
+                }
+                @Suppress("DEPRECATION")
+                view.performHapticFeedback(constant, HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING)
+            }
+        }
+    }
+
+    /** Called from nif_clipboard_put via JNI — writes text to the system clipboard. */
+    @JvmStatic
+    fun clipboardPut(text: String) {
+        activityRef?.get()?.let { activity ->
+            activity.runOnUiThread {
+                val cm = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("mob", text))
+            }
+        }
+    }
+
+    /**
+     * Called from nif_clipboard_get via JNI — returns clipboard text or null.
+     * Blocks the calling thread until the UI thread has read the clipboard.
+     */
+    @JvmStatic
+    fun clipboardGet(): String? {
+        val activity = activityRef?.get() ?: return null
+        val result   = arrayOfNulls<String>(1)
+        val latch    = java.util.concurrent.CountDownLatch(1)
+        activity.runOnUiThread {
+            try {
+                val cm = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                result[0] = cm.primaryClip?.getItemAt(0)?.coerceToText(activity)?.toString()
+            } finally {
+                latch.countDown()
+            }
+        }
+        try { latch.await() } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
+        return result[0]
+    }
+
+    /** Called from nif_share_text via JNI — opens the system share sheet. */
+    @JvmStatic
+    fun shareText(text: String) {
+        activityRef?.get()?.let { activity ->
+            activity.runOnUiThread {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }
+                activity.startActivity(Intent.createChooser(intent, null))
+            }
+        }
+    }
+}
+
+// ── Composables ───────────────────────────────────────────────────────────────
+
+/** Renders a MobNode tree produced by Mob.Renderer. */
+@Composable
+fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
+    val m = modifier.then(nodeModifier(node.props))
+    when (node.type) {
+        "column" -> Column(modifier = m) {
+            node.children.forEach { child ->
+                val w = floatProp(child.props, "weight")
+                RenderNode(child, if (w != null) Modifier.weight(w) else Modifier)
+            }
+        }
+        "row" -> Row(modifier = m) {
+            node.children.forEach { child ->
+                val w = floatProp(child.props, "weight")
+                RenderNode(child, if (w != null) Modifier.weight(w) else Modifier)
+            }
+        }
+        "box" -> Box(modifier = m, contentAlignment = Alignment.TopStart) {
+            node.children.forEach { RenderNode(it) }
+        }
+        "scroll" -> {
+            val scrollState = rememberScrollState()
+            if (node.props["axis"] == "horizontal") {
+                Row(modifier = m.horizontalScroll(scrollState)) {
+                    node.children.forEach { RenderNode(it) }
+                }
+            } else {
+                Column(modifier = m.verticalScroll(scrollState).imePadding()) {
+                    node.children.forEach { RenderNode(it) }
+                }
+            }
+        }
+        "text"       -> MobText(node, m)
+        "button"     -> MobButton(node, m)
+        "tab_bar"    -> MobTabBar(node, m)
+        "text_field" -> MobTextField(node, m)
+        "toggle"     -> MobToggle(node, m)
+        "slider"     -> MobSlider(node, m)
+        "divider"    -> MobDivider(node, m)
+        "spacer"     -> MobSpacer(node, m)
+        "progress"   -> MobProgress(node, m)
+        "image"      -> MobImage(node, m)
+        "lazy_list"  -> MobLazyList(node, m)
+        "video"      -> MobVideoPlayer(node, m)
+    }
+}
+
+@Composable
+private fun MobText(node: MobNode, modifier: Modifier) {
+    val text          = node.props["text"] as? String ?: ""
+    val color         = colorProp(node.props, "text_color")
+    val fontSize      = sizeProp(node.props, "text_size")
+    val fontWeight    = fontWeightProp(node.props)
+    val fontStyle     = if (boolProp(node.props, "italic") == true) FontStyle.Italic else FontStyle.Normal
+    val textAlign     = textAlignProp(node.props)
+    val letterSpacing = floatProp(node.props, "letter_spacing")
+    val lineHeightMul = floatProp(node.props, "line_height")
+    val fontFamily    = fontFamilyProp(node.props)
+
+    val resolvedLineHeight = if (lineHeightMul != null && fontSize != TextUnit.Unspecified)
+        (lineHeightMul * fontSize.value).sp else TextUnit.Unspecified
+
+    Text(
+        text          = text,
+        modifier      = modifier,
+        color         = color,
+        fontSize      = fontSize,
+        fontWeight    = fontWeight,
+        fontStyle     = fontStyle,
+        textAlign     = textAlign,
+        lineHeight    = resolvedLineHeight,
+        letterSpacing = letterSpacing?.sp ?: TextUnit.Unspecified,
+        fontFamily    = fontFamily,
+    )
+}
+
+@Composable
+private fun MobButton(node: MobNode, modifier: Modifier) {
+    val label       = node.props["text"] as? String ?: ""
+    val tapHandle   = intProp(node.props, "on_tap")
+    val bgColor     = colorProp(node.props, "background")
+    val cornerRad   = floatProp(node.props, "corner_radius") ?: 0f
+
+    val fillWidth = boolProp(node.props, "fill_width") ?: false
+
+    val colors = if (bgColor != Color.Unspecified)
+        ButtonDefaults.buttonColors(containerColor = bgColor)
+    else
+        ButtonDefaults.buttonColors()
+
+    // fill_width and corner_radius are driven by Elixir props (set in component
+    // defaults but overridable per-node). Shape overrides M3's stadium default.
+    Button(
+        onClick  = { tapHandle?.let { MobBridge.nativeSendTap(it) } },
+        modifier = if (fillWidth) modifier.fillMaxWidth() else modifier,
+        colors   = colors,
+        shape    = RoundedCornerShape(cornerRad.dp),
+    ) {
+        val textColor = colorProp(node.props, "text_color")
+        val fontSize  = sizeProp(node.props, "text_size")
+        Text(text = label, color = textColor, fontSize = fontSize,
+             maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun MobTextField(node: MobNode, modifier: Modifier) {
+    val changeHandle  = intProp(node.props, "on_change")
+    val focusHandle   = intProp(node.props, "on_focus")
+    val blurHandle    = intProp(node.props, "on_blur")
+    val submitHandle  = intProp(node.props, "on_submit")
+    val placeholder   = node.props["placeholder"] as? String ?: ""
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    val keyboardType = when (node.props["keyboard"] as? String) {
+        "number"  -> KeyboardType.Number
+        "decimal" -> KeyboardType.Decimal
+        "email"   -> KeyboardType.Email
+        "phone"   -> KeyboardType.Phone
+        "url"     -> KeyboardType.Uri
+        else      -> KeyboardType.Text
+    }
+    val imeAction = when (node.props["return_key"] as? String) {
+        "next"   -> ImeAction.Next
+        "go"     -> ImeAction.Go
+        "search" -> ImeAction.Search
+        "send"   -> ImeAction.Send
+        else     -> ImeAction.Done
+    }
+
+    var localValue by remember(node.props["value"]) {
+        mutableStateOf(node.props["value"] as? String ?: "")
+    }
+
+    TextField(
+        value         = localValue,
+        onValueChange = { new ->
+            localValue = new
+            changeHandle?.let { MobBridge.nativeSendChangeStr(it, new) }
+        },
+        placeholder   = { Text(placeholder) },
+        modifier      = modifier.fillMaxWidth()
+            .onFocusChanged { state ->
+                if (state.isFocused) focusHandle?.let { MobBridge.nativeSendFocus(it) }
+                else                 blurHandle?.let  { MobBridge.nativeSendBlur(it)  }
+            },
+        singleLine      = true,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
+        keyboardActions = KeyboardActions(onAny = {
+            submitHandle?.let { MobBridge.nativeSendSubmit(it) }
+            // dismiss for terminal actions; Next intentionally keeps keyboard open
+            if (imeAction != ImeAction.Next) keyboardController?.hide()
+        }),
+    )
+}
+
+@Composable
+private fun MobToggle(node: MobNode, modifier: Modifier) {
+    val handle  = intProp(node.props, "on_change")
+    val checked = boolProp(node.props, "value") ?: false
+    val color   = colorProp(node.props, "color")
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        node.props["label"]?.let {
+            Text(text = it as String, modifier = Modifier.weight(1f))
+        }
+        Switch(
+            checked         = checked,
+            onCheckedChange = { new -> handle?.let { MobBridge.nativeSendChangeBool(it, new) } },
+            colors          = if (color != Color.Unspecified)
+                SwitchDefaults.colors(checkedThumbColor = color)
+            else
+                SwitchDefaults.colors(),
+        )
+    }
+}
+
+@Composable
+private fun MobSlider(node: MobNode, modifier: Modifier) {
+    val handle   = intProp(node.props, "on_change")
+    val minVal   = floatProp(node.props, "min") ?: 0f
+    val maxVal   = floatProp(node.props, "max") ?: 1f
+    val color    = colorProp(node.props, "color")
+    var localVal by remember(node.props["value"]) {
+        mutableStateOf(floatProp(node.props, "value") ?: minVal)
+    }
+    Slider(
+        value         = localVal,
+        onValueChange = { new ->
+            localVal = new
+            handle?.let { MobBridge.nativeSendChangeFloat(it, new) }
+        },
+        valueRange    = minVal..maxVal,
+        modifier      = modifier.fillMaxWidth(),
+        colors        = if (color != Color.Unspecified)
+            SliderDefaults.colors(thumbColor = color, activeTrackColor = color)
+        else
+            SliderDefaults.colors(),
+    )
+}
+
+@Composable
+private fun MobDivider(node: MobNode, modifier: Modifier) {
+    val thickness = floatProp(node.props, "thickness") ?: 1f
+    val color     = colorProp(node.props, "color")
+    HorizontalDivider(
+        modifier  = modifier,
+        thickness = thickness.dp,
+        color     = if (color != Color.Unspecified) color else DividerDefaults.color,
+    )
+}
+
+@Composable
+private fun MobSpacer(node: MobNode, modifier: Modifier) {
+    val size = floatProp(node.props, "size")
+    // size() sets both width and height so Spacer works as a gap in both Column and Row.
+    Spacer(modifier = if (size != null) modifier.size(size.dp) else modifier)
+}
+
+@Composable
+private fun MobProgress(node: MobNode, modifier: Modifier) {
+    val value = floatProp(node.props, "value")
+    val color = colorProp(node.props, "color")
+    val trackColor = if (color != Color.Unspecified) color else Color.Unspecified
+
+    if (value != null) {
+        LinearProgressIndicator(
+            progress    = { value },
+            modifier    = modifier.fillMaxWidth(),
+            color       = if (trackColor != Color.Unspecified) trackColor else Color.Unspecified,
+        )
+    } else {
+        LinearProgressIndicator(
+            modifier = modifier.fillMaxWidth(),
+            color    = if (trackColor != Color.Unspecified) trackColor else Color.Unspecified,
+        )
+    }
+}
+
+@Composable
+private fun MobImage(node: MobNode, modifier: Modifier) {
+    val src          = node.props["src"] as? String
+    val contentScale = when (node.props["content_mode"] as? String) {
+        "fill"    -> ContentScale.Crop
+        "stretch" -> ContentScale.FillBounds
+        else      -> ContentScale.Fit
+    }
+    val cornerRadius = floatProp(node.props, "corner_radius") ?: 0f
+    val fixedWidth   = floatProp(node.props, "width")
+    val fixedHeight  = floatProp(node.props, "height")
+
+    // Coil's AsyncImage expects a URL string for remote images or a File object for
+    // local paths. Passing a bare path string as a model causes it to treat it as a
+    // relative URL and fail silently. Detect local paths and wrap in File.
+    val model: Any? = when {
+        src == null -> null
+        src.startsWith("http://") || src.startsWith("https://") -> src
+        else -> java.io.File(src)
+    }
+
+    var m = modifier
+    if (fixedWidth  != null) m = m.width(fixedWidth.dp)
+    if (fixedHeight != null) m = m.height(fixedHeight.dp)
+    if (cornerRadius > 0f)   m = m.clip(RoundedCornerShape(cornerRadius.dp))
+
+    AsyncImage(
+        model              = model,
+        contentDescription = null,
+        contentScale       = contentScale,
+        modifier           = m,
+    )
+}
+
+@Composable
+private fun MobVideoPlayer(node: MobNode, modifier: Modifier) {
+    val src = node.props["src"] as? String ?: return
+    val autoplay = boolProp(node.props, "autoplay") ?: false
+    val context = LocalContext.current
+    // ExoPlayer / Media3 video player.
+    // Requires: implementation 'androidx.media3:media3-exoplayer:1.3.0'
+    //           implementation 'androidx.media3:media3-ui:1.3.0'
+    // Stubbed until Media3 dependency is added to build.gradle.
+    // Replace this Box with the full player implementation when the dep is present:
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier
+            .background(Color.Black),
+        contentAlignment = androidx.compose.ui.Alignment.Center
+    ) {
+        Text("Video: $src", color = Color.White, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun MobLazyList(node: MobNode, modifier: Modifier) {
+    val handle    = intProp(node.props, "on_end_reached")
+    // Use a persistent LazyListState keyed by handle so scroll position survives
+    // BEAM re-renders. rememberLazyListState() would reset to 0 on every data
+    // update because AnimatedContent creates a fresh composition for each new
+    // RootState, even when only list items changed (no navigation).
+    val listState = remember(handle) {
+        if (handle != null) MobBridge.getOrCreateLazyListState(handle)
+        else LazyListState()
+    }
+
+    val reachedEnd by remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val total       = listState.layoutInfo.totalItemsCount
+            total > 0 && lastVisible >= total - 1
+        }
+    }
+
+    LaunchedEffect(reachedEnd) {
+        if (reachedEnd) handle?.let { MobBridge.nativeSendTap(it) }
+    }
+
+    LazyColumn(state = listState, modifier = modifier.fillMaxWidth()) {
+        items(node.children) { child -> RenderNode(child) }
+    }
+}
+
+@Composable
+private fun MobTabBar(node: MobNode, modifier: Modifier) {
+    val tabs     = tabDefsProp(node.props)
+    val activeId = (node.props["active"] as? String) ?: tabs.firstOrNull()?.get("id") ?: ""
+    val handle   = intProp(node.props, "on_tab_select")
+    val activeIdx = tabs.indexOfFirst { it["id"] == activeId }.coerceAtLeast(0)
+
+    Scaffold(
+        modifier  = modifier,
+        bottomBar = {
+            NavigationBar {
+                tabs.forEachIndexed { index, tab ->
+                    NavigationBarItem(
+                        selected = index == activeIdx,
+                        onClick  = { handle?.let { MobBridge.nativeSendChangeStr(it, tab["id"] ?: "") } },
+                        label    = { Text(tab["label"] ?: "") },
+                        icon     = { Text(tab["icon"] ?: "○") }
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
+        if (activeIdx < node.children.size) {
+            RenderNode(node.children[activeIdx], Modifier.padding(innerPadding))
+        }
+    }
+}
+
+// ── Modifier helpers ──────────────────────────────────────────────────────────
+
+private fun nodeModifier(props: Map<String, Any?>): Modifier {
+    var m: Modifier = Modifier
+    val cornerRadius = floatProp(props, "corner_radius") ?: 0f
+    val shape = if (cornerRadius > 0f) RoundedCornerShape(cornerRadius.dp) else null
+
+    // Background must come before padding so it fills the full area (including
+    // padding space). If background were applied after padding, it would only
+    // draw behind the inner content area — making empty boxes invisible.
+    // When a corner radius is present, clip the background to that shape so
+    // rectangular bleed doesn't show through the rounded corners.
+    longColorProp(props, "background")?.let { bg ->
+        m = if (shape != null) m.background(bg, shape) else m.background(bg)
+    }
+
+    val uniform = intProp(props, "padding")
+    val top     = intProp(props, "padding_top")
+    val right   = intProp(props, "padding_right")
+    val bottom  = intProp(props, "padding_bottom")
+    val left    = intProp(props, "padding_left")
+    val hasEdge = top != null || right != null || bottom != null || left != null
+    m = when {
+        hasEdge  -> m.padding(
+            top    = (top    ?: uniform ?: 0).dp,
+            end    = (right  ?: uniform ?: 0).dp,
+            bottom = (bottom ?: uniform ?: 0).dp,
+            start  = (left   ?: uniform ?: 0).dp,
+        )
+        uniform != null -> m.padding(uniform.dp)
+        else            -> m
+    }
+
+    // Clip children to shape after padding so the rounded mask covers the
+    // entire padded area, not just the inner content.
+    if (shape != null) m = m.clip(shape)
+
+    if (boolProp(props, "fill_width") == true) m = m.fillMaxWidth()
+
+    return m
+}
+
+// ── Typography helpers ────────────────────────────────────────────────────────
+
+private fun fontWeightProp(props: Map<String, Any?>): FontWeight? =
+    when (props["font_weight"] as? String) {
+        "bold"     -> FontWeight.Bold
+        "semibold" -> FontWeight.SemiBold
+        "medium"   -> FontWeight.Medium
+        "light"    -> FontWeight.Light
+        "thin"     -> FontWeight.Thin
+        else       -> null
+    }
+
+private fun textAlignProp(props: Map<String, Any?>): TextAlign? =
+    when (props["text_align"] as? String) {
+        "center" -> TextAlign.Center
+        "right"  -> TextAlign.End
+        else     -> null
+    }
+
+private fun fontFamilyProp(props: Map<String, Any?>): FontFamily? {
+    val name = props["font"] as? String ?: return null
+    return try { FontFamily(Typeface.create(name, Typeface.NORMAL)) }
+    catch (_: Exception) { null }
+}
+
+// ── Tab bar helpers ───────────────────────────────────────────────────────────
+
+private fun tabDefsProp(props: Map<String, Any?>): List<Map<String, String>> {
+    return when (val raw = props["tabs"]) {
+        is JSONArray -> (0 until raw.length()).map { i ->
+            val obj = raw.getJSONObject(i)
+            mapOf("id" to obj.optString("id"), "label" to obj.optString("label"), "icon" to obj.optString("icon"))
+        }
+        else -> emptyList()
+    }
+}
+
+// ── Prop extraction ───────────────────────────────────────────────────────────
+
+private fun colorProp(props: Map<String, Any?>, key: String): Color =
+    longColorProp(props, key) ?: Color.Unspecified
+
+private fun longColorProp(props: Map<String, Any?>, key: String): Color? =
+    when (val v = props[key]) {
+        is Long   -> Color(v.toInt())
+        is Int    -> Color(v)
+        is Double -> Color(v.toLong().toInt())
+        else      -> null
+    }
+
+private fun sizeProp(props: Map<String, Any?>, key: String): TextUnit =
+    when (val v = props[key]) {
+        is Double -> v.toFloat().sp
+        is Float  -> v.sp
+        is Int    -> v.sp
+        is Long   -> v.toFloat().sp
+        else      -> TextUnit.Unspecified
+    }
+
+private fun intProp(props: Map<String, Any?>, key: String): Int? =
+    when (val v = props[key]) {
+        is Int    -> v
+        is Long   -> v.toInt()
+        is Double -> v.toInt()
+        else      -> null
+    }
+
+private fun floatProp(props: Map<String, Any?>, key: String): Float? =
+    when (val v = props[key]) {
+        is Double -> v.toFloat()
+        is Float  -> v
+        is Int    -> v.toFloat()
+        is Long   -> v.toFloat()
+        else      -> null
+    }
+
+private fun boolProp(props: Map<String, Any?>, key: String): Boolean? =
+    when (val v = props[key]) {
+        is Boolean -> v
+        is String  -> v == "true"
+        else       -> null
+    }
+
+// ── Notification broadcast receiver ─────────────────────────────────────────
+// Receives alarms from AlarmManager and posts the notification to the system tray.
+// Also delivers the event to the running BEAM screen process if one is registered.
+class NotificationReceiver : BroadcastReceiver() {
+    override fun onReceive(context: android.content.Context, intent: android.content.Intent) {
+        val title   = intent.getStringExtra("title") ?: ""
+        val body    = intent.getStringExtra("body")  ?: ""
+        val id      = intent.getStringExtra("id")    ?: "mob"
+        val dataStr = intent.getStringExtra("data")  ?: "{}"
+
+        val nm = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notif = NotificationCompat.Builder(context, MobBridge.NOTIF_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setAutoCancel(true)
+            .build()
+        nm.notify(id.hashCode(), notif)
+
+        // Deliver to BEAM if a screen is running
+        val json = """{"id":"$id","title":"$title","body":"$body","source":"local","data":$dataStr}"""
+        // We can't deliver directly here since we don't have a pid.
+        // The notification delegate in iOS style is set up differently on Android.
+        // Delivery happens via MobBridge when the notification is tapped (MainActivity intent).
+        // For foreground delivery, the screen registers via Mob.Permissions before scheduling.
+    }
+}

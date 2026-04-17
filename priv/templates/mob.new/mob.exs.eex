@@ -8,7 +8,7 @@ import Config
 
 config :mob_dev,
   # Path to the mob library repo (native source files for iOS/Android builds).
-  mob_dir: System.get_env("MOB_DIR", "/path/to/mob"),
+  mob_dir: <%= mob_exs_mob_dir %>,
 
   # Path to your Elixir lib dir (e.g. ~/.local/share/mise/installs/elixir/1.18.4-otp-28/lib).
-  elixir_lib: System.get_env("MOB_ELIXIR_LIB", System.get_env("HOME") <> "/.local/share/mise/installs/elixir/1.18.4-otp-28/lib")
+  elixir_lib: <%= mob_exs_elixir_lib %>

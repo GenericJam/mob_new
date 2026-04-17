@@ -1,0 +1,148 @@
+defmodule <%= module_name %>.ListScreen do
+  @moduledoc "List demo screen — BEAM-family languages."
+  use Mob.Screen
+
+  @languages [
+    {"Erlang",   1986, "The original. Battle-tested at Ericsson for telecom switches. Fault-tolerant by design."},
+    {"Elixir",   2012, "Modern syntax on top of the BEAM. Brings Phoenix, LiveView, and a thriving ecosystem."},
+    {"Gleam",    2016, "Statically typed. Compiles to BEAM bytecode and JavaScript. Fast feedback, no runtime errors."},
+    {"LFE",      2008, "Lisp Flavoured Erlang. Full Lisp macros on the BEAM — for when you want parentheses everywhere."},
+    {"Alpaca",   2015, "ML-style static types on the BEAM. Inspired by Elm and OCaml."},
+    {"Clojerl",  2015, "Clojure on the BEAM. Persistent data structures meet actor concurrency."},
+    {"Hamler",   2020, "Haskell-style functional programming that compiles to Core Erlang."},
+    {"Caramel",  2020, "OCaml-inspired. Targets the BEAM with a familiar ML type system."}
+  ]
+
+  def mount(_params, _session, socket) do
+    items = Enum.map(@languages, fn {name, year, _} -> "#{name}  ·  #{year}" end)
+    socket =
+      socket
+      |> Mob.Socket.assign(:selected, nil)
+      |> Mob.List.put_renderer(:langs_list, &row/1)
+      |> Mob.Socket.assign(:items, Enum.with_index(@languages))
+    _ = items
+    {:ok, socket}
+  end
+
+  def render(assigns) do
+    detail =
+      case assigns.selected do
+        nil ->
+          "Tap a language to learn more."
+        {name, year, blurb} ->
+          "#{name} (#{year})\n\n#{blurb}"
+      end
+
+    %{
+      type: :column,
+      props: %{background: :background, fill_width: true},
+      children: [
+        header("📋  BEAM Languages"),
+
+        # ── Detail panel ──────────────────────────────────────────────────
+        %{
+          type: :box,
+          props: %{background: :surface_raised, padding: :space_md, fill_width: true},
+          children: [
+            %{
+              type: :text,
+              props: %{
+                text: detail,
+                text_size: :base,
+                text_color: if(assigns.selected, do: :on_surface, else: :muted),
+                padding: 0
+              },
+              children: []
+            }
+          ]
+        },
+
+        # ── Language list ─────────────────────────────────────────────────
+        %{
+          type: :list,
+          props: %{id: :langs_list, items: assigns.items},
+          children: []
+        },
+
+        back_button()
+      ]
+    }
+  end
+
+  def handle_info({:select, :langs_list, index}, socket) do
+    {lang, _i} = Enum.at(socket.assigns.items, index)
+    {:noreply, Mob.Socket.assign(socket, :selected, lang)}
+  end
+
+  def handle_info({:tap, :back}, socket) do
+    {:noreply, Mob.Socket.pop_screen(socket)}
+  end
+
+  def handle_info(_message, socket), do: {:noreply, socket}
+
+  # ── Row renderer ──────────────────────────────────────────────────────────
+
+  @accents [:blue_100, :purple_500, :green_400, :orange_400,
+            :red_400, :blue_100, :purple_500, :green_400]
+
+  defp row({{name, year, _blurb}, i}) do
+    accent = Enum.at(@accents, rem(i, length(@accents)))
+    %{
+      type: :row,
+      props: %{padding: 12, background: :surface, fill_width: true},
+      children: [
+        %{
+          type: :box,
+          props: %{background: accent, padding: 10},
+          children: [
+            %{
+              type: :text,
+              props: %{text: String.first(name), text_size: :base, text_color: :white},
+              children: []
+            }
+          ]
+        },
+        %{type: :spacer, props: %{size: 12}, children: []},
+        %{
+          type: :column,
+          props: %{padding: 0},
+          children: [
+            %{type: :text, props: %{text: name, text_size: :base, text_color: :on_surface}, children: []},
+            %{type: :text, props: %{text: "#{year}", text_size: :sm, text_color: :muted}, children: []}
+          ]
+        }
+      ]
+    }
+  end
+
+  defp header(title) do
+    %{
+      type: :text,
+      props: %{
+        text: title,
+        text_size: :xl,
+        text_color: :on_primary,
+        background: :primary,
+        padding: :space_md,
+        fill_width: true
+      },
+      children: []
+    }
+  end
+
+  defp back_button do
+    %{
+      type: :button,
+      props: %{
+        text: "← Back",
+        background: :surface_raised,
+        text_color: :on_surface,
+        text_size: :lg,
+        padding: :space_sm,
+        fill_width: true,
+        on_tap: {self(), :back}
+      },
+      children: []
+    }
+  end
+end

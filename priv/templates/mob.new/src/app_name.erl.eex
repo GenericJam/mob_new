@@ -8,7 +8,7 @@ start() ->
     step(1, fun() -> application:start(compiler) end),
     step(2, fun() -> application:start(elixir)   end),
     step(3, fun() -> application:start(logger)   end),
-    step(4, fun() -> mob_nif:create_column()     end),
+    step(4, fun() -> mob_nif:platform()          end),
     step(5, fun() -> 'Elixir.<%= module_name %>.App':start() end),
     timer:sleep(infinity).
 

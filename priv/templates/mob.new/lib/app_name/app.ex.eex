@@ -1,9 +1,16 @@
 defmodule <%= module_name %>.App do
-  @moduledoc "Application entry point. Starts the root screen via Mob.Screen.start_root/1."
+  @moduledoc "Application entry point for <%= display_name %>."
 
-  def start do
-    result = Mob.Screen.start_root(<%= module_name %>.HelloScreen)
+  use Mob.App
+
+  @impl Mob.App
+  def navigation(_platform) do
+    stack(:main, root: <%= module_name %>.HomeScreen)
+  end
+
+  @impl Mob.App
+  def on_start do
+    Mob.Screen.start_root(<%= module_name %>.HomeScreen)
     Mob.Dist.ensure_started(node: :"<%= app_name %>_android@127.0.0.1", cookie: :mob_secret)
-    result
   end
 end

@@ -26,6 +26,47 @@ mix mob.install    # first-run setup: download OTP runtime, generate icons, writ
 |--------|-------------|
 | `--no-install` | Skip `mix deps.get` after generation |
 | `--dest DIR` | Create the project in DIR (default: current directory) |
+| `--local` | Use `path:` deps pointing to local mob/mob_dev repos — see below |
+
+### Local development mode (`--local`)
+
+> **This flag is for Mob framework contributors and library authors testing
+> unpublished changes. It is not intended for app developers — use the standard
+> `mix mob.new my_app` instead.**
+
+If you are working on Mob itself and want to test your changes end-to-end
+before publishing to Hex, pass `--local` to generate a project that depends on
+your local checkouts instead of the published packages:
+
+```bash
+mix mob.new my_app --local
+```
+
+This generates `mix.exs` with `path:` deps:
+
+```elixir
+{:mob,     path: "/path/to/mob"},
+{:mob_dev, path: "/path/to/mob_dev", only: :dev, runtime: false}
+```
+
+It also pre-fills `mob.exs` with your actual local paths so `mix mob.install`
+skips the path configuration prompts and proceeds straight to OTP download and
+icon generation.
+
+**Path resolution** (in order):
+
+1. `MOB_DIR` / `MOB_DEV_DIR` environment variables
+2. `./mob` / `./mob_dev` in the current directory (e.g. running from `~/code`)
+3. `../mob` / `../mob_dev` relative to the current directory
+
+```bash
+# If mob and mob_dev live alongside each other in ~/code:
+cd ~/code
+mix mob.new my_app --local   # auto-detects ~/code/mob and ~/code/mob_dev
+
+# Or set explicitly from anywhere:
+MOB_DIR=~/code/mob MOB_DEV_DIR=~/code/mob_dev mix mob.new my_app --local
+```
 
 ## What gets generated
 
@@ -35,7 +76,7 @@ my_app/
 ├── lib/
 │   └── my_app/
 │       ├── app.ex           # Mob.App entry point
-│       └── hello_screen.ex  # starter screen
+│       └── home_screen.ex   # starter screen
 ├── android/
 │   ├── build.gradle
 │   └── app/

@@ -6,19 +6,26 @@ defmodule Mix.Tasks.Mob.New do
   @moduledoc """
   Creates a new Mob project with Android and iOS boilerplate.
 
-      mix mob.new APP_NAME [--no-install] [--dest DIR]
+      mix mob.new APP_NAME [--no-install] [--dest DIR] [--local]
 
   ## Options
 
     * `--no-install`   — skip running `mix deps.get` after generation
     * `--dest DIR`     — create project in DIR (default: current directory)
+    * `--local`        — use `path:` deps pointing to local mob/mob_dev repos
+                         instead of hex version constraints. **For Mob framework
+                         contributors only** — not intended for app developers.
+                         Paths resolved from `MOB_DIR` / `MOB_DEV_DIR` env vars,
+                         falling back to `./mob` / `./mob_dev`, then `../mob` /
+                         `../mob_dev`. Also pre-fills `mob.exs` with real paths
+                         so `mix mob.install` skips path configuration prompts.
 
   ## What gets generated
 
       APP_NAME/
         mix.exs
         lib/APP_NAME/app.ex
-        lib/APP_NAME/hello_screen.ex
+        lib/APP_NAME/home_screen.ex
         android/
           settings.gradle
           build.gradle
@@ -26,7 +33,11 @@ defmodule Mix.Tasks.Mob.New do
             build.gradle
             src/main/
               AndroidManifest.xml
-              java/com/mob/APP_NAME/MainActivity.java
+              java/com/mob/APP_NAME/MainActivity.kt
+              java/com/mob/APP_NAME/MobBridge.kt
+              java/com/mob/APP_NAME/MobNode.kt
+              java/com/mob/APP_NAME/MobScannerActivity.kt
+          gradle.properties
         ios/
           beam_main.m
           Info.plist
@@ -38,7 +49,7 @@ defmodule Mix.Tasks.Mob.New do
 
   """
 
-  @switches [no_install: :boolean, dest: :string]
+  @switches [no_install: :boolean, dest: :string, local: :boolean]
 
   @impl Mix.Task
   def run(argv) do
@@ -56,10 +67,15 @@ defmodule Mix.Tasks.Mob.New do
 
     dest_dir = opts[:dest] || "."
     project_dir = Path.join(dest_dir, app_name)
+    local = opts[:local] || false
+
+    if local do
+      Mix.shell().info([:yellow, "* local mode: using path: deps for mob and mob_dev", :reset])
+    end
 
     Mix.shell().info([:green, "* creating ", :reset, project_dir])
 
-    case MobNew.ProjectGenerator.generate(app_name, dest_dir) do
+    case MobNew.ProjectGenerator.generate(app_name, dest_dir, local: local) do
       {:error, reason} ->
         Mix.raise(reason)
 
@@ -92,12 +108,16 @@ defmodule Mix.Tasks.Mob.New do
     files = [
       "mix.exs",
       "lib/#{app_name}/app.ex",
-      "lib/#{app_name}/hello_screen.ex",
+      "lib/#{app_name}/home_screen.ex",
       "android/settings.gradle",
       "android/build.gradle",
       "android/app/build.gradle",
       "android/app/src/main/AndroidManifest.xml",
-      "android/app/src/main/java/com/mob/#{app_name}/MainActivity.java",
+      "android/app/src/main/java/com/mob/#{app_name}/MainActivity.kt",
+      "android/app/src/main/java/com/mob/#{app_name}/MobBridge.kt",
+      "android/app/src/main/java/com/mob/#{app_name}/MobNode.kt",
+      "android/app/src/main/java/com/mob/#{app_name}/MobScannerActivity.kt",
+      "android/gradle.properties",
       "ios/beam_main.m",
       "ios/Info.plist"
     ]

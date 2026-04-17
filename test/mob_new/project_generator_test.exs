@@ -100,15 +100,15 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "test_app_android@127.0.0.1"
     end
 
-    test "generates hello_screen.ex", %{tmp: tmp} do
+    test "generates home_screen.ex", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      assert File.exists?(Path.join(dir, "lib/test_app/hello_screen.ex"))
+      assert File.exists?(Path.join(dir, "lib/test_app/home_screen.ex"))
     end
 
-    test "hello_screen.ex references correct module", %{tmp: tmp} do
+    test "home_screen.ex references correct module", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "lib/test_app/hello_screen.ex"))
-      assert content =~ "TestApp.HelloScreen"
+      content = File.read!(Path.join(dir, "lib/test_app/home_screen.ex"))
+      assert content =~ "TestApp.HomeScreen"
     end
 
     test "generates AndroidManifest.xml", %{tmp: tmp} do
@@ -252,10 +252,10 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(Path.join(dir, "ios/AppDelegate.m"))
     end
 
-    test "AppDelegate.m imports MobDemo-Swift.h (mob library requirement)", %{tmp: tmp} do
+    test "AppDelegate.m imports MobApp-Swift.h (standardized header name)", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "ios/AppDelegate.m"))
-      assert content =~ ~s(#import "MobDemo-Swift.h")
+      assert content =~ ~s(#import "MobApp-Swift.h")
     end
 
     test "generates ios/build.sh", %{tmp: tmp} do

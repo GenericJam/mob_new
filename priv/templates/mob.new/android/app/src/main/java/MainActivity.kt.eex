@@ -1,0 +1,146 @@
+package <%= java_package %>
+
+import android.app.Activity
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Bundle
+import android.util.Log
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.core.content.FileProvider
+import java.io.File
+
+class MainActivity : ComponentActivity() {
+
+    companion object {
+        private const val TAG = "<%= display_name %>"
+        init { System.loadLibrary("<%= lib_name %>") }
+    }
+
+    external fun nativeSetActivity(activity: Activity)
+    external fun nativeStartBeam()
+
+    // ── Camera launchers ──────────────────────────────────────────────────
+    private var cameraPhotoUri: Uri? = null
+
+    private val cameraPhotoLauncher =
+        registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+            MobBridge.handleCameraPhotoResult(if (success) cameraPhotoUri else null)
+        }
+
+    private val cameraVideoLauncher =
+        registerForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
+            MobBridge.handleCameraVideoResult(if (success) cameraPhotoUri else null)
+        }
+
+    fun launchCameraPhoto() {
+        val file = File(cacheDir, "mob_cam_${System.currentTimeMillis()}.jpg")
+        cameraPhotoUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        cameraPhotoLauncher.launch(cameraPhotoUri!!)
+    }
+
+    fun launchCameraVideo() {
+        val file = File(cacheDir, "mob_cam_${System.currentTimeMillis()}.mp4")
+        cameraPhotoUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        cameraVideoLauncher.launch(cameraPhotoUri!!)
+    }
+
+    // ── Photo picker launcher ─────────────────────────────────────────────
+    private val photosPickerLauncher =
+        registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+            MobBridge.handlePhotosResult(uris)
+        }
+
+    fun launchPhotosPicker(max: Int) {
+        photosPickerLauncher.launch(
+            androidx.activity.result.PickVisualMediaRequest(
+                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageAndVideo
+            )
+        )
+    }
+
+    // ── File picker launcher ──────────────────────────────────────────────
+    private val filePickerLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            MobBridge.handleFilesResult(uris)
+        }
+
+    fun launchFilePicker() {
+        filePickerLauncher.launch(arrayOf("*/*"))
+    }
+
+    // ── QR scanner launcher ───────────────────────────────────────────────
+    // For QR scanning we use an intent to a helper activity (MobScannerActivity)
+    // that uses CameraX + ML Kit. It returns the scanned value as a result string.
+    private val scannerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val value = result.data?.getStringExtra("scan_value")
+            val type  = result.data?.getStringExtra("scan_type") ?: "qr"
+            MobBridge.handleScanResult(value, type)
+        }
+
+    fun launchQrScanner() {
+        val intent = android.content.Intent(this, MobScannerActivity::class.java)
+        scannerLauncher.launch(intent)
+    }
+
+    // ── Permission result ─────────────────────────────────────────────────
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 9001) {
+            val granted = grantResults.isNotEmpty() &&
+                grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            MobBridge.onPermissionResult(granted)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        MobBridge.init(this)
+
+        // Check if launched from a notification tap
+        intent?.extras?.getString("mob_notification_json")?.let { json ->
+            MobBridge.setLaunchNotification(json)
+        }
+
+        setContent {
+            val state by MobBridge.rootState
+
+            BackHandler(enabled = state.node != null) { MobBridge.nativeHandleBack() }
+
+            AnimatedContent(
+                targetState = state,
+                transitionSpec = {
+                    when (targetState.transition) {
+                        "push" ->
+                            slideInHorizontally(animationSpec = tween(300)) { it } togetherWith
+                            slideOutHorizontally(animationSpec = tween(300)) { -it / 3 }
+                        "pop" ->
+                            slideInHorizontally(animationSpec = tween(300)) { -it / 3 } togetherWith
+                            slideOutHorizontally(animationSpec = tween(300)) { it }
+                        "reset" ->
+                            fadeIn(animationSpec = tween(250)) togetherWith
+                            fadeOut(animationSpec = tween(250))
+                        else ->
+                            EnterTransition.None togetherWith ExitTransition.None
+                    }
+                },
+                label = "nav"
+            ) { s ->
+                s.node?.let { RenderNode(it, modifier = Modifier.fillMaxSize()) }
+            }
+        }
+
+        Log.i(TAG, "onCreate — handing off to BEAM")
+        nativeSetActivity(this)
+        Thread({ nativeStartBeam() }, "beam-main").start()
+    }
+}

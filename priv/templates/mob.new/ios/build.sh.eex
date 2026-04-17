@@ -80,9 +80,21 @@ cp "$ELIXIR_LIB/elixir/ebin/elixir.app" "$OTP_ROOT/lib/elixir/ebin/"
 cp "$ELIXIR_LIB/logger/ebin/"*.beam  "$OTP_ROOT/lib/logger/ebin/"
 cp "$ELIXIR_LIB/logger/ebin/logger.app" "$OTP_ROOT/lib/logger/ebin/"
 
+# ── Sync OTP runtime to /tmp/otp-ios-sim ─────────────────────────────────────
+# mob_beam.m hardcodes OTP_ROOT=/tmp/otp-ios-sim but build.sh deploys to the
+# cache dir ($OTP_ROOT). Sync the full OTP runtime so the running binary finds
+# all standard library modules and boot scripts at the expected path.
+echo "=== Syncing OTP runtime to /tmp/otp-ios-sim ==="
+mkdir -p "/tmp/otp-ios-sim"
+rsync -a "$OTP_ROOT/" "/tmp/otp-ios-sim/"
+
+echo "=== Copying Mob logos ==="
+cp "$MOB_DIR/assets/logo/logo_dark.png"  "/tmp/otp-ios-sim/mob_logo_dark.png"
+cp "$MOB_DIR/assets/logo/logo_light.png" "/tmp/otp-ios-sim/mob_logo_light.png"
+
 echo "=== Spot-check ==="
 ls "$BEAMS_DIR/Elixir.<%= module_name %>.App.beam"
-ls "$BEAMS_DIR/Elixir.<%= module_name %>.HelloScreen.beam"
+ls "$BEAMS_DIR/Elixir.<%= module_name %>.HomeScreen.beam"
 
 # ── Compile C/ObjC/Swift ──────────────────────────────────────────────────────
 echo "=== Compiling native sources ==="
@@ -95,7 +107,7 @@ $CC -fobjc-arc -fmodules $IFLAGS \
 xcrun -sdk iphonesimulator swiftc \
     -target arm64-apple-ios16.0-simulator \
     -module-name <%= display_name %> \
-    -emit-objc-header -emit-objc-header-path "$BUILD_DIR/MobDemo-Swift.h" \
+    -emit-objc-header -emit-objc-header-path "$BUILD_DIR/MobApp-Swift.h" \
     -import-objc-header "$SWIFT_BRIDGING" \
     -I "$MOB_DIR/ios" \
     -parse-as-library \

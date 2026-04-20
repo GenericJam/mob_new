@@ -1,0 +1,10 @@
+# Pinned toolchain versions for Mob development.
+# Both mise and asdf read this file automatically.
+#
+#   mise install    https://mise.jdx.dev  (recommended — brew install mise)
+#   asdf install    https://asdf-vm.com
+#
+# OTP 28 matches the device runtime. Java 17 LTS is required for Gradle.
+erlang 28.0
+elixir 1.18.3-otp-28
+java temurin-17.0.18

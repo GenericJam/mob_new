@@ -96,7 +96,7 @@ defmodule MobNew.ProjectGenerator do
     else
       mob_dep          = ~s({:mob,     "~> 0.2"})
       mob_dev_dep      = ~s({:mob_dev, "~> 0.2", only: :dev, runtime: false})
-      mob_exs_mob_dir    = "System.get_env(\"MOB_DIR\", \"/path/to/mob\")"
+      mob_exs_mob_dir    = "Path.join(File.cwd!(), \"deps/mob\")"
       mob_exs_elixir_lib = "System.get_env(\"MOB_ELIXIR_LIB\", System.get_env(\"HOME\") <> \"/.local/share/mise/installs/elixir/1.18.4-otp-28/lib\")"
 
       {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}

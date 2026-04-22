@@ -101,12 +101,19 @@ import org.json.JSONObject
  * Tap events: Compose onClick calls nativeSendTap(handle), which routes
  * to mob_send_tap() in mob_nif.c and sends {:tap, tag} to the registered PID.
  */
-/** Holds both the rendered tree and the nav transition to animate. */
-data class RootState(val node: MobNode?, val transition: String = "none")
+/**
+ * Holds the rendered tree and the nav transition to animate.
+ *
+ * navKey only increments on actual navigation transitions (push/pop/reset).
+ * AnimatedContent in MainActivity uses navKey as the contentKey so that
+ * same-screen BEAM re-renders (transition == "none") recompose the existing
+ * composable in place — no content swap, no focus loss, no keyboard dismissal.
+ */
+data class RootState(val navKey: Int, val transition: String, val node: MobNode?)
 
 object MobBridge {
 
-    private val _rootState = mutableStateOf(RootState(null))
+    private val _rootState = mutableStateOf(RootState(0, "none", null))
     val rootState: State<RootState> get() = _rootState
 
     // Persists LazyListState across re-renders so scroll position survives data
@@ -154,8 +161,13 @@ object MobBridge {
     fun setRootJson(json: String, transition: String) {
         // Navigation transitions mean a genuinely different screen — old list state
         // is no longer relevant and would scroll the wrong list to a stale position.
-        if (transition != "none") lazyListStates.clear()
-        _rootState.value = RootState(JSONObject(json).toMobNode(), transition)
+        val newKey = if (transition != "none") {
+            lazyListStates.clear()
+            _rootState.value.navKey + 1
+        } else {
+            _rootState.value.navKey
+        }
+        _rootState.value = RootState(newKey, transition, JSONObject(json).toMobNode())
     }
 
     /** Called from Compose onClick — routes tap back to BEAM via C. */

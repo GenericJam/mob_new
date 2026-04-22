@@ -117,7 +117,8 @@ class MainActivity : ComponentActivity() {
             BackHandler(enabled = state.node != null) { MobBridge.nativeHandleBack() }
 
             AnimatedContent(
-                targetState = state,
+                targetState   = state,
+                contentKey    = { it.navKey },
                 transitionSpec = {
                     when (targetState.transition) {
                         "push" ->

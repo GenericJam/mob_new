@@ -404,5 +404,35 @@ defmodule MobNew.ProjectGeneratorTest do
       content = File.read!(Path.join(dir, "ios/build.sh"))
       assert content =~ "Elixir.TestApp.App.beam"
     end
+
+    # ── Keyboard dismissal fix ─────────────────────────────────────────────────
+    #
+    # AnimatedContent used to key on the entire RootState (node + transition),
+    # which meant every BEAM re-render (transition == "none") swapped composable
+    # content, dropped focus, and dismissed the keyboard. The fix is:
+    #   1. RootState carries a navKey integer that only increments on actual
+    #      navigation transitions (push/pop/reset).
+    #   2. AnimatedContent uses contentKey = { it.navKey } so same-screen renders
+    #      recompose in place — no content swap, no focus loss, no keyboard dismissal.
+
+    test "MobBridge.kt RootState has navKey as first field", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+      assert content =~ "data class RootState(val navKey: Int,"
+    end
+
+    test "MobBridge.kt setRootJson increments navKey only on navigation transitions", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+      assert content =~ "navKey + 1"
+      assert content =~ ~s(transition != "none")
+    end
+
+    test "MainActivity.kt AnimatedContent uses contentKey on navKey", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+      assert content =~ "contentKey"
+      assert content =~ "it.navKey"
+    end
   end
 end

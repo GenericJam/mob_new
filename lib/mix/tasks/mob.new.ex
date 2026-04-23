@@ -6,11 +6,12 @@ defmodule Mix.Tasks.Mob.New do
   @moduledoc """
   Creates a new Mob project with Android and iOS boilerplate.
 
-      mix mob.new APP_NAME [--no-install] [--dest DIR] [--local]
+      mix mob.new APP_NAME [--no-install] [--no-ios] [--dest DIR] [--local]
 
   ## Options
 
     * `--no-install`   — skip running `mix deps.get` after generation
+    * `--no-ios`       — skip iOS boilerplate (use on Linux or Android-only projects)
     * `--dest DIR`     — create project in DIR (default: current directory)
     * `--local`        — use `path:` deps pointing to local mob/mob_dev repos
                          instead of hex version constraints. **For Mob framework
@@ -49,7 +50,7 @@ defmodule Mix.Tasks.Mob.New do
 
   """
 
-  @switches [no_install: :boolean, dest: :string, local: :boolean]
+  @switches [no_install: :boolean, no_ios: :boolean, dest: :string, local: :boolean]
 
   @impl Mix.Task
   def run(argv) do
@@ -68,19 +69,24 @@ defmodule Mix.Tasks.Mob.New do
     dest_dir = opts[:dest] || "."
     project_dir = Path.join(dest_dir, app_name)
     local = opts[:local] || false
+    no_ios = opts[:no_ios] || false
 
     if local do
       Mix.shell().info([:yellow, "* local mode: using path: deps for mob and mob_dev", :reset])
     end
 
+    if no_ios do
+      Mix.shell().info([:yellow, "* --no-ios: skipping iOS boilerplate", :reset])
+    end
+
     Mix.shell().info([:green, "* creating ", :reset, project_dir])
 
-    case MobNew.ProjectGenerator.generate(app_name, dest_dir, local: local) do
+    case MobNew.ProjectGenerator.generate(app_name, dest_dir, local: local, no_ios: no_ios) do
       {:error, reason} ->
         Mix.raise(reason)
 
       {:ok, project_dir} ->
-        print_created_files(project_dir, app_name)
+        print_created_files(project_dir, app_name, no_ios)
 
         unless opts[:no_install] do
           fetch_deps(project_dir)
@@ -104,7 +110,7 @@ defmodule Mix.Tasks.Mob.New do
     end
   end
 
-  defp print_created_files(project_dir, app_name) do
+  defp print_created_files(project_dir, app_name, no_ios) do
     files = [
       "mix.exs",
       "lib/#{app_name}/app.ex",
@@ -117,10 +123,8 @@ defmodule Mix.Tasks.Mob.New do
       "android/app/src/main/java/com/mob/#{app_name}/MobBridge.kt",
       "android/app/src/main/java/com/mob/#{app_name}/MobNode.kt",
       "android/app/src/main/java/com/mob/#{app_name}/MobScannerActivity.kt",
-      "android/gradle.properties",
-      "ios/beam_main.m",
-      "ios/Info.plist"
-    ]
+      "android/gradle.properties"
+    ] ++ if(no_ios, do: [], else: ["ios/beam_main.m", "ios/Info.plist"])
 
     Enum.each(files, fn f ->
       Mix.shell().info([:green, "* creating ", :reset, Path.join(project_dir, f)])

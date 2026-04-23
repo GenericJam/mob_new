@@ -73,7 +73,7 @@ defmodule MobNew.ProjectGenerator do
     else
       File.mkdir_p!(project_dir)
       a = assigns(app_name, opts)
-      render_templates(a, project_dir)
+      render_templates(a, project_dir, opts)
       copy_static(project_dir)
       {:ok, project_dir}
     end
@@ -127,9 +127,14 @@ defmodule MobNew.ProjectGenerator do
 
   @executable_files ["ios/build.sh"]
 
-  defp render_templates(assigns, project_dir) do
+  defp render_templates(assigns, project_dir, opts) do
+    no_ios = Keyword.get(opts, :no_ios, false)
+
     templates_root()
     |> find_templates()
+    |> Enum.reject(fn path ->
+      no_ios and String.contains?(Path.relative_to(path, templates_root()), "ios/")
+    end)
     |> Enum.each(fn template_path ->
       rel = Path.relative_to(template_path, templates_root())
       dest_rel = expand_path(rel, assigns)

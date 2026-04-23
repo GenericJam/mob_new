@@ -34,6 +34,21 @@ mix mob.install    # first-run setup: download OTP runtime, generate icons, writ
 > unpublished changes. It is not intended for app developers — use the standard
 > `mix mob.new my_app` instead.**
 
+#### Installing the local mob_new archive
+
+When working on mob_new itself, build and force-install the archive to pick up your changes:
+
+```bash
+cd ~/code/mob_new && mix archive.build && mix archive.install $(ls mob_new-*.ez | tail -1) --force
+```
+
+Verify it's active:
+
+```bash
+mix archive        # mob_new should appear with the updated version
+mix mob.new --help
+```
+
 If you are working on Mob itself and want to test your changes end-to-end
 before publishing to Hex, pass `--local` to generate a project that depends on
 your local checkouts instead of the published packages:

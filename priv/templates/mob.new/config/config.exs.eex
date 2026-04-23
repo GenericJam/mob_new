@@ -1,0 +1,6 @@
+import Config
+
+# Register the Repo so Mix tasks (mix ecto.create, mix ecto.migrate) can
+# discover it. The actual database path is configured at runtime in
+# <%= module_name %>.Repo.init/2 via the MOB_DATA_DIR environment variable.
+config :<%= app_name %>, ecto_repos: [<%= module_name %>.Repo]

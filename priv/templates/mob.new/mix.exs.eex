@@ -20,7 +20,8 @@ defmodule <%= module_name %>.MixProject do
   defp deps do
     [
       <%= mob_dep %>,
-      <%= mob_dev_dep %>
+      <%= mob_dev_dep %>,
+      {:ecto_sqlite3, "~> 0.18"}
     ]
   end
 end

@@ -123,22 +123,22 @@ defmodule MobNew.ProjectGeneratorTest do
       assert manifest =~ ~s(package="com.mob.test_app")
     end
 
-    test "generates MainActivity.java in correct package path", %{tmp: tmp} do
+    test "generates MainActivity.kt in correct package path", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      java = Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.java")
-      assert File.exists?(java)
+      kt = Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt")
+      assert File.exists?(kt)
     end
 
-    test "MainActivity.java has correct package declaration", %{tmp: tmp} do
+    test "MainActivity.kt has correct package declaration", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      java = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.java"))
-      assert java =~ "package com.mob.test_app;"
+      kt = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+      assert kt =~ "package com.mob.test_app"
     end
 
-    test "MainActivity.java has correct loadLibrary name", %{tmp: tmp} do
+    test "MainActivity.kt has correct loadLibrary name", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      java = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.java"))
-      assert java =~ ~s[System.loadLibrary("testapp")]
+      kt = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+      assert kt =~ ~s[System.loadLibrary("testapp")]
     end
 
     test "generates ios/beam_main.m", %{tmp: tmp} do
@@ -203,29 +203,22 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "Java_com_mob_test_1app_MainActivity_nativeStartBeam"
     end
 
-    test "beam_jni.c has correct BRIDGE_CLASS and TAP_CLASS", %{tmp: tmp} do
+    test "beam_jni.c has correct BRIDGE_CLASS", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
       assert content =~ ~s("com/mob/test_app/MobBridge")
-      assert content =~ ~s("com/mob/test_app/MobTapListener")
     end
 
-    test "generates MobBridge.java in correct package path", %{tmp: tmp} do
+    test "generates MobBridge.kt in correct package path", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      path = Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.java")
+      path = Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt")
       assert File.exists?(path)
     end
 
-    test "MobBridge.java has correct package declaration", %{tmp: tmp} do
+    test "MobBridge.kt has correct package declaration", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.java"))
-      assert content =~ "package com.mob.test_app;"
-    end
-
-    test "generates MobTapListener.java in correct package path", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      path = Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobTapListener.java")
-      assert File.exists?(path)
+      content = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+      assert content =~ "package com.mob.test_app"
     end
 
     test "app/build.gradle reads local.properties for CMake paths", %{tmp: tmp} do

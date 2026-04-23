@@ -69,8 +69,78 @@ mix compile
 
 echo "=== Copying BEAM files to $BEAMS_DIR ==="
 mkdir -p "$BEAMS_DIR"
-cp _build/dev/lib/<%= app_name %>/ebin/*.beam "$BEAMS_DIR/"
-cp _build/dev/lib/mob/ebin/*.beam             "$BEAMS_DIR/"
+# Copy both .beam and .app files — .app files are required by
+# application:ensure_all_started to resolve each OTP application's metadata.
+cp _build/dev/lib/<%= app_name %>/ebin/*  "$BEAMS_DIR/"
+cp _build/dev/lib/mob/ebin/*              "$BEAMS_DIR/"
+cp _build/dev/lib/ecto/ebin/*             "$BEAMS_DIR/"
+cp _build/dev/lib/ecto_sql/ebin/*         "$BEAMS_DIR/"
+cp _build/dev/lib/ecto_sqlite3/ebin/*     "$BEAMS_DIR/"
+cp _build/dev/lib/db_connection/ebin/*    "$BEAMS_DIR/"
+cp _build/dev/lib/decimal/ebin/*          "$BEAMS_DIR/"
+cp _build/dev/lib/telemetry/ebin/*        "$BEAMS_DIR/"
+cp _build/dev/lib/jason/ebin/*            "$BEAMS_DIR/"
+cp _build/dev/lib/nimble_parsec/ebin/*    "$BEAMS_DIR/"
+
+echo "=== Installing exqlite as OTP library ==="
+# :code.priv_dir(:exqlite) requires the standard OTP lib structure
+# (lib/exqlite-VERSION/priv/) to resolve the NIF path. A flat copy to BEAMS_DIR
+# won't work — we must create the versioned directory in OTP_ROOT so
+# code:lib_dir(:exqlite) returns the right path before the rsync step.
+EXQLITE_VSN=$(grep '"exqlite"' mix.lock \
+    | grep -o '"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"' | head -1 | tr -d '"')
+if [ -z "$EXQLITE_VSN" ]; then
+    EXQLITE_VSN=$(grep -o '{vsn,"[^"]*"}' _build/dev/lib/exqlite/ebin/exqlite.app \
+        | grep -o '"[^"]*"' | tr -d '"')
+fi
+EXQLITE_LIB_DIR="$OTP_ROOT/lib/exqlite-${EXQLITE_VSN}"
+rm -rf "$OTP_ROOT/lib/exqlite-"  # remove any previous broken empty-version dir
+mkdir -p "$EXQLITE_LIB_DIR/ebin" "$EXQLITE_LIB_DIR/priv"
+cp _build/dev/lib/exqlite/ebin/*.beam "$EXQLITE_LIB_DIR/ebin/"
+cp _build/dev/lib/exqlite/ebin/exqlite.app "$EXQLITE_LIB_DIR/ebin/"
+
+echo "=== Cross-compiling sqlite3_nif.so for iOS simulator ==="
+# The macOS-compiled NIF from mix deps.compile is incompatible with the iOS
+# simulator (wrong platform tag). Recompile using the iphonesimulator SDK so
+# dlopen succeeds inside the simulator process.
+EXQLITE_SRC="deps/exqlite/c_src"
+$CC -dynamiclib \
+    -undefined dynamic_lookup \
+    -I "$EXQLITE_SRC" \
+    -I "$OTP_ROOT/$ERTS_VSN/include" \
+    -I "$OTP_ROOT/$ERTS_VSN/include/aarch64-apple-iossimulator" \
+    -DSQLITE_THREADSAFE=1 \
+    -Wno-#warnings \
+    "$EXQLITE_SRC/sqlite3_nif.c" \
+    "$EXQLITE_SRC/sqlite3.c" \
+    -o "$EXQLITE_LIB_DIR/priv/sqlite3_nif.so" \
+    || echo "WARNING: exqlite NIF cross-compile failed"
+
+echo "=== Creating crypto shim (iOS OTP has no OpenSSL) ==="
+# Ecto lists 'crypto' as a required OTP application. The iOS OTP build does not
+# include crypto (no OpenSSL). We provide a minimal shim so ensure_all_started
+# can start it. strong_rand_bytes delegates to rand:bytes/1 (OTP 26+, pure Erlang).
+CRYPTO_TMP=$(mktemp -d)
+cat > "$CRYPTO_TMP/crypto.erl" << 'ERLEOF'
+-module(crypto).
+-export([strong_rand_bytes/1, hash/2, mac/4, mac/3, supports/1]).
+strong_rand_bytes(N) -> rand:bytes(N).
+hash(_Type, Data) -> erlang:md5(Data).
+mac(_Type, _SubType, _Key, _Data) -> <<>>.
+mac(_Type, _Key, _Data) -> <<>>.
+supports(_Type) -> [].
+ERLEOF
+erlc -o "$BEAMS_DIR" "$CRYPTO_TMP/crypto.erl"
+cat > "$BEAMS_DIR/crypto.app" << 'APPEOF'
+{application,crypto,[{modules,[crypto]},{applications,[kernel,stdlib]},{description,"Crypto shim for iOS (no OpenSSL; uses rand:bytes)"},{registered,[]},{vsn,"5.6"}]}.
+APPEOF
+rm -rf "$CRYPTO_TMP"
+
+echo "=== Copying priv/repo assets ==="
+mkdir -p "$BEAMS_DIR/priv/repo/migrations"
+if ls priv/repo/migrations/*.exs >/dev/null 2>&1; then
+    cp priv/repo/migrations/*.exs "$BEAMS_DIR/priv/repo/migrations/"
+fi
 
 echo "=== Copying Elixir stdlib ==="
 mkdir -p "$OTP_ROOT/lib/elixir/ebin"
@@ -80,13 +150,20 @@ cp "$ELIXIR_LIB/elixir/ebin/elixir.app" "$OTP_ROOT/lib/elixir/ebin/"
 cp "$ELIXIR_LIB/logger/ebin/"*.beam  "$OTP_ROOT/lib/logger/ebin/"
 cp "$ELIXIR_LIB/logger/ebin/logger.app" "$OTP_ROOT/lib/logger/ebin/"
 
+echo "=== Copying EEx stdlib (required by Ecto) ==="
+# EEx is part of Elixir but not added to the code path by mob_beam.m.
+# Copy its beams + app into the flat BEAMS_DIR so code:where_is_file("eex.app")
+# resolves correctly and Application.ensure_all_started(:ecto_sqlite3) can start it.
+cp "$ELIXIR_LIB/eex/ebin/"*.beam  "$BEAMS_DIR/"
+cp "$ELIXIR_LIB/eex/ebin/eex.app" "$BEAMS_DIR/"
+
 # ── Sync OTP runtime to /tmp/otp-ios-sim ─────────────────────────────────────
 # mob_beam.m hardcodes OTP_ROOT=/tmp/otp-ios-sim but build.sh deploys to the
 # cache dir ($OTP_ROOT). Sync the full OTP runtime so the running binary finds
 # all standard library modules and boot scripts at the expected path.
 echo "=== Syncing OTP runtime to /tmp/otp-ios-sim ==="
 mkdir -p "/tmp/otp-ios-sim"
-rsync -a "$OTP_ROOT/" "/tmp/otp-ios-sim/"
+rsync -a --delete "$OTP_ROOT/" "/tmp/otp-ios-sim/"
 
 echo "=== Copying Mob logos ==="
 cp "$MOB_DIR/assets/logo/logo_dark.png"  "/tmp/otp-ios-sim/mob_logo_dark.png"

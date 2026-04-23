@@ -398,6 +398,229 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "Elixir.TestApp.App.beam"
     end
 
+    # ── State persistence ─────────────────────────────────────────────────────
+    #
+    # The home screen reads the persisted theme from Mob.State on mount so the
+    # user's last selection is restored after an app kill. Theme changes are
+    # written through to Mob.State so they survive the next restart.
+
+    # ── Rock Paper Scissors (Ecto demo) ───────────────────────────────────────
+
+    test "generates lib/app_name/round.ex schema", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      assert File.exists?(Path.join(dir, "lib/test_app/round.ex"))
+    end
+
+    test "round.ex uses correct module name and schema", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/round.ex"))
+      assert content =~ "defmodule TestApp.Round"
+      assert content =~ ~s(schema "rounds")
+      assert content =~ "user_choice"
+      assert content =~ "computer_choice"
+      assert content =~ "result"
+    end
+
+    test "generates rounds migration", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      migrations = Path.join(dir, "priv/repo/migrations")
+      assert File.ls!(migrations) |> Enum.any?(&String.contains?(&1, "create_rounds"))
+    end
+
+    test "rounds migration creates the rounds table", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      migration =
+        Path.join(dir, "priv/repo/migrations")
+        |> File.ls!()
+        |> Enum.find(&String.contains?(&1, "create_rounds"))
+      content = File.read!(Path.join(dir, "priv/repo/migrations/#{migration}"))
+      assert content =~ "TestApp.Repo.Migrations.CreateRounds"
+      assert content =~ "create table(:rounds)"
+    end
+
+    test "app.ex runs migrations on start", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/app.ex"))
+      assert content =~ "Ecto.Migrator"
+    end
+
+    test "list_screen.ex is the RPS game screen", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/list_screen.ex"))
+      assert content =~ "Rock Paper Scissors"
+      assert content =~ "TestApp.Round"
+      assert content =~ "TestApp.Repo"
+    end
+
+    test "list_screen.ex has win/loss/draw outcome logic", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/list_screen.ex"))
+      assert content =~ ~s("win")
+      assert content =~ ~s("loss")
+      assert content =~ ~s("draw")
+    end
+
+    test "list_screen.ex uses Process.send_after for reveal delay", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/list_screen.ex"))
+      assert content =~ "Process.send_after"
+      assert content =~ ":reveal"
+    end
+
+    test "home_screen.ex nav button label is Rock Paper Scissors", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/home_screen.ex"))
+      assert content =~ "Rock Paper Scissors"
+      refute content =~ "Browse List"
+    end
+
+    test "text_screen.ex restores draft text from Mob.State on mount", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/text_screen.ex"))
+      assert content =~ "Mob.State.get(:draft_text"
+      assert content =~ "Mob.State.put(:draft_text"
+    end
+
+    test "home_screen.ex restores theme from Mob.State on mount", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/home_screen.ex"))
+      assert content =~ "Mob.State.get(:theme"
+    end
+
+    test "home_screen.ex persists theme selection via Mob.State.put", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/home_screen.ex"))
+      assert content =~ "Mob.State.put(:theme"
+    end
+
+    # ── Ecto SQLite layer ─────────────────────────────────────────────────────
+    #
+    # Every generated app ships with Ecto + ecto_sqlite3 so developers get a
+    # familiar Repo API without any extra setup. The native code (mob_beam.c /
+    # mob_beam.m) sets MOB_DATA_DIR to the platform's persistent storage dir;
+    # Repo.init/2 reads it to place the database file.
+
+    test "mix.exs includes ecto_sqlite3 dependency", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "mix.exs"))
+      assert content =~ "ecto_sqlite3"
+    end
+
+    test "generates lib/test_app/repo.ex", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      assert File.exists?(Path.join(dir, "lib/test_app/repo.ex"))
+    end
+
+    test "repo.ex uses correct module name and otp_app", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/repo.ex"))
+      assert content =~ "defmodule TestApp.Repo"
+      assert content =~ "otp_app: :test_app"
+      assert content =~ "Ecto.Adapters.SQLite3"
+    end
+
+    test "repo.ex init/2 reads MOB_DATA_DIR and sets pool_size: 1", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/repo.ex"))
+      assert content =~ "MOB_DATA_DIR"
+      assert content =~ "pool_size: 1"
+      assert content =~ "app.db"
+    end
+
+    test "app.ex starts ecto_sqlite3 apps and Repo in on_start", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/app.ex"))
+      assert content =~ "ensure_all_started(:ecto_sqlite3)"
+      assert content =~ "TestApp.Repo.start_link()"
+    end
+
+    test "generates config/config.exs", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      assert File.exists?(Path.join(dir, "config/config.exs"))
+    end
+
+    test "config.exs registers ecto_repos", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "config/config.exs"))
+      assert content =~ "ecto_repos: [TestApp.Repo]"
+      assert content =~ ":test_app"
+    end
+
+    test "generates priv/repo/migrations/.keep", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      assert File.exists?(Path.join(dir, "priv/repo/migrations/.keep"))
+    end
+
+    test "CMakeLists.txt includes sqlite3_nif shared library target", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "android/app/src/main/jni/CMakeLists.txt"))
+      assert content =~ "add_library(sqlite3_nif SHARED"
+      assert content =~ "exqlite/c_src/sqlite3_nif.c"
+      assert content =~ "exqlite/c_src/sqlite3.c"
+    end
+
+    test "CMakeLists.txt sqlite3_nif links to MOB_DEPS_DIR derived from relative path", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "android/app/src/main/jni/CMakeLists.txt"))
+      assert content =~ "MOB_DEPS_DIR"
+      assert content =~ "CMAKE_CURRENT_SOURCE_DIR"
+      # No hardcoded /Users/ paths
+      refute content =~ "/Users/"
+    end
+
+    # ── CMake PRIVATE keyword — ERTS atom table isolation ────────────────────────
+    #
+    # target_link_libraries without the PRIVATE keyword defaults to PUBLIC in
+    # CMake 3.x, propagating --whole-archive libbeam.a transitively to every
+    # consumer of the main library — including sqlite3_nif. This gives
+    # libsqlite3_nif.so its own uninitialized copy of the ERTS atom table
+    # (duplicate T symbols), causing SIGSEGV on the first enif_make_atom call.
+    # PRIVATE confines --whole-archive to the main app library only.
+
+    test "CMakeLists.txt target_link_libraries uses PRIVATE to prevent --whole-archive propagation to sqlite3_nif",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "android/app/src/main/jni/CMakeLists.txt"))
+      assert content =~ "target_link_libraries(testapp\n    PRIVATE"
+    end
+
+    # ── MOB_BEAMS_DIR migration path — Ecto on flat -pa directories ──────────────
+    #
+    # Ecto.Migrator.run/3 uses :code.priv_dir(app) to find .exs files. That
+    # function requires an OTP lib structure (lib/APP-VERSION/ebin/); Mob apps
+    # deploy to a flat -pa dir so it returns {error, bad_name} and Ecto silently
+    # logs "Migrations already up" without creating any tables. The fix is to
+    # read MOB_BEAMS_DIR (set by mob_beam.c/mob_beam.m) and pass an explicit
+    # path to Ecto.Migrator.run/4 instead.
+
+    test "app.ex uses MOB_BEAMS_DIR env var to locate migrations on device", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/app.ex"))
+      assert content =~ "MOB_BEAMS_DIR"
+      assert content =~ "migrations_dir()"
+    end
+
+    test "app.ex migrations_dir/0 passes explicit path to Ecto.Migrator.run", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/app.ex"))
+      # Uses run/4 with explicit path, not run/3 which calls :code.priv_dir internally
+      assert content =~ "Ecto.Migrator.run(repo, migrations_dir()"
+    end
+
+    test "build.sh copies exqlite NIF to BEAMS_DIR priv", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/build.sh"))
+      assert content =~ "exqlite"
+      assert content =~ "sqlite3_nif.so"
+      assert content =~ "BEAMS_DIR/priv"
+    end
+
+    test "build.sh copies priv/repo migrations", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/build.sh"))
+      assert content =~ "priv/repo/migrations"
+    end
+
     # ── Keyboard dismissal fix ─────────────────────────────────────────────────
     #
     # AnimatedContent used to key on the entire RootState (node + transition),

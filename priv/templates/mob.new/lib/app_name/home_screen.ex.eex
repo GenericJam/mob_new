@@ -3,8 +3,9 @@ defmodule <%= module_name %>.HomeScreen do
   use Mob.Screen
 
   def mount(_params, _session, socket) do
-    Mob.Theme.set(Mob.Theme.Obsidian)
-    {:ok, Mob.Socket.assign(socket, :theme, :obsidian)}
+    theme = Mob.State.get(:theme, :obsidian)
+    Mob.Theme.set(theme_to_module(theme))
+    {:ok, Mob.Socket.assign(socket, :theme, theme)}
   end
 
   def render(assigns) do
@@ -18,7 +19,7 @@ defmodule <%= module_name %>.HomeScreen do
         <Spacer size={40} />
         {nav_button("Text Input",  :open_text)}
         <Spacer size={12} />
-        {nav_button("Browse List", :open_list)}
+        {nav_button("Rock Paper Scissors", :open_list)}
         <Spacer size={12} />
         {nav_button("Roll Dice",   :open_dice)}
         <Spacer size={32} />
@@ -50,16 +51,19 @@ defmodule <%= module_name %>.HomeScreen do
 
   def handle_info({:tap, :theme_obsidian}, socket) do
     Mob.Theme.set(Mob.Theme.Obsidian)
+    Mob.State.put(:theme, :obsidian)
     {:noreply, Mob.Socket.assign(socket, :theme, :obsidian)}
   end
 
   def handle_info({:tap, :theme_citrus}, socket) do
     Mob.Theme.set(Mob.Theme.Citrus)
+    Mob.State.put(:theme, :citrus)
     {:noreply, Mob.Socket.assign(socket, :theme, :citrus)}
   end
 
   def handle_info({:tap, :theme_birch}, socket) do
     Mob.Theme.set(Mob.Theme.Birch)
+    Mob.State.put(:theme, :birch)
     {:noreply, Mob.Socket.assign(socket, :theme, :birch)}
   end
 
@@ -75,6 +79,10 @@ defmodule <%= module_name %>.HomeScreen do
     tap = {self(), :"theme_#{key}"}
     ~MOB(<Button text={label} background={bg} text_color={fg} text_size={:sm} padding={:space_sm} weight={1} on_tap={tap} />)
   end
+
+  defp theme_to_module(:citrus), do: Mob.Theme.Citrus
+  defp theme_to_module(:birch),  do: Mob.Theme.Birch
+  defp theme_to_module(_),       do: Mob.Theme.Obsidian
 
   defp logo_src(:birch), do: Path.join(System.get_env("ROOTDIR", "/tmp/otp-ios-sim"), "mob_logo_dark.png")
   defp logo_src(_),      do: Path.join(System.get_env("ROOTDIR", "/tmp/otp-ios-sim"), "mob_logo_light.png")

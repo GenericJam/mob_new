@@ -5,7 +5,7 @@ defmodule <%= module_name %>.TextScreen do
   def mount(_params, _session, socket) do
     socket =
       socket
-      |> Mob.Socket.assign(:text, "")
+      |> Mob.Socket.assign(:text, Mob.State.get(:draft_text, ""))
       |> Mob.Socket.assign(:focused, false)
     {:ok, socket}
   end
@@ -86,6 +86,9 @@ defmodule <%= module_name %>.TextScreen do
   end
 
   def handle_info({:change, :text_changed, value}, socket) do
+    # Mob.State.put/2 syncs to disk on every call — fine for short text.
+    # For heavier values, debounce writes using Process.send_after/3 instead.
+    Mob.State.put(:draft_text, value)
     {:noreply, Mob.Socket.assign(socket, :text, value)}
   end
 

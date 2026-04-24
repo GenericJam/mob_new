@@ -163,3 +163,11 @@ Java_<%= jni_package %>_MobBridge_nativeDeliverWebViewBlocked(JNIEnv* env, jclas
     mob_deliver_webview_blocked(pid, cu);
     (*env)->ReleaseStringUTFChars(env, url, cu);
 }
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverAlertAction(JNIEnv* env, jclass cls,
+    jstring action) {
+    const char* ca = (*env)->GetStringUTFChars(env, action, NULL);
+    mob_deliver_alert_action(ca);
+    (*env)->ReleaseStringUTFChars(env, action, ca);
+}

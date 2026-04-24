@@ -208,6 +208,7 @@ object MobBridge {
     @JvmStatic external fun nativeSetLaunchNotification(json: String?)
     @JvmStatic external fun nativeDeliverWebViewMessage(pid: Long, json: String)
     @JvmStatic external fun nativeDeliverWebViewBlocked(pid: Long, url: String)
+    @JvmStatic external fun nativeDeliverAlertAction(action: String)
 
     // ── Pending callback PIDs ──────────────────────────────────────────────
     var pendingPermissionPid:  Long = 0
@@ -662,6 +663,80 @@ object MobBridge {
 
     private val _previewFacing = mutableStateOf<String?>(null)
     val previewFacing: State<String?> get() = _previewFacing
+
+    // ── Alerts / action sheets / toasts ───────────────────────────────────
+
+    @JvmStatic
+    fun alertShow(title: String, message: String, buttonsJson: String) {
+        val activity = activityRef?.get() ?: return
+        val buttons = parseButtonsJson(buttonsJson)
+        activity.runOnUiThread {
+            val builder = android.app.AlertDialog.Builder(activity)
+            if (title.isNotEmpty()) builder.setTitle(title)
+            if (message.isNotEmpty()) builder.setMessage(message)
+            val positives = buttons.filter { it["style"] != "cancel" }
+            val cancels   = buttons.filter { it["style"] == "cancel" }
+            positives.firstOrNull()?.let { btn ->
+                val action = btn["action"] ?: "dismiss"
+                builder.setPositiveButton(btn["label"]) { _, _ -> nativeDeliverAlertAction(action) }
+            }
+            positives.getOrNull(1)?.let { btn ->
+                val action = btn["action"] ?: "dismiss"
+                builder.setNeutralButton(btn["label"]) { _, _ -> nativeDeliverAlertAction(action) }
+            }
+            cancels.firstOrNull()?.let { btn ->
+                val action = btn["action"] ?: "dismiss"
+                builder.setNegativeButton(btn["label"]) { _, _ -> nativeDeliverAlertAction(action) }
+            }
+            builder.setOnCancelListener { nativeDeliverAlertAction("dismiss") }
+            builder.show()
+        }
+    }
+
+    @JvmStatic
+    fun actionSheetShow(title: String, buttonsJson: String) {
+        val activity = activityRef?.get() ?: return
+        val buttons = parseButtonsJson(buttonsJson)
+        val nonCancel = buttons.filter { it["style"] != "cancel" }
+        val cancel    = buttons.firstOrNull { it["style"] == "cancel" }
+        val labels    = nonCancel.map { it["label"] ?: "" }.toTypedArray()
+        activity.runOnUiThread {
+            val builder = android.app.AlertDialog.Builder(activity)
+            if (title.isNotEmpty()) builder.setTitle(title)
+            builder.setItems(labels) { _, which ->
+                val action = nonCancel[which]["action"] ?: "dismiss"
+                nativeDeliverAlertAction(action)
+            }
+            cancel?.let { btn ->
+                val action = btn["action"] ?: "dismiss"
+                builder.setNegativeButton(btn["label"]) { _, _ -> nativeDeliverAlertAction(action) }
+            }
+            builder.setOnCancelListener { nativeDeliverAlertAction("dismiss") }
+            builder.show()
+        }
+    }
+
+    @JvmStatic
+    fun toastShow(message: String, duration: String) {
+        val activity = activityRef?.get() ?: return
+        activity.runOnUiThread {
+            val dur = if (duration == "long") android.widget.Toast.LENGTH_LONG
+                      else android.widget.Toast.LENGTH_SHORT
+            android.widget.Toast.makeText(activity, message, dur).show()
+        }
+    }
+
+    private fun parseButtonsJson(json: String): List<Map<String, String>> {
+        return try {
+            val arr = org.json.JSONArray(json)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                mapOf("label"  to obj.optString("label"),
+                      "style"  to obj.optString("style"),
+                      "action" to obj.optString("action"))
+            }
+        } catch (e: Exception) { emptyList() }
+    }
 
     // ── WebView ────────────────────────────────────────────────────────────
     @Volatile var _webView: android.webkit.WebView? = null

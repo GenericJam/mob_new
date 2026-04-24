@@ -147,3 +147,19 @@ Java_<%= jni_package %>_MobBridge_nativeSetLaunchNotification(JNIEnv* env, jclas
     mob_set_launch_notification(cj);
     (*env)->ReleaseStringUTFChars(env, json, cj);
 }
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverWebViewMessage(JNIEnv* env, jclass cls,
+    jlong pid, jstring json) {
+    const char* cj = (*env)->GetStringUTFChars(env, json, NULL);
+    mob_deliver_webview_message(pid, cj);
+    (*env)->ReleaseStringUTFChars(env, json, cj);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverWebViewBlocked(JNIEnv* env, jclass cls,
+    jlong pid, jstring url) {
+    const char* cu = (*env)->GetStringUTFChars(env, url, NULL);
+    mob_deliver_webview_blocked(pid, cu);
+    (*env)->ReleaseStringUTFChars(env, url, cu);
+}

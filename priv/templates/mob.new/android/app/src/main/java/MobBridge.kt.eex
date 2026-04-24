@@ -13,6 +13,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.LocationListener
 import android.location.LocationManager as AndroidLocationManager
+import android.media.MediaPlayer
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.SystemClock
@@ -90,6 +91,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import org.json.JSONObject
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview as CameraPreview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 /**
  * Bridge between the BEAM and Jetpack Compose.
@@ -199,6 +206,8 @@ object MobBridge {
     @JvmStatic external fun nativeDeliverPushToken(pid: Long, token: String)
     @JvmStatic external fun nativeDeliverNotification(pid: Long, json: String)
     @JvmStatic external fun nativeSetLaunchNotification(json: String?)
+    @JvmStatic external fun nativeDeliverWebViewMessage(pid: Long, json: String)
+    @JvmStatic external fun nativeDeliverWebViewBlocked(pid: Long, url: String)
 
     // ── Pending callback PIDs ──────────────────────────────────────────────
     var pendingPermissionPid:  Long = 0
@@ -498,6 +507,196 @@ object MobBridge {
         }
     }
 
+    // ── Audio playback ─────────────────────────────────────────────────────
+    private var audioPlayer: MediaPlayer? = null
+    private var playbackPid: Long = 0
+    private var playbackPath: String? = null
+
+    @JvmStatic
+    fun audio_play(pid: Long, path: String, optsJson: String) {
+        playbackPid  = pid
+        playbackPath = path
+        val activity = activityRef?.get() ?: return
+        activity.runOnUiThread {
+            try {
+                audioPlayer?.release()
+                audioPlayer = null
+                val opts = org.json.JSONObject(optsJson)
+                val loop   = opts.optBoolean("loop", false)
+                val volume = opts.optDouble("volume", 1.0).toFloat()
+                val player = MediaPlayer()
+                player.setDataSource(path)
+                player.isLooping = loop
+                player.setVolume(volume, volume)
+                player.setOnCompletionListener {
+                    val p = playbackPid
+                    val pp = playbackPath ?: ""
+                    audioPlayer = null
+                    playbackPath = null
+                    val json = """[{"path":"$pp"}]"""
+                    nativeDeliverFileResult(p, "audio", "playback_finished", json)
+                }
+                player.setOnErrorListener { _, _, _ ->
+                    val p = playbackPid
+                    audioPlayer = null
+                    playbackPath = null
+                    nativeDeliverAtom3(p, "audio", "playback_error", "player_error")
+                    true
+                }
+                player.prepare()
+                player.start()
+                audioPlayer = player
+            } catch (e: Exception) {
+                nativeDeliverAtom3(pid, "audio", "playback_error", "setup_failed")
+            }
+        }
+    }
+
+    @JvmStatic
+    fun audio_stop_playback() {
+        val player = audioPlayer ?: return
+        audioPlayer = null
+        playbackPath = null
+        try { player.stop(); player.release() } catch (_: Exception) {}
+    }
+
+    @JvmStatic
+    fun audio_set_volume(volStr: String) {
+        val vol = volStr.toFloatOrNull() ?: 1.0f
+        audioPlayer?.setVolume(vol, vol)
+    }
+
+    // ── Storage ───────────────────────────────────────────────────────────
+    @JvmStatic
+    fun storage_dir(type: String): String? {
+        val ctx = activityRef?.get() ?: return null
+        return when (type) {
+            "temp"        -> ctx.cacheDir.absolutePath + "/mob_temp"
+            "documents"   -> ctx.filesDir.absolutePath + "/documents"
+            "cache"       -> ctx.cacheDir.absolutePath
+            "app_support" -> ctx.filesDir.absolutePath
+            "icloud"      -> null
+            else          -> null
+        }.also { path -> path?.let { java.io.File(it).mkdirs() } }
+    }
+
+    @JvmStatic
+    fun storage_external_files_dir(type: String): String? {
+        val ctx = activityRef?.get() ?: return null
+        val envType = when (type) {
+            "documents"  -> android.os.Environment.DIRECTORY_DOCUMENTS
+            "pictures"   -> android.os.Environment.DIRECTORY_PICTURES
+            "movies"     -> android.os.Environment.DIRECTORY_MOVIES
+            "music"      -> android.os.Environment.DIRECTORY_MUSIC
+            "downloads"  -> android.os.Environment.DIRECTORY_DOWNLOADS
+            "dcim"       -> android.os.Environment.DIRECTORY_DCIM
+            else         -> android.os.Environment.DIRECTORY_DOCUMENTS
+        }
+        return ctx.getExternalFilesDir(envType)?.absolutePath
+    }
+
+    @JvmStatic
+    fun storage_save_to_media_store(pid: Long, path: String, type: String) {
+        val ctx = activityRef?.get() ?: run {
+            nativeDeliverAtom3(pid, "storage", "error", "no_context")
+            return
+        }
+        val file = java.io.File(path)
+        val ext  = file.extension.lowercase()
+        val mimeType = when {
+            type == "image" || ext in listOf("jpg","jpeg","png","gif","webp","heic") -> "image/*"
+            type == "video" || ext in listOf("mp4","mov","m4v","avi","mkv")          -> "video/*"
+            type == "audio" || ext in listOf("m4a","mp3","aac","wav","flac","ogg")   -> "audio/*"
+            else -> "*/*"
+        }
+        val collection = when {
+            mimeType.startsWith("image") -> android.provider.MediaStore.Images.Media.getContentUri(
+                android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            mimeType.startsWith("video") -> android.provider.MediaStore.Video.Media.getContentUri(
+                android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            mimeType.startsWith("audio") -> android.provider.MediaStore.Audio.Media.getContentUri(
+                android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            else -> android.provider.MediaStore.Files.getContentUri(
+                android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        }
+        try {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val uri = ctx.contentResolver.insert(collection, values)
+                ?: throw Exception("insert returned null")
+            ctx.contentResolver.openOutputStream(uri)?.use { out ->
+                file.inputStream().use { it.copyTo(out) }
+            }
+            values.clear()
+            values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+            ctx.contentResolver.update(uri, values, null, null)
+            val json = org.json.JSONArray().apply {
+                put(org.json.JSONObject().put("path", path))
+            }.toString()
+            nativeDeliverFileResult(pid, "storage", "saved_to_library", json)
+        } catch (e: Exception) {
+            nativeDeliverAtom3(pid, "storage", "error", "save_failed")
+        }
+    }
+
+    // ── Camera preview ────────────────────────────────────────────────────
+    private var previewCameraProvider: ProcessCameraProvider? = null
+
+    @JvmStatic
+    fun camera_start_preview(pid: Long, optsJson: String) {
+        try {
+            val facing = JSONObject(optsJson).optString("facing", "back")
+            _previewFacing.value = facing
+        } catch (_: Exception) {}
+    }
+
+    @JvmStatic
+    fun camera_stop_preview() {
+        _previewFacing.value = null
+        previewCameraProvider?.unbindAll()
+        previewCameraProvider = null
+    }
+
+    private val _previewFacing = mutableStateOf<String?>(null)
+    val previewFacing: State<String?> get() = _previewFacing
+
+    // ── WebView ────────────────────────────────────────────────────────────
+    @Volatile var _webView: android.webkit.WebView? = null
+
+    @JvmStatic
+    fun webview_eval_js(code: String) {
+        val wv = _webView ?: return
+        activityRef?.get()?.runOnUiThread { wv.evaluateJavascript(code, null) }
+    }
+
+    @JvmStatic
+    fun webview_post_message(json: String) {
+        val escaped = json.replace("\\", "\\\\").replace("'", "\\'")
+        webview_eval_js("window.mob&&window.mob._dispatch('$escaped')")
+    }
+
+    @JvmStatic
+    fun webviewCanGoBack(): Boolean {
+        val wv = _webView ?: return false
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var result = false
+        activityRef?.get()?.runOnUiThread {
+            result = wv.canGoBack()
+            latch.countDown()
+        } ?: latch.countDown()
+        latch.await(1, java.util.concurrent.TimeUnit.SECONDS)
+        return result
+    }
+
+    @JvmStatic
+    fun webview_go_back() {
+        val wv = _webView ?: return
+        activityRef?.get()?.runOnUiThread { wv.goBack() }
+    }
+
     // ── Motion sensors ─────────────────────────────────────────────────────
     private var sensorManager: SensorManager? = null
     private var sensorListener: SensorEventListener? = null
@@ -770,7 +969,9 @@ fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
         "progress"   -> MobProgress(node, m)
         "image"      -> MobImage(node, m)
         "lazy_list"  -> MobLazyList(node, m)
-        "video"      -> MobVideoPlayer(node, m)
+        "video"          -> MobVideoPlayer(node, m)
+        "camera_preview" -> MobCameraPreview(node, m)
+        "webview"        -> MobWebView(node, m)
     }
 }
 
@@ -997,6 +1198,96 @@ private fun MobImage(node: MobNode, modifier: Modifier) {
         contentScale       = contentScale,
         modifier           = m,
     )
+}
+
+@Composable
+private fun MobCameraPreview(node: MobNode, modifier: Modifier) {
+    val facingStr  = (node.props["facing"] as? String) ?: "back"
+    val cameraSelector = if (facingStr == "front")
+        CameraSelector.DEFAULT_FRONT_CAMERA
+    else
+        CameraSelector.DEFAULT_BACK_CAMERA
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val context        = LocalContext.current
+    AndroidView(
+        modifier = modifier,
+        factory  = { ctx ->
+            PreviewView(ctx).also { previewView ->
+                val providerFuture = ProcessCameraProvider.getInstance(ctx)
+                providerFuture.addListener({
+                    val provider = providerFuture.get()
+                    MobBridge.previewCameraProvider = provider
+                    val preview = CameraPreview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+                    try {
+                        provider.unbindAll()
+                        provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview)
+                    } catch (_: Exception) {}
+                }, context.mainExecutor)
+            }
+        }
+    )
+}
+
+private val MOB_JS_SHIM = """
+(function(){
+  if(window.mob)return;
+  var _h=[];
+  window.mob={
+    send:function(d){MobNative.postMessage(JSON.stringify(d));},
+    onMessage:function(h){_h.push(h);return function(){_h=_h.filter(function(x){return x!==h;});};},
+    _dispatch:function(j){try{var d=JSON.parse(j);_h.forEach(function(h){h(d);});}catch(e){}}
+  };
+})();
+""".trimIndent()
+
+@Composable
+private fun MobWebView(node: MobNode, modifier: Modifier) {
+    val url       = node.props["url"] as? String ?: return
+    val allowStr  = node.props["allow"] as? String ?: ""
+    val allowList = allowStr.split(",").filter { it.isNotEmpty() }
+    val title     = node.props["title"] as? String
+
+    Column(modifier = modifier) {
+        if (title != null) {
+            Text(text = title, fontSize = 12.sp,
+                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+        }
+        AndroidView(
+            modifier = Modifier.weight(1f),
+            factory  = { ctx ->
+                android.webkit.WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    addJavascriptInterface(object : Any() {
+                        @android.webkit.JavascriptInterface
+                        fun postMessage(json: String) {
+                            nativeDeliverWebViewMessage(0L, json)
+                        }
+                    }, "MobNative")
+                    webViewClient = object : android.webkit.WebViewClient() {
+                        override fun onPageFinished(view: android.webkit.WebView, pageUrl: String) {
+                            view.evaluateJavascript(MOB_JS_SHIM, null)
+                        }
+                        override fun shouldOverrideUrlLoading(
+                            view: android.webkit.WebView,
+                            request: android.webkit.WebResourceRequest
+                        ): Boolean {
+                            if (allowList.isEmpty()) return false
+                            val reqUrl = request.url.toString()
+                            if (allowList.any { reqUrl.startsWith(it) }) return false
+                            nativeDeliverWebViewBlocked(0L, reqUrl)
+                            return true
+                        }
+                    }
+                    MobBridge._webView = this
+                    loadUrl(url)
+                }
+            },
+            update = { wv -> MobBridge._webView = wv }
+        )
+    }
 }
 
 @Composable

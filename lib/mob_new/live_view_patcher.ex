@@ -616,54 +616,52 @@ defmodule MobNew.LiveViewPatcher do
 
     {result_lines, _} =
       Enum.reduce(lines, {[], :before}, fn line, {acc, state} ->
-        case state do
-          :before ->
-            if String.contains?(line, "new LiveSocket(") do
-              depth = count_brace_depth(line)
-
-              if depth <= 0 do
-                # Single-line call — append hooks directly
-                patched =
-                  Regex.replace(~r/\)\s*$/, line, ", {hooks: {MobHook}})", global: false)
-
-                {acc ++ [patched], :done}
-              else
-                # Multiline — start tracking
-                {acc ++ [line], {:in_call, depth}}
-              end
-            else
-              {acc ++ [line], :before}
-            end
-
-          {:in_call, depth} ->
-            new_depth = depth + count_brace_depth(line)
-            trimmed = String.trim(line)
-
-            if new_depth <= 0 and (trimmed == "})" or String.starts_with?(trimmed, "})")) do
-              # This is the closing line — insert hooks before it
-              # Find the indent of the line inside the options block
-              inner_indent = "  "
-              last_acc = List.last(acc)
-              last_trimmed = if last_acc, do: String.trim_trailing(last_acc), else: ""
-
-              acc_with_comma =
-                if String.ends_with?(last_trimmed, ",") do
-                  acc
-                else
-                  List.update_at(acc, -1, fn l -> String.trim_trailing(l) <> "," end)
-                end
-
-              {acc_with_comma ++ ["#{inner_indent}hooks: {MobHook}", line], :done}
-            else
-              {acc ++ [line], {:in_call, new_depth}}
-            end
-
-          :done ->
-            {acc ++ [line], :done}
-        end
+        reduce_line(line, acc, state)
       end)
 
     Enum.join(result_lines, "\n")
+  end
+
+  defp reduce_line(line, acc, :before) do
+    if String.contains?(line, "new LiveSocket(") do
+      depth = count_brace_depth(line)
+
+      if depth <= 0 do
+        patched = Regex.replace(~r/\)\s*$/, line, ", {hooks: {MobHook}})", global: false)
+        {acc ++ [patched], :done}
+      else
+        {acc ++ [line], {:in_call, depth}}
+      end
+    else
+      {acc ++ [line], :before}
+    end
+  end
+
+  defp reduce_line(line, acc, {:in_call, depth}) do
+    new_depth = depth + count_brace_depth(line)
+    trimmed = String.trim(line)
+
+    if new_depth <= 0 and (trimmed == "})" or String.starts_with?(trimmed, "})")) do
+      {insert_hooks_line(acc, line), :done}
+    else
+      {acc ++ [line], {:in_call, new_depth}}
+    end
+  end
+
+  defp reduce_line(line, acc, :done), do: {acc ++ [line], :done}
+
+  defp insert_hooks_line(acc, closing_line) do
+    last_acc = List.last(acc)
+    last_trimmed = if last_acc, do: String.trim_trailing(last_acc), else: ""
+
+    acc_with_comma =
+      if String.ends_with?(last_trimmed, ",") do
+        acc
+      else
+        List.update_at(acc, -1, fn l -> String.trim_trailing(l) <> "," end)
+      end
+
+    acc_with_comma ++ ["  hooks: {MobHook}", closing_line]
   end
 
   # Returns the net brace depth change for a line (opens minus closes).

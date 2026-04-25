@@ -83,28 +83,43 @@ defmodule Mix.Tasks.Mob.New do
   @impl Mix.Task
   def run(argv) do
     {opts, args, _} = OptionParser.parse(argv, strict: @switches)
+    app_name = parse_app_name!(args)
+    {dest_dir, liveview, gen_opts} = parse_gen_opts(opts)
+    project_dir = Path.join(Path.expand(dest_dir), app_name)
 
-    app_name =
-      case args do
-        [name | _] -> name
-        [] -> Mix.raise("Usage: mix mob.new APP_NAME")
-      end
+    log_flags(gen_opts, liveview)
+    Mix.shell().info([:green, "* creating ", :reset, project_dir])
 
-    unless valid_app_name?(app_name) do
+    case generate(app_name, dest_dir, liveview, gen_opts) do
+      {:error, reason} -> Mix.raise(reason)
+      {:ok, project_dir} -> post_generate(project_dir, app_name, liveview, gen_opts, opts)
+    end
+  end
+
+  defp parse_app_name!([name | _]), do: validate_app_name!(name)
+  defp parse_app_name!([]), do: Mix.raise("Usage: mix mob.new APP_NAME")
+
+  defp validate_app_name!(name) do
+    unless valid_app_name?(name) do
       Mix.raise("App name must be lowercase letters, digits, and underscores only (e.g. my_app).")
     end
 
-    dest_dir = opts[:dest] || "."
-    project_dir = Path.join(Path.expand(dest_dir), app_name)
-    local = opts[:local] || false
-    no_ios = opts[:no_ios] || false
-    liveview = opts[:liveview] || false
+    name
+  end
 
-    if local do
+  defp parse_gen_opts(opts) do
+    dest_dir = opts[:dest] || "."
+    liveview = opts[:liveview] || false
+    gen_opts = [local: opts[:local] || false, no_ios: opts[:no_ios] || false]
+    {dest_dir, liveview, gen_opts}
+  end
+
+  defp log_flags(gen_opts, liveview) do
+    if gen_opts[:local] do
       Mix.shell().info([:yellow, "* local mode: using path: deps for mob and mob_dev", :reset])
     end
 
-    if no_ios do
+    if gen_opts[:no_ios] do
       Mix.shell().info([:yellow, "* --no-ios: skipping iOS boilerplate", :reset])
     end
 
@@ -115,36 +130,23 @@ defmodule Mix.Tasks.Mob.New do
         :reset
       ])
     end
+  end
 
-    Mix.shell().info([:green, "* creating ", :reset, project_dir])
+  defp generate(app_name, dest_dir, true = _liveview, gen_opts) do
+    MobNew.ProjectGenerator.liveview_generate(app_name, dest_dir, gen_opts)
+  end
 
-    gen_opts = [local: local, no_ios: no_ios]
+  defp generate(app_name, dest_dir, false = _liveview, gen_opts) do
+    MobNew.ProjectGenerator.generate(app_name, dest_dir, gen_opts)
+  end
 
-    result =
-      if liveview do
-        MobNew.ProjectGenerator.liveview_generate(app_name, dest_dir, gen_opts)
-      else
-        MobNew.ProjectGenerator.generate(app_name, dest_dir, gen_opts)
-      end
-
-    case result do
-      {:error, reason} ->
-        Mix.raise(reason)
-
-      {:ok, project_dir} ->
-        unless liveview do
-          print_created_files(project_dir, app_name, no_ios)
-        end
-
-        unless opts[:no_install] do
-          fetch_deps(project_dir)
-        end
-
-        if liveview do
-          print_liveview_next_steps(app_name, opts[:no_install])
-        else
-          print_next_steps(app_name, opts[:no_install])
-        end
+  defp post_generate(project_dir, app_name, liveview, gen_opts, opts) do
+    unless liveview, do: print_created_files(project_dir, app_name, gen_opts[:no_ios])
+    unless opts[:no_install], do: fetch_deps(project_dir)
+    if liveview do
+      print_liveview_next_steps(app_name, opts[:no_install])
+    else
+      print_next_steps(app_name, opts[:no_install])
     end
   end
 

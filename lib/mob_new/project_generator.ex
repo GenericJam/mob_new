@@ -116,9 +116,7 @@ defmodule MobNew.ProjectGenerator do
   defp run_phx_new(app_name, dest_dir, _opts) do
     mix = System.find_executable("mix")
 
-    unless mix do
-      {:error, "mix executable not found in PATH"}
-    else
+    if mix do
       abs_dest = Path.expand(dest_dir)
 
       args = [
@@ -139,21 +137,23 @@ defmodule MobNew.ProjectGenerator do
         {output, exit_code} ->
           {:error, "mix phx.new failed (exit #{exit_code}):\n#{output}"}
       end
+    else
+      {:error, "mix executable not found in PATH"}
     end
   end
 
   defp patch_mix_exs(project_dir, opts) do
     path = Path.join(project_dir, "mix.exs")
 
-    unless File.exists?(path) do
-      {:error, "mix.exs not found in #{project_dir}"}
-    else
+    if File.exists?(path) do
       a = assigns(Path.basename(project_dir), opts)
       content = File.read!(path)
       patched = MobNew.LiveViewPatcher.inject_deps(content, a.mob_dep, a.mob_dev_dep)
       File.write!(path, patched)
       Mix.shell().info([:green, "* patch ", :reset, path, " (added mob deps)"])
       :ok
+    else
+      {:error, "mix.exs not found in #{project_dir}"}
     end
   end
 

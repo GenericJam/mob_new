@@ -131,13 +131,19 @@ defmodule MobNew.ProjectGeneratorTest do
 
     test "MainActivity.kt has correct package declaration", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      kt = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+
       assert kt =~ "package com.mob.test_app"
     end
 
     test "MainActivity.kt has correct loadLibrary name", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      kt = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+
       assert kt =~ ~s[System.loadLibrary("testapp")]
     end
 
@@ -217,7 +223,10 @@ defmodule MobNew.ProjectGeneratorTest do
 
     test "MobBridge.kt has correct package declaration", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+
       assert content =~ "package com.mob.test_app"
     end
 
@@ -429,10 +438,12 @@ defmodule MobNew.ProjectGeneratorTest do
 
     test "rounds migration creates the rounds table", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
       migration =
         Path.join(dir, "priv/repo/migrations")
         |> File.ls!()
         |> Enum.find(&String.contains?(&1, "create_rounds"))
+
       content = File.read!(Path.join(dir, "priv/repo/migrations/#{migration}"))
       assert content =~ "TestApp.Repo.Migrations.CreateRounds"
       assert content =~ "create table(:rounds)"
@@ -559,7 +570,9 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "exqlite/c_src/sqlite3.c"
     end
 
-    test "CMakeLists.txt sqlite3_nif links to MOB_DEPS_DIR derived from relative path", %{tmp: tmp} do
+    test "CMakeLists.txt sqlite3_nif links to MOB_DEPS_DIR derived from relative path", %{
+      tmp: tmp
+    } do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/CMakeLists.txt"))
       assert content =~ "MOB_DEPS_DIR"
@@ -633,20 +646,29 @@ defmodule MobNew.ProjectGeneratorTest do
 
     test "MobBridge.kt RootState has navKey as first field", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+
       assert content =~ "data class RootState(val navKey: Int,"
     end
 
     test "MobBridge.kt setRootJson increments navKey only on navigation transitions", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+
       assert content =~ "navKey + 1"
       assert content =~ ~s(transition != "none")
     end
 
     test "MainActivity.kt AnimatedContent uses contentKey on navKey", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+
       assert content =~ "contentKey"
       assert content =~ "it.navKey"
     end
@@ -740,8 +762,10 @@ defmodule MobNew.ProjectGeneratorTest do
     @tag :integration
     test "patches root.html.heex with mob-bridge element", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+
       root_html =
         Path.join(dir, "lib/lv_test_web/components/layouts/root.html.heex")
+
       assert File.exists?(root_html)
       content = File.read!(root_html)
       assert content =~ ~s(id="mob-bridge")
@@ -796,7 +820,10 @@ defmodule MobNew.ProjectGeneratorTest do
     test "generates Android boilerplate", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
       assert File.exists?(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
-      assert File.exists?(Path.join(dir, "android/app/src/main/java/com/mob/lv_test/MainActivity.kt"))
+
+      assert File.exists?(
+               Path.join(dir, "android/app/src/main/java/com/mob/lv_test/MainActivity.kt")
+             )
     end
 
     @tag :integration

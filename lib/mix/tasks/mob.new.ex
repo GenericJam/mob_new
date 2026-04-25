@@ -96,8 +96,8 @@ defmodule Mix.Tasks.Mob.New do
 
     dest_dir = opts[:dest] || "."
     project_dir = Path.join(Path.expand(dest_dir), app_name)
-    local    = opts[:local]    || false
-    no_ios   = opts[:no_ios]   || false
+    local = opts[:local] || false
+    no_ios = opts[:no_ios] || false
     liveview = opts[:liveview] || false
 
     if local do
@@ -109,7 +109,11 @@ defmodule Mix.Tasks.Mob.New do
     end
 
     if liveview do
-      Mix.shell().info([:cyan, "* --liveview: generating Phoenix LiveView app with Mob bridge", :reset])
+      Mix.shell().info([
+        :cyan,
+        "* --liveview: generating Phoenix LiveView app with Mob bridge",
+        :reset
+      ])
     end
 
     Mix.shell().info([:green, "* creating ", :reset, project_dir])
@@ -153,26 +157,34 @@ defmodule Mix.Tasks.Mob.New do
     abs_dir = Path.expand(project_dir)
 
     case System.cmd(mix, ["deps.get"], cd: abs_dir, into: IO.stream()) do
-      {_, 0} -> :ok
-      {_, _} -> Mix.shell().info([:yellow, "* deps.get failed — run it manually inside #{project_dir}", :reset])
+      {_, 0} ->
+        :ok
+
+      {_, _} ->
+        Mix.shell().info([
+          :yellow,
+          "* deps.get failed — run it manually inside #{project_dir}",
+          :reset
+        ])
     end
   end
 
   defp print_created_files(project_dir, app_name, no_ios) do
-    files = [
-      "mix.exs",
-      "lib/#{app_name}/app.ex",
-      "lib/#{app_name}/home_screen.ex",
-      "android/settings.gradle",
-      "android/build.gradle",
-      "android/app/build.gradle",
-      "android/app/src/main/AndroidManifest.xml",
-      "android/app/src/main/java/com/mob/#{app_name}/MainActivity.kt",
-      "android/app/src/main/java/com/mob/#{app_name}/MobBridge.kt",
-      "android/app/src/main/java/com/mob/#{app_name}/MobNode.kt",
-      "android/app/src/main/java/com/mob/#{app_name}/MobScannerActivity.kt",
-      "android/gradle.properties"
-    ] ++ if(no_ios, do: [], else: ["ios/beam_main.m", "ios/Info.plist"])
+    files =
+      [
+        "mix.exs",
+        "lib/#{app_name}/app.ex",
+        "lib/#{app_name}/home_screen.ex",
+        "android/settings.gradle",
+        "android/build.gradle",
+        "android/app/build.gradle",
+        "android/app/src/main/AndroidManifest.xml",
+        "android/app/src/main/java/com/mob/#{app_name}/MainActivity.kt",
+        "android/app/src/main/java/com/mob/#{app_name}/MobBridge.kt",
+        "android/app/src/main/java/com/mob/#{app_name}/MobNode.kt",
+        "android/app/src/main/java/com/mob/#{app_name}/MobScannerActivity.kt",
+        "android/gradle.properties"
+      ] ++ if(no_ios, do: [], else: ["ios/beam_main.m", "ios/Info.plist"])
 
     Enum.each(files, fn f ->
       Mix.shell().info([:green, "* creating ", :reset, Path.join(project_dir, f)])

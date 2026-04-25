@@ -20,7 +20,7 @@ defmodule MobNew.MixProject do
 
   defp deps do
     [
-      {:jason,  "~> 1.4"},
+      {:jason, "~> 1.4"},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end
@@ -30,7 +30,7 @@ defmodule MobNew.MixProject do
       main: "Mix.Tasks.Mob.New",
       source_url: "https://github.com/genericjam/mob",
       source_url_pattern: "https://github.com/genericjam/mob/blob/main/mob_new/%{path}#L%{line}",
-      extras: ["README.md": [title: "mob_new"]],
+      extras: ["README.md": [title: "mob_new"]]
     ]
   end
 

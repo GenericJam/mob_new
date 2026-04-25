@@ -613,6 +613,7 @@ defmodule MobNew.LiveViewPatcher do
   # Works by tracking brace depth line by line — avoids regex fights with nested braces.
   defp insert_hooks_before_closing(content) do
     lines = String.split(content, "\n")
+
     {result_lines, _} =
       Enum.reduce(lines, {[], :before}, fn line, {acc, state} ->
         case state do
@@ -624,6 +625,7 @@ defmodule MobNew.LiveViewPatcher do
                 # Single-line call — append hooks directly
                 patched =
                   Regex.replace(~r/\)\s*$/, line, ", {hooks: {MobHook}})", global: false)
+
                 {acc ++ [patched], :done}
               else
                 # Multiline — start tracking
@@ -643,12 +645,14 @@ defmodule MobNew.LiveViewPatcher do
               inner_indent = "  "
               last_acc = List.last(acc)
               last_trimmed = if last_acc, do: String.trim_trailing(last_acc), else: ""
+
               acc_with_comma =
                 if String.ends_with?(last_trimmed, ",") do
                   acc
                 else
                   List.update_at(acc, -1, fn l -> String.trim_trailing(l) <> "," end)
                 end
+
               {acc_with_comma ++ ["#{inner_indent}hooks: {MobHook}", line], :done}
             else
               {acc ++ [line], {:in_call, new_depth}}
@@ -664,7 +668,7 @@ defmodule MobNew.LiveViewPatcher do
 
   # Returns the net brace depth change for a line (opens minus closes).
   defp count_brace_depth(line) do
-    opens  = line |> String.graphemes() |> Enum.count(&(&1 == "{"))
+    opens = line |> String.graphemes() |> Enum.count(&(&1 == "{"))
     closes = line |> String.graphemes() |> Enum.count(&(&1 == "}"))
     opens - closes
   end

@@ -137,24 +137,54 @@ defmodule MobNew.LiveViewPatcherTest do
     """
 
     test "injects mob dep into deps function" do
-      result = LiveViewPatcher.inject_deps(@sample_mix_exs, ~s({:mob, "~> 0.2"}), ~s({:mob_dev, "~> 0.2", only: :dev}))
+      result =
+        LiveViewPatcher.inject_deps(
+          @sample_mix_exs,
+          ~s({:mob, "~> 0.2"}),
+          ~s({:mob_dev, "~> 0.2", only: :dev})
+        )
+
       assert result =~ ~s({:mob, "~> 0.2"})
     end
 
     test "injects mob_dev dep into deps function" do
-      result = LiveViewPatcher.inject_deps(@sample_mix_exs, ~s({:mob, "~> 0.2"}), ~s({:mob_dev, "~> 0.2", only: :dev}))
+      result =
+        LiveViewPatcher.inject_deps(
+          @sample_mix_exs,
+          ~s({:mob, "~> 0.2"}),
+          ~s({:mob_dev, "~> 0.2", only: :dev})
+        )
+
       assert result =~ ~s({:mob_dev, "~> 0.2", only: :dev})
     end
 
     test "preserves existing deps" do
-      result = LiveViewPatcher.inject_deps(@sample_mix_exs, ~s({:mob, "~> 0.2"}), ~s({:mob_dev, "~> 0.2", only: :dev}))
+      result =
+        LiveViewPatcher.inject_deps(
+          @sample_mix_exs,
+          ~s({:mob, "~> 0.2"}),
+          ~s({:mob_dev, "~> 0.2", only: :dev})
+        )
+
       assert result =~ ~s({:phoenix, "~> 1.7"})
       assert result =~ ~s({:ecto, "~> 3.0"})
     end
 
     test "is idempotent — does not double-inject if :mob already present" do
-      once = LiveViewPatcher.inject_deps(@sample_mix_exs, ~s({:mob, "~> 0.2"}), ~s({:mob_dev, "~> 0.2", only: :dev}))
-      twice = LiveViewPatcher.inject_deps(once, ~s({:mob, "~> 0.2"}), ~s({:mob_dev, "~> 0.2", only: :dev}))
+      once =
+        LiveViewPatcher.inject_deps(
+          @sample_mix_exs,
+          ~s({:mob, "~> 0.2"}),
+          ~s({:mob_dev, "~> 0.2", only: :dev})
+        )
+
+      twice =
+        LiveViewPatcher.inject_deps(
+          once,
+          ~s({:mob, "~> 0.2"}),
+          ~s({:mob_dev, "~> 0.2", only: :dev})
+        )
+
       assert once == twice
     end
   end
@@ -163,9 +193,10 @@ defmodule MobNew.LiveViewPatcherTest do
 
   describe "mob_live_app_content/4" do
     @secret "testSecretKeyBase1234567890abcdefghijklmnopqrstuvwxyz"
-    @salt   "testSalt"
+    @salt "testSalt"
 
-    defp live_app_content, do: LiveViewPatcher.mob_live_app_content("MyApp", "my_app", @secret, @salt)
+    defp live_app_content,
+      do: LiveViewPatcher.mob_live_app_content("MyApp", "my_app", @secret, @salt)
 
     test "contains correct module name" do
       assert live_app_content() =~ "defmodule MyApp.MobApp"

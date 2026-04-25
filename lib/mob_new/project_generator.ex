@@ -14,7 +14,7 @@ defmodule MobNew.ProjectGenerator do
   """
 
   defp templates_root, do: :mob_new |> :code.priv_dir() |> Path.join("templates/mob.new")
-  defp static_root,    do: :mob_new |> :code.priv_dir() |> Path.join("static/mob.new")
+  defp static_root, do: :mob_new |> :code.priv_dir() |> Path.join("static/mob.new")
 
   @doc """
   Returns the EEx template assigns map for `app_name`.
@@ -27,12 +27,12 @@ defmodule MobNew.ProjectGenerator do
   """
   @spec assigns(String.t(), keyword()) :: map()
   def assigns(app_name, opts \\ []) do
-    module_name  = Macro.camelize(app_name)
+    module_name = Macro.camelize(app_name)
     display_name = module_name
-    bundle_id    = "com.mob.#{app_name}"
+    bundle_id = "com.mob.#{app_name}"
     java_package = bundle_id
-    lib_name     = String.replace(app_name, "_", "")
-    java_path    = String.replace(bundle_id, ".", "/")
+    lib_name = String.replace(app_name, "_", "")
+    java_path = String.replace(bundle_id, ".", "/")
 
     # JNI method name segment: dots→underscores, then underscores→_1
     # e.g. "com.mob.test_app" → "com_mob_test_1app"
@@ -44,17 +44,17 @@ defmodule MobNew.ProjectGenerator do
     {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib} = resolve_deps(opts)
 
     %{
-      app_name:          app_name,
-      module_name:       module_name,
-      display_name:      display_name,
-      bundle_id:         bundle_id,
-      java_package:      java_package,
-      jni_package:       jni_package,
-      lib_name:          lib_name,
-      java_path:         java_path,
-      mob_dep:           mob_dep,
-      mob_dev_dep:       mob_dev_dep,
-      mob_exs_mob_dir:   mob_exs_mob_dir,
+      app_name: app_name,
+      module_name: module_name,
+      display_name: display_name,
+      bundle_id: bundle_id,
+      java_package: java_package,
+      jni_package: jni_package,
+      lib_name: lib_name,
+      java_path: java_path,
+      mob_dep: mob_dep,
+      mob_dev_dep: mob_dev_dep,
+      mob_exs_mob_dir: mob_exs_mob_dir,
       mob_exs_elixir_lib: mob_exs_elixir_lib
     }
   end
@@ -94,7 +94,8 @@ defmodule MobNew.ProjectGenerator do
 
   Returns `{:ok, project_dir}` or `{:error, reason}`.
   """
-  @spec liveview_generate(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  @spec liveview_generate(String.t(), String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
   def liveview_generate(app_name, dest_dir \\ ".", opts \\ []) do
     project_dir = Path.join(Path.expand(dest_dir), app_name)
 
@@ -121,7 +122,8 @@ defmodule MobNew.ProjectGenerator do
       abs_dest = Path.expand(dest_dir)
 
       args = [
-        "phx.new", app_name,
+        "phx.new",
+        app_name,
         "--no-install",
         "--no-dashboard",
         "--no-mailer",
@@ -162,12 +164,13 @@ defmodule MobNew.ProjectGenerator do
     no_ios = Keyword.get(opts, :no_ios, false)
 
     executable_templates = ["ios/build.sh"]
-    executable_static    = ["android/gradlew"]
+    executable_static = ["android/gradlew"]
 
     templates_root()
     |> find_templates()
     |> Enum.filter(fn path ->
       rel = Path.relative_to(path, templates_root())
+
       String.starts_with?(rel, "android/") or
         (String.starts_with?(rel, "ios/") and not no_ios)
     end)
@@ -190,6 +193,7 @@ defmodule MobNew.ProjectGenerator do
     |> Enum.reject(&File.dir?/1)
     |> Enum.filter(fn src ->
       rel = Path.relative_to(src, static_root())
+
       String.starts_with?(rel, "android/") or
         (String.starts_with?(rel, "ios/") and not no_ios)
     end)
@@ -254,12 +258,18 @@ defmodule MobNew.ProjectGenerator do
       File.write!(path, patched)
       Mix.shell().info([:green, "* patch ", :reset, path, " (added MobHook)"])
     else
-      Mix.shell().info([:yellow, "* skip ", :reset, "assets/js/app.js not found — add MobHook manually"])
+      Mix.shell().info([
+        :yellow,
+        "* skip ",
+        :reset,
+        "assets/js/app.js not found — add MobHook manually"
+      ])
     end
   end
 
   defp patch_root_html(project_dir, app_name) do
     web_name = app_name <> "_web"
+
     candidates = [
       Path.join([project_dir, "lib", web_name, "components", "layouts", "root.html.heex"]),
       Path.join([project_dir, "lib", web_name, "templates", "layout", "root.html.heex"])
@@ -273,13 +283,18 @@ defmodule MobNew.ProjectGenerator do
       File.write!(path, patched)
       Mix.shell().info([:green, "* patch ", :reset, path, " (added mob-bridge element)"])
     else
-      Mix.shell().info([:yellow, "* skip root.html.heex not found — add mob-bridge element manually:", :reset])
+      Mix.shell().info([
+        :yellow,
+        "* skip root.html.heex not found — add mob-bridge element manually:",
+        :reset
+      ])
+
       Mix.shell().info("    " <> MobNew.LiveViewPatcher.mob_bridge_element())
     end
   end
 
   defp generate_mob_screen(project_dir, app_name, module_name) do
-    dir  = Path.join([project_dir, "lib", app_name])
+    dir = Path.join([project_dir, "lib", app_name])
     path = Path.join(dir, "mob_screen.ex")
     File.mkdir_p!(dir)
     File.write!(path, MobNew.LiveViewPatcher.mob_screen_content(module_name))
@@ -293,21 +308,29 @@ defmodule MobNew.ProjectGenerator do
   end
 
   defp generate_mob_live_app(project_dir, app_name, module_name) do
-    dir  = Path.join([project_dir, "lib", app_name])
+    dir = Path.join([project_dir, "lib", app_name])
     path = Path.join(dir, "mob_app.ex")
     File.mkdir_p!(dir)
     # Extract the secret_key_base phx.new wrote into config/dev.exs so that
     # on-device Application.put_env uses the same key the dev server uses.
     # Falls back to a freshly generated key if extraction fails.
     secret_key_base = extract_secret_key_base(project_dir) || generate_secret_key_base()
-    signing_salt    = generate_signing_salt()
-    content = MobNew.LiveViewPatcher.mob_live_app_content(module_name, app_name, secret_key_base, signing_salt)
+    signing_salt = generate_signing_salt()
+
+    content =
+      MobNew.LiveViewPatcher.mob_live_app_content(
+        module_name,
+        app_name,
+        secret_key_base,
+        signing_salt
+      )
+
     File.write!(path, content)
     Mix.shell().info([:green, "* create ", :reset, path])
   end
 
   defp generate_page_live(project_dir, app_name, module_name) do
-    dir  = Path.join([project_dir, "lib", "#{app_name}_web", "live"])
+    dir = Path.join([project_dir, "lib", "#{app_name}_web", "live"])
     path = Path.join(dir, "page_live.ex")
     File.mkdir_p!(dir)
     File.write!(path, MobNew.LiveViewPatcher.page_live_content(module_name, app_name))
@@ -352,7 +375,7 @@ defmodule MobNew.ProjectGenerator do
 
       case Regex.run(~r/secret_key_base:\s*"([^"]{40,})"/, content) do
         [_, key] -> key
-        _        -> nil
+        _ -> nil
       end
     end
   end
@@ -366,7 +389,7 @@ defmodule MobNew.ProjectGenerator do
   end
 
   defp generate_erlang_entry(project_dir, app_name, module_name) do
-    dir  = Path.join(project_dir, "src")
+    dir = Path.join(project_dir, "src")
     path = Path.join(dir, "#{app_name}.erl")
     File.mkdir_p!(dir)
     File.write!(path, MobNew.LiveViewPatcher.erlang_entry_content(module_name, app_name))
@@ -392,10 +415,12 @@ defmodule MobNew.ProjectGenerator do
             "\\1\n      erlc_paths: [\"src\"],\n      erlc_options: [:debug_info],",
             global: false
           )
+
         File.write!(path, patched)
         Mix.shell().info([:green, "* patch ", :reset, path, " (added erlc_paths: [\"src\"])"])
       end
     end
+
     :ok
   end
 
@@ -416,21 +441,23 @@ defmodule MobNew.ProjectGenerator do
 
   defp resolve_deps(opts) do
     if opts[:local] do
-      mob_dir     = resolve_local_path("MOB_DIR",     "mob")
+      mob_dir = resolve_local_path("MOB_DIR", "mob")
       mob_dev_dir = resolve_local_path("MOB_DEV_DIR", "mob_dev")
-      elixir_lib  = :code.lib_dir(:elixir) |> to_string() |> Path.dirname() |> Path.expand()
+      elixir_lib = :code.lib_dir(:elixir) |> to_string() |> Path.dirname() |> Path.expand()
 
-      mob_dep          = ~s({:mob,     path: "#{mob_dir}"})
-      mob_dev_dep      = ~s({:mob_dev, path: "#{mob_dev_dir}", only: :dev, runtime: false})
-      mob_exs_mob_dir  = inspect(mob_dir)
+      mob_dep = ~s({:mob,     path: "#{mob_dir}"})
+      mob_dev_dep = ~s({:mob_dev, path: "#{mob_dev_dir}", only: :dev, runtime: false})
+      mob_exs_mob_dir = inspect(mob_dir)
       mob_exs_elixir_lib = inspect(elixir_lib)
 
       {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
     else
-      mob_dep          = ~s({:mob,     "~> 0.2"})
-      mob_dev_dep      = ~s({:mob_dev, "~> 0.2", only: :dev, runtime: false})
-      mob_exs_mob_dir    = "Path.join(File.cwd!(), \"deps/mob\")"
-      mob_exs_elixir_lib = "System.get_env(\"MOB_ELIXIR_LIB\", System.get_env(\"HOME\") <> \"/.local/share/mise/installs/elixir/1.18.4-otp-28/lib\")"
+      mob_dep = ~s({:mob,     "~> 0.2"})
+      mob_dev_dep = ~s({:mob_dev, "~> 0.2", only: :dev, runtime: false})
+      mob_exs_mob_dir = "Path.join(File.cwd!(), \"deps/mob\")"
+
+      mob_exs_elixir_lib =
+        "System.get_env(\"MOB_ELIXIR_LIB\", System.get_env(\"HOME\") <> \"/.local/share/mise/installs/elixir/1.18.4-otp-28/lib\")"
 
       {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
     end
@@ -491,7 +518,7 @@ defmodule MobNew.ProjectGenerator do
     |> Path.wildcard(match_dot: true)
     |> Enum.reject(&File.dir?/1)
     |> Enum.each(fn src ->
-      rel  = Path.relative_to(src, static_root())
+      rel = Path.relative_to(src, static_root())
       dest = Path.join(project_dir, rel)
       File.mkdir_p!(Path.dirname(dest))
       File.copy!(src, dest)

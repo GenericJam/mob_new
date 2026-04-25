@@ -6,10 +6,16 @@ defmodule Mix.Tasks.Mob.New do
   @moduledoc """
   Creates a new Mob project with Android and iOS boilerplate.
 
-      mix mob.new APP_NAME [--no-install] [--no-ios] [--dest DIR] [--local]
+      mix mob.new APP_NAME [--liveview] [--no-install] [--no-ios] [--dest DIR] [--local]
 
   ## Options
 
+    * `--liveview`     — generate a Phoenix LiveView app wrapped in a Mob WebView.
+                         Calls `mix phx.new` to scaffold a Phoenix project, then
+                         adds the Mob native boilerplate and LiveView bridge patches
+                         (MobHook in app.js, mob-bridge element in root.html.heex,
+                         MobScreen, mob.exs with liveview_port). Requires
+                         `phx_new` archive to be installed (`mix archive.install hex phx_new`).
     * `--no-install`   — skip running `mix deps.get` after generation
     * `--no-ios`       — skip iOS boilerplate (use on Linux or Android-only projects)
     * `--dest DIR`     — create project in DIR (default: current directory)
@@ -21,7 +27,7 @@ defmodule Mix.Tasks.Mob.New do
                          `../mob_dev`. Also pre-fills `mob.exs` with real paths
                          so `mix mob.install` skips path configuration prompts.
 
-  ## What gets generated
+  ## What gets generated (native mode, default)
 
       APP_NAME/
         mix.exs
@@ -43,6 +49,22 @@ defmodule Mix.Tasks.Mob.New do
           beam_main.m
           Info.plist
 
+  ## What gets generated (--liveview mode)
+
+  Everything `mix phx.new APP_NAME --no-install` generates, plus:
+
+      APP_NAME/
+        lib/APP_NAME/mob_screen.ex      # Mob.Screen wrapping the Phoenix WebView
+        mob.exs                          # Mob config with liveview_port: 4000
+        android/                         # same Android boilerplate as native mode
+        ios/                             # same iOS boilerplate as native mode
+
+  Patches applied to the Phoenix project:
+    - `assets/js/app.js`                — MobHook definition + registration
+    - `lib/APP_NAME_web/.../root.html.heex` — mob-bridge hidden div
+    - `lib/APP_NAME/application.ex`     — Mob.App child in supervision tree
+    - `mix.exs`                          — mob / mob_dev deps added
+
   After generation, run:
 
       cd APP_NAME
@@ -50,7 +72,13 @@ defmodule Mix.Tasks.Mob.New do
 
   """
 
-  @switches [no_install: :boolean, no_ios: :boolean, dest: :string, local: :boolean]
+  @switches [
+    no_install: :boolean,
+    no_ios: :boolean,
+    dest: :string,
+    local: :boolean,
+    liveview: :boolean
+  ]
 
   @impl Mix.Task
   def run(argv) do
@@ -67,9 +95,10 @@ defmodule Mix.Tasks.Mob.New do
     end
 
     dest_dir = opts[:dest] || "."
-    project_dir = Path.join(dest_dir, app_name)
-    local = opts[:local] || false
-    no_ios = opts[:no_ios] || false
+    project_dir = Path.join(Path.expand(dest_dir), app_name)
+    local    = opts[:local]    || false
+    no_ios   = opts[:no_ios]   || false
+    liveview = opts[:liveview] || false
 
     if local do
       Mix.shell().info([:yellow, "* local mode: using path: deps for mob and mob_dev", :reset])
@@ -79,20 +108,39 @@ defmodule Mix.Tasks.Mob.New do
       Mix.shell().info([:yellow, "* --no-ios: skipping iOS boilerplate", :reset])
     end
 
+    if liveview do
+      Mix.shell().info([:cyan, "* --liveview: generating Phoenix LiveView app with Mob bridge", :reset])
+    end
+
     Mix.shell().info([:green, "* creating ", :reset, project_dir])
 
-    case MobNew.ProjectGenerator.generate(app_name, dest_dir, local: local, no_ios: no_ios) do
+    gen_opts = [local: local, no_ios: no_ios]
+
+    result =
+      if liveview do
+        MobNew.ProjectGenerator.liveview_generate(app_name, dest_dir, gen_opts)
+      else
+        MobNew.ProjectGenerator.generate(app_name, dest_dir, gen_opts)
+      end
+
+    case result do
       {:error, reason} ->
         Mix.raise(reason)
 
       {:ok, project_dir} ->
-        print_created_files(project_dir, app_name, no_ios)
+        unless liveview do
+          print_created_files(project_dir, app_name, no_ios)
+        end
 
         unless opts[:no_install] do
           fetch_deps(project_dir)
         end
 
-        print_next_steps(app_name, opts[:no_install])
+        if liveview do
+          print_liveview_next_steps(app_name, opts[:no_install])
+        else
+          print_next_steps(app_name, opts[:no_install])
+        end
     end
   end
 
@@ -151,6 +199,48 @@ defmodule Mix.Tasks.Mob.New do
         mix mob.deploy --native        # first time, or after native code changes
 
     Day-to-day development — just push changed BEAMs, no native rebuild needed:
+
+        mix mob.deploy                 # fast push + restart
+        mix mob.watch                  # auto-push on file save
+    """)
+  end
+
+  defp print_liveview_next_steps(app_name, no_install) do
+    install_hint =
+      if no_install,
+        do: "\n    mix deps.get",
+        else: ""
+
+    Mix.shell().info("""
+
+    Your Mob LiveView app #{app_name} is ready!
+    #{install_hint}
+    Next steps:
+
+    1. Edit mob.exs with your local paths (mob_dir, elixir_lib).
+    2. Edit android/local.properties with your Android SDK path.
+    3. Run first-time setup:
+
+        cd #{app_name}
+        mix mob.install                # icon generation + first-run setup
+
+    4. Configure your database in config/dev.exs and run:
+
+        mix ecto.create
+
+    5. Start Phoenix locally to verify it works:
+
+        mix phx.server
+
+    6. Deploy to device (first time — builds native APK/iOS app):
+
+        mix mob.deploy --native
+
+    The Mob WebView will load your Phoenix app at http://127.0.0.1:4000/.
+    Verify `window.mob.send` in browser devtools routes through `pushEvent`
+    (not `postMessage`) to confirm the LiveView bridge is active.
+
+    Day-to-day development:
 
         mix mob.deploy                 # fast push + restart
         mix mob.watch                  # auto-push on file save

@@ -651,4 +651,180 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "it.navKey"
     end
   end
+
+  # ── liveview_generate/3 ──────────────────────────────────────────────────────
+  #
+  # These tests call `mix phx.new` as a subprocess — tagged :integration so they
+  # are excluded from the fast unit-test run. Run explicitly with:
+  #
+  #   mix test --only integration
+  #
+  # They require the phx_new archive to be installed:
+  #   mix archive.install hex phx_new --force
+
+  describe "liveview_generate/3" do
+    setup do
+      tmp = Path.join(System.tmp_dir!(), "mob_new_lv_test_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+      on_exit(fn -> File.rm_rf!(tmp) end)
+      {:ok, tmp: tmp}
+    end
+
+    @tag :integration
+    test "returns {:ok, project_dir}", %{tmp: tmp} do
+      assert {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      assert String.ends_with?(dir, "lv_test")
+    end
+
+    @tag :integration
+    test "creates project directory", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      assert File.dir?(dir)
+    end
+
+    @tag :integration
+    test "returns error if directory already exists", %{tmp: tmp} do
+      File.mkdir_p!(Path.join(tmp, "lv_test"))
+      assert {:error, msg} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      assert msg =~ "already exists"
+    end
+
+    @tag :integration
+    test "generates mix.exs with mob dep", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "mix.exs"))
+      assert content =~ ":mob"
+      assert content =~ ":mob_dev"
+    end
+
+    @tag :integration
+    test "generates mob_screen.ex", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      assert File.exists?(Path.join(dir, "lib/lv_test/mob_screen.ex"))
+    end
+
+    @tag :integration
+    test "mob_screen.ex uses correct module name and Mob.Screen", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "lib/lv_test/mob_screen.ex"))
+      assert content =~ "defmodule LvTest.MobScreen"
+      assert content =~ "use Mob.Screen"
+      assert content =~ "Mob.LiveView.local_url"
+    end
+
+    @tag :integration
+    test "generates mob.exs with liveview_port", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      assert File.exists?(Path.join(dir, "mob.exs"))
+      content = File.read!(Path.join(dir, "mob.exs"))
+      assert content =~ "liveview_port: 4200"
+    end
+
+    @tag :integration
+    test "mob.exs contains mob_dir and elixir_lib", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "mob.exs"))
+      assert content =~ "mob_dir"
+      assert content =~ "elixir_lib"
+    end
+
+    @tag :integration
+    test "patches assets/js/app.js with MobHook", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "assets/js/app.js"))
+      assert content =~ "const MobHook ="
+      assert content =~ "hooks: {MobHook}"
+      assert content =~ "pushEvent(\"mob_message\", data)"
+    end
+
+    @tag :integration
+    test "patches root.html.heex with mob-bridge element", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      root_html =
+        Path.join(dir, "lib/lv_test_web/components/layouts/root.html.heex")
+      assert File.exists?(root_html)
+      content = File.read!(root_html)
+      assert content =~ ~s(id="mob-bridge")
+      assert content =~ ~s(phx-hook="MobHook")
+    end
+
+    @tag :integration
+    test "generates lib/<app>/mob_app.ex BEAM entry point", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      assert File.exists?(Path.join(dir, "lib/lv_test/mob_app.ex"))
+    end
+
+    @tag :integration
+    test "mob_app.ex starts Phoenix app and MobScreen", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "lib/lv_test/mob_app.ex"))
+      assert content =~ "defmodule LvTest.MobApp"
+      assert content =~ "ensure_all_started(:lv_test)"
+      assert content =~ "Mob.Screen.start_root(LvTest.MobScreen)"
+    end
+
+    @tag :integration
+    test "generates src/<app>.erl Erlang bootstrap", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      assert File.exists?(Path.join(dir, "src/lv_test.erl"))
+    end
+
+    @tag :integration
+    test "src/lv_test.erl calls MobApp not App", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "src/lv_test.erl"))
+      assert content =~ "'Elixir.LvTest.MobApp':start()"
+      refute content =~ "'Elixir.LvTest.App':start()"
+    end
+
+    @tag :integration
+    test "mix.exs has erlc_paths: [\"src\"]", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "mix.exs"))
+      assert content =~ ~s(erlc_paths: ["src"])
+    end
+
+    @tag :integration
+    test "application.ex is NOT patched (Phoenix owns supervision tree)", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "lib/lv_test/application.ex"))
+      # Mob.App should NOT be added to the Phoenix supervision tree
+      refute content =~ "Mob.App"
+    end
+
+    @tag :integration
+    test "generates Android boilerplate", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      assert File.exists?(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
+      assert File.exists?(Path.join(dir, "android/app/src/main/java/com/mob/lv_test/MainActivity.kt"))
+    end
+
+    @tag :integration
+    test "generates iOS boilerplate", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      assert File.exists?(Path.join(dir, "ios/beam_main.m"))
+      assert File.exists?(Path.join(dir, "ios/Info.plist"))
+    end
+
+    @tag :integration
+    test ".gitignore excludes mob.exs", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, ".gitignore"))
+      assert content =~ "mob.exs"
+    end
+
+    @tag :integration
+    test "generates android/gradlew as executable", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      {:ok, %{mode: mode}} = File.stat(Path.join(dir, "android/gradlew"))
+      assert Bitwise.band(mode, 0o100) != 0
+    end
+
+    @tag :integration
+    test "generates local dep paths when --local flag set", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp, local: true)
+      content = File.read!(Path.join(dir, "mix.exs"))
+      assert content =~ ~s(path:)
+    end
+  end
 end

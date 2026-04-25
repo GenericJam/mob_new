@@ -96,7 +96,7 @@ import androidx.camera.core.Preview as CameraPreview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.LifecycleOwner
 
 /**
  * Bridge between the BEAM and Jetpack Compose.
@@ -644,7 +644,7 @@ object MobBridge {
     }
 
     // ── Camera preview ────────────────────────────────────────────────────
-    private var previewCameraProvider: ProcessCameraProvider? = null
+    internal var previewCameraProvider: ProcessCameraProvider? = null
 
     @JvmStatic
     fun camera_start_preview(pid: Long, optsJson: String) {
@@ -667,7 +667,7 @@ object MobBridge {
     // ── Alerts / action sheets / toasts ───────────────────────────────────
 
     @JvmStatic
-    fun alertShow(title: String, message: String, buttonsJson: String) {
+    fun alert_show(title: String, message: String, buttonsJson: String) {
         val activity = activityRef?.get() ?: return
         val buttons = parseButtonsJson(buttonsJson)
         activity.runOnUiThread {
@@ -694,7 +694,7 @@ object MobBridge {
     }
 
     @JvmStatic
-    fun actionSheetShow(title: String, buttonsJson: String) {
+    fun action_sheet_show(title: String, buttonsJson: String) {
         val activity = activityRef?.get() ?: return
         val buttons = parseButtonsJson(buttonsJson)
         val nonCancel = buttons.filter { it["style"] != "cancel" }
@@ -717,7 +717,7 @@ object MobBridge {
     }
 
     @JvmStatic
-    fun toastShow(message: String, duration: String) {
+    fun toast_show(message: String, duration: String) {
         val activity = activityRef?.get() ?: return
         activity.runOnUiThread {
             val dur = if (duration == "long") android.widget.Toast.LENGTH_LONG
@@ -754,7 +754,7 @@ object MobBridge {
     }
 
     @JvmStatic
-    fun webviewCanGoBack(): Boolean {
+    fun webview_can_go_back(): Boolean {
         val wv = _webView ?: return false
         val latch = java.util.concurrent.CountDownLatch(1)
         var result = false
@@ -1001,6 +1001,44 @@ object MobBridge {
 
 // ── Composables ───────────────────────────────────────────────────────────────
 
+// ── Native view component registry ───────────────────────────────────────────
+// Register platform-native Composables by name at app startup. The name is the
+// Elixir module with "Elixir." stripped and "." replaced with "_":
+//   MyApp.ChartComponent → "MyApp_ChartComponent"
+//
+//   MobNativeViewRegistry.register("MyApp_ChartComponent") { props, send ->
+//       ChartView(data = props["data"]) { index ->
+//           send("tapped", mapOf("index" to index))
+//       }
+//   }
+
+typealias MobNativeSend = (event: String, payload: Map<String, Any>) -> Unit
+typealias MobNativeViewFactory = @Composable (props: Map<String, Any?>, send: MobNativeSend) -> Unit
+
+object MobNativeViewRegistry {
+    private val factories = mutableMapOf<String, MobNativeViewFactory>()
+
+    fun register(name: String, factory: MobNativeViewFactory) {
+        factories[name] = factory
+    }
+
+    @Composable
+    fun render(node: MobNode) {
+        val name = node.props["module"] as? String ?: return
+        val factory = factories[name] ?: return
+        val handle = (node.props["component_handle"] as? Number)?.toInt() ?: return
+        val send: MobNativeSend = { event, payload ->
+            try {
+                val json = org.json.JSONObject(payload).toString()
+                nativeDeliverComponentEvent(handle, event, json)
+            } catch (_: Exception) {}
+        }
+        factory(node.props, send)
+    }
+
+    external fun nativeDeliverComponentEvent(handle: Int, event: String, payloadJson: String)
+}
+
 /** Renders a MobNode tree produced by Mob.Renderer. */
 @Composable
 fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
@@ -1047,6 +1085,7 @@ fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
         "video"          -> MobVideoPlayer(node, m)
         "camera_preview" -> MobCameraPreview(node, m)
         "webview"        -> MobWebView(node, m)
+        "native_view"    -> MobNativeViewRegistry.render(node)
     }
 }
 
@@ -1282,8 +1321,8 @@ private fun MobCameraPreview(node: MobNode, modifier: Modifier) {
         CameraSelector.DEFAULT_FRONT_CAMERA
     else
         CameraSelector.DEFAULT_BACK_CAMERA
-    val lifecycleOwner = LocalLifecycleOwner.current
     val context        = LocalContext.current
+    val lifecycleOwner = context as LifecycleOwner
     AndroidView(
         modifier = modifier,
         factory  = { ctx ->
@@ -1338,7 +1377,7 @@ private fun MobWebView(node: MobNode, modifier: Modifier) {
                     addJavascriptInterface(object : Any() {
                         @android.webkit.JavascriptInterface
                         fun postMessage(json: String) {
-                            nativeDeliverWebViewMessage(0L, json)
+                            MobBridge.nativeDeliverWebViewMessage(0L, json)
                         }
                     }, "MobNative")
                     webViewClient = object : android.webkit.WebViewClient() {
@@ -1352,7 +1391,7 @@ private fun MobWebView(node: MobNode, modifier: Modifier) {
                             if (allowList.isEmpty()) return false
                             val reqUrl = request.url.toString()
                             if (allowList.any { reqUrl.startsWith(it) }) return false
-                            nativeDeliverWebViewBlocked(0L, reqUrl)
+                            MobBridge.nativeDeliverWebViewBlocked(0L, reqUrl)
                             return true
                         }
                     }

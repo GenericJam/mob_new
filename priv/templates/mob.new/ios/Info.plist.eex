@@ -27,6 +27,10 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
     </array>
+    <key>NSCameraUsageDescription</key>
+    <string><%= display_name %> uses the camera for capture and preview.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string><%= display_name %> uses the microphone for audio recording.</string>
     <key>UILaunchScreen</key>
     <dict/>
     <key>UIApplicationSceneManifest</key>

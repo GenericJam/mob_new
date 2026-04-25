@@ -17,11 +17,19 @@ defmodule <%= module_name %>.HomeScreen do
         <Text text="<%= display_name %>" text_size={:xl} text_color={:on_surface} padding={:space_sm} />
         <Text text="BEAM running on device" text_size={:sm} text_color={:primary} padding={4} />
         <Spacer size={40} />
-        {nav_button("Text Input",  :open_text)}
+        {nav_button("Text Input",          :open_text)}
         <Spacer size={12} />
         {nav_button("Rock Paper Scissors", :open_list)}
         <Spacer size={12} />
-        {nav_button("Roll Dice",   :open_dice)}
+        {nav_button("Roll Dice",           :open_dice)}
+        <Spacer size={12} />
+        {nav_button("WebView",             :open_webview)}
+        <Spacer size={12} />
+        {nav_button("Audio",               :open_audio)}
+        <Spacer size={12} />
+        {nav_button("Camera",              :open_camera)}
+        <Spacer size={12} />
+        {nav_button("Storage",             :open_storage)}
         <Spacer size={32} />
         <Text text="Theme" text_size={:sm} text_color={:muted} padding={4} />
         <Spacer size={8} />
@@ -47,6 +55,22 @@ defmodule <%= module_name %>.HomeScreen do
 
   def handle_info({:tap, :open_dice}, socket) do
     {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.DiceScreen)}
+  end
+
+  def handle_info({:tap, :open_webview}, socket) do
+    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.WebViewScreen)}
+  end
+
+  def handle_info({:tap, :open_audio}, socket) do
+    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.AudioScreen)}
+  end
+
+  def handle_info({:tap, :open_camera}, socket) do
+    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.CameraScreen)}
+  end
+
+  def handle_info({:tap, :open_storage}, socket) do
+    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.StorageScreen)}
   end
 
   def handle_info({:tap, :theme_obsidian}, socket) do

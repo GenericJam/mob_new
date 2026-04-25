@@ -171,3 +171,13 @@ Java_<%= jni_package %>_MobBridge_nativeDeliverAlertAction(JNIEnv* env, jclass c
     mob_deliver_alert_action(ca);
     (*env)->ReleaseStringUTFChars(env, action, ca);
 }
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverComponentEvent(JNIEnv* env, jclass cls,
+    jint handle, jstring event, jstring payload_json) {
+    const char* ce = (*env)->GetStringUTFChars(env, event,        NULL);
+    const char* cj = (*env)->GetStringUTFChars(env, payload_json, NULL);
+    mob_send_component_event((int)handle, ce, cj);
+    (*env)->ReleaseStringUTFChars(env, event,        ce);
+    (*env)->ReleaseStringUTFChars(env, payload_json, cj);
+}

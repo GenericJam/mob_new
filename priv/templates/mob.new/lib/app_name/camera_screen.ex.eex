@@ -1,0 +1,82 @@
+defmodule <%= module_name %>.CameraScreen do
+  use Mob.Screen
+
+  def mount(_params, _session, socket) do
+    socket = Mob.Permissions.request(socket, :camera)
+    {:ok, Mob.Socket.assign(socket, previewing: false, status: "requesting permission…", last_capture: nil)}
+  end
+
+  def render(assigns) do
+    tap_capture = {self(), :capture_photo}
+    ~MOB"""
+    <Column background={:background} fill_width={true} fill_height={true}>
+      <Text text="Camera" text_size={:lg} text_color={:on_surface} padding={:space_md} />
+      <Text text={"Status: #{assigns.status}"} text_size={:sm} text_color={:primary} padding={4} />
+      {preview_or_placeholder(assigns)}
+      <Row fill_width={true} padding={:space_md}>
+        {preview_toggle(assigns.previewing)}
+        <Spacer size={12} />
+        <Button text="Capture Photo" background={:primary} text_color={:on_primary} padding={:space_md} weight={1} on_tap={tap_capture} />
+      </Row>
+    </Column>
+    """
+  end
+
+  defp preview_or_placeholder(%{previewing: true}) do
+    ~MOB(<CameraPreview facing={:back} weight={1} />)
+  end
+  defp preview_or_placeholder(_) do
+    ~MOB(<Column background={:surface} weight={1} fill_width={true}><Text text="Preview off" text_size={:sm} text_color={:muted} padding={:space_md} /></Column>)
+  end
+
+  defp preview_toggle(true) do
+    tap = {self(), :stop_preview}
+    ~MOB(<Button text="Stop Preview" background={:surface} text_color={:on_surface} padding={:space_md} weight={1} on_tap={tap} />)
+  end
+  defp preview_toggle(false) do
+    tap = {self(), :start_preview}
+    ~MOB(<Button text="Start Preview" background={:surface} text_color={:on_surface} padding={:space_md} weight={1} on_tap={tap} />)
+  end
+
+  def handle_info({:permission, :camera, :granted}, socket) do
+    {:noreply, Mob.Socket.assign(socket, status: "idle")}
+  end
+
+  def handle_info({:permission, :camera, :denied}, socket) do
+    {:noreply, Mob.Socket.assign(socket, status: "camera permission denied")}
+  end
+
+  def handle_info({:tap, :start_preview}, socket) do
+    socket = Mob.Camera.start_preview(socket, facing: :back)
+    {:noreply, Mob.Socket.assign(socket, previewing: true, status: "preview starting…")}
+  end
+
+  def handle_info({:tap, :stop_preview}, socket) do
+    socket = Mob.Camera.stop_preview(socket)
+    {:noreply, Mob.Socket.assign(socket, previewing: false, status: "preview stopped")}
+  end
+
+  def handle_info({:tap, :capture_photo}, socket) do
+    socket = Mob.Camera.capture_photo(socket, quality: :high)
+    {:noreply, Mob.Socket.assign(socket, status: "camera opening…")}
+  end
+
+  def handle_info({:camera, :photo, %{path: path}}, socket) do
+    {:noreply, Mob.Socket.assign(socket, last_capture: path, status: "photo: #{Path.basename(path)}")}
+  end
+
+  def handle_info({:camera, :cancelled}, socket) do
+    {:noreply, Mob.Socket.assign(socket, status: "cancelled")}
+  end
+
+  def handle_info({:camera, :error, reason}, socket) do
+    {:noreply, Mob.Socket.assign(socket, status: "error: #{inspect(reason)}")}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  def terminate(_reason, socket) do
+    if socket.assigns.previewing, do: Mob.Camera.stop_preview(socket)
+    :ok
+  end
+end

@@ -853,5 +853,97 @@ defmodule MobNew.ProjectGeneratorTest do
       content = File.read!(Path.join(dir, "mix.exs"))
       assert content =~ ~s(path:)
     end
+
+    # ── Notes starter app ─────────────────────────────────────────────────────
+
+    @tag :integration
+    test "mix.exs includes ecto_sqlite3", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      assert File.read!(Path.join(dir, "mix.exs")) =~ "ecto_sqlite3"
+    end
+
+    @tag :integration
+    test "generates lib/lv_test/repo.ex", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "lib/lv_test/repo.ex"))
+      assert content =~ "defmodule LvTest.Repo"
+      assert content =~ "Ecto.Adapters.SQLite3"
+      assert content =~ "MOB_DATA_DIR"
+    end
+
+    @tag :integration
+    test "generates lib/lv_test/note.ex schema", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "lib/lv_test/note.ex"))
+      assert content =~ "defmodule LvTest.Note"
+      assert content =~ ~s(schema "notes")
+    end
+
+    @tag :integration
+    test "generates lib/lv_test/notes.ex context", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "lib/lv_test/notes.ex"))
+      assert content =~ "defmodule LvTest.Notes"
+      assert content =~ "def list"
+      assert content =~ "def create"
+    end
+
+    @tag :integration
+    test "generates create_notes migration", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      migration = Path.join(dir, "priv/repo/migrations/20260424000000_create_notes.exs")
+      assert File.exists?(migration)
+      assert File.read!(migration) =~ "create table(:notes)"
+    end
+
+    @tag :integration
+    test "generates NotesListLive, NoteEditorLive, AboutLive", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      live = fn f -> Path.join(dir, "lib/lv_test_web/live/#{f}") end
+      assert File.exists?(live.("notes_list_live.ex"))
+      assert File.exists?(live.("note_editor_live.ex"))
+      assert File.exists?(live.("about_live.ex"))
+    end
+
+    @tag :integration
+    test "router has notes routes", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "lib/lv_test_web/router.ex"))
+      assert content =~ ~s(live "/", NotesListLive)
+      assert content =~ ~s(live "/notes/:id", NoteEditorLive)
+      assert content =~ ~s(live "/about", AboutLive)
+    end
+
+    @tag :integration
+    test "application.ex has Repo in supervision tree", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "lib/lv_test/application.ex"))
+      assert content =~ "LvTest.Repo"
+      refute content =~ "Mob.App"
+    end
+
+    @tag :integration
+    test "config.exs has ecto_repos", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "config/config.exs"))
+      assert content =~ "ecto_repos: [LvTest.Repo]"
+    end
+
+    @tag :integration
+    test "dev.exs has Repo database config", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "config/dev.exs"))
+      assert content =~ "LvTest.Repo"
+      assert content =~ "database:"
+    end
+
+    @tag :integration
+    test "mob_app.ex starts ecto_sqlite3 and runs migrations", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "lib/lv_test/mob_app.ex"))
+      assert content =~ "ensure_all_started(:ecto_sqlite3)"
+      assert content =~ "Ecto.Migrator"
+      assert content =~ "MOB_BEAMS_DIR"
+    end
   end
 end

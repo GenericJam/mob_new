@@ -1084,7 +1084,7 @@ fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
         "lazy_list"  -> MobLazyList(node, m)
         "video"          -> MobVideoPlayer(node, m)
         "camera_preview" -> MobCameraPreview(node, m)
-        "webview"        -> MobWebView(node, m)
+        "web_view"       -> MobWebView(node, m)
         "native_view"    -> MobNativeViewRegistry.render(node)
     }
 }

@@ -221,9 +221,20 @@ defmodule MobNew.LiveViewPatcher do
           live_view: [signing_salt: "#{signing_salt}"]
         )
 
+        # ecto_sqlite3 must be started before #{app_name} so its NIF is loaded
+        # before the Repo supervisor tries to open the database.
+        {:ok, _} = Application.ensure_all_started(:ecto_sqlite3)
+
         # Start the Phoenix application and all its children.
         # This boots the endpoint, repo, pubsub, telemetry, etc.
         {:ok, _} = Application.ensure_all_started(:#{app_name})
+
+        # Run any pending Ecto migrations. MOB_BEAMS_DIR is set by the native
+        # launcher to the flat deploy directory; migrations are copied there at
+        # build time. Falls back to Application.app_dir when running in dev.
+        Ecto.Migrator.with_repo(#{module_name}.Repo, fn _repo ->
+          Ecto.Migrator.run(#{module_name}.Repo, migrations_dir(), :up, all: true)
+        end)
 
         # ComponentRegistry is normally started by Mob.App but we bypass that.
         # Start it standalone so Mob.Screen.start_root can render components.
@@ -235,6 +246,13 @@ defmodule MobNew.LiveViewPatcher do
 
         # Start Erlang distribution so `mix mob.connect` can attach.
         Mob.Dist.ensure_started(node: :"#{app_name}_android@127.0.0.1", cookie: :mob_secret)
+      end
+
+      defp migrations_dir do
+        case System.get_env("MOB_BEAMS_DIR") do
+          nil -> Application.app_dir(:#{app_name}, "priv/repo/migrations")
+          beams_dir -> Path.join([beams_dir, "priv", "repo", "migrations"])
+        end
       end
     end
     """
@@ -275,6 +293,442 @@ defmodule MobNew.LiveViewPatcher do
 
       def handle_event("ping", _params, socket) do
         {:noreply, assign(socket, :pong, true)}
+      end
+    end
+    """
+  end
+
+  @doc "Generates `lib/<app>/repo.ex` — Ecto.Repo backed by SQLite3."
+  def repo_content(module_name, app_name) do
+    """
+    defmodule #{module_name}.Repo do
+      use Ecto.Repo,
+        otp_app: :#{app_name},
+        adapter: Ecto.Adapters.SQLite3
+
+      @impl true
+      def init(_type, config) do
+        db_path =
+          case System.get_env("MOB_DATA_DIR") do
+            nil -> config[:database] || Path.join(File.cwd!(), "#{app_name}.db")
+            dir -> Path.join(dir, "app.db")
+          end
+
+        {:ok, Keyword.merge(config, database: db_path, pool_size: 1)}
+      end
+    end
+    """
+  end
+
+  @doc "Generates `lib/<app>/note.ex` — the Note Ecto schema."
+  def note_content(module_name) do
+    """
+    defmodule #{module_name}.Note do
+      use Ecto.Schema
+      import Ecto.Changeset
+
+      schema "notes" do
+        field :title, :string, default: ""
+        field :body, :string, default: ""
+        timestamps(type: :utc_datetime)
+      end
+
+      def changeset(note, attrs) do
+        note
+        |> cast(attrs, [:title, :body])
+      end
+    end
+    """
+  end
+
+  @doc "Generates `lib/<app>/notes.ex` — the Notes context with seed data."
+  def notes_content(module_name, _app_name) do
+    """
+    defmodule #{module_name}.Notes do
+      import Ecto.Query
+      alias #{module_name}.{Repo, Note}
+
+      @seeds [
+        %{title: "Welcome to Mob", body: "LiveView is running on-device inside a WKWebView. The full Phoenix stack — Bandit, Plug, LiveView WebSocket — runs entirely on the device.\\n\\nTry editing this note!"},
+        %{title: "How it works", body: "The app boots the BEAM, starts the Phoenix endpoint on 127.0.0.1:4200, then loads http://127.0.0.1:4200/ in a native WebView.\\n\\nLiveView handles all UI updates over a WebSocket — no page reloads needed."},
+        %{title: "Things to try", body: "• Create a new note with the + button\\n• Edit any note — changes persist to SQLite\\n• Delete notes by tapping the × button\\n• Check out the About tab"},
+      ]
+
+      def list do
+        Repo.all(from n in Note, order_by: [desc: n.updated_at])
+        |> maybe_seed()
+      end
+
+      def get(id), do: Repo.get(Note, id)
+
+      def create do
+        %Note{}
+        |> Note.changeset(%{title: "", body: ""})
+        |> Repo.insert!()
+      end
+
+      def update(id, attrs) do
+        case Repo.get(Note, id) do
+          nil -> nil
+          note ->
+            note
+            |> Note.changeset(attrs)
+            |> Repo.update!()
+        end
+      end
+
+      def delete(id) do
+        case Repo.get(Note, id) do
+          nil -> :ok
+          note -> Repo.delete!(note)
+        end
+        :ok
+      end
+
+      defp maybe_seed([]) do
+        now = DateTime.utc_now() |> DateTime.truncate(:second)
+        @seeds
+        |> Enum.with_index()
+        |> Enum.each(fn {attrs, i} ->
+          ts = DateTime.add(now, -i * 3600, :second)
+          Repo.insert!(%Note{title: attrs.title, body: attrs.body, inserted_at: ts, updated_at: ts})
+        end)
+        Repo.all(from n in Note, order_by: [desc: n.updated_at])
+      end
+      defp maybe_seed(notes), do: notes
+    end
+    """
+  end
+
+  @doc "Generates the create_notes Ecto migration."
+  def migration_content(app_name) do
+    module = app_name |> Macro.camelize()
+    """
+    defmodule #{module}.Repo.Migrations.CreateNotes do
+      use Ecto.Migration
+
+      def change do
+        create table(:notes) do
+          add :title, :string, default: ""
+          add :body, :text, default: ""
+          timestamps(type: :utc_datetime)
+        end
+      end
+    end
+    """
+  end
+
+  @doc "Generates `lib/<app>_web/live/notes_list_live.ex`."
+  def notes_list_live_content(module_name, _app_name) do
+    """
+    defmodule #{module_name}Web.NotesListLive do
+      use #{module_name}Web, :live_view
+
+      alias #{module_name}.Notes
+
+      def mount(_params, _session, socket) do
+        {:ok, assign(socket, notes: Notes.list(), page_title: "Notes")}
+      end
+
+      def render(assigns) do
+        ~H\"\"\"
+        <div class="px-4 pt-4">
+          <div class="flex items-center justify-between mb-4">
+            <h1 class="text-2xl font-bold text-gray-900">Notes</h1>
+            <button
+              phx-click="new_note"
+              class="w-10 h-10 flex items-center justify-center bg-indigo-600 text-white rounded-full shadow-md text-2xl leading-none"
+              aria-label="New note"
+            >
+              +
+            </button>
+          </div>
+
+          <ul :if={@notes != []} class="space-y-2">
+            <li :for={note <- @notes}>
+              <div class="flex items-stretch bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <button
+                  phx-click="open"
+                  phx-value-id={note.id}
+                  class="flex-1 text-left px-4 py-3 min-h-[72px]"
+                >
+                  <p class="font-semibold text-gray-900 leading-tight truncate">
+                    {if note.title == "", do: "Untitled", else: note.title}
+                  </p>
+                  <p class="text-sm text-gray-500 mt-0.5 line-clamp-2">
+                    {if note.body == "", do: "No content", else: note.body}
+                  </p>
+                  <p class="text-xs text-gray-400 mt-1">{format_time(note.updated_at)}</p>
+                </button>
+                <button
+                  phx-click="delete"
+                  phx-value-id={note.id}
+                  data-confirm="Delete this note?"
+                  class="px-4 text-gray-300 hover:text-red-400 border-l border-gray-100 text-xl"
+                  aria-label="Delete"
+                >
+                  ×
+                </button>
+              </div>
+            </li>
+          </ul>
+
+          <div :if={@notes == []} class="flex flex-col items-center justify-center mt-24 text-center">
+            <p class="text-5xl mb-4">📝</p>
+            <p class="text-gray-500 text-lg font-medium">No notes yet</p>
+            <p class="text-gray-400 text-sm mt-1">Tap + to create your first note</p>
+          </div>
+        </div>
+        \"\"\"
+      end
+
+      def handle_event("new_note", _params, socket) do
+        note = Notes.create()
+        {:noreply, push_navigate(socket, to: "/notes/\#{note.id}")}
+      end
+
+      def handle_event("open", %{"id" => id}, socket) do
+        {:noreply, push_navigate(socket, to: "/notes/\#{id}")}
+      end
+
+      def handle_event("delete", %{"id" => id}, socket) do
+        Notes.delete(id)
+        {:noreply, assign(socket, notes: Notes.list())}
+      end
+
+      defp format_time(dt) do
+        now = DateTime.utc_now()
+        diff = DateTime.diff(now, dt, :second)
+
+        cond do
+          diff < 60 -> "Just now"
+          diff < 3600 -> "\#{div(diff, 60)}m ago"
+          diff < 86_400 -> "\#{div(diff, 3600)}h ago"
+          true -> Calendar.strftime(dt, "%b %-d")
+        end
+      end
+    end
+    """
+  end
+
+  @doc "Generates `lib/<app>_web/live/note_editor_live.ex`."
+  def note_editor_live_content(module_name, _app_name) do
+    """
+    defmodule #{module_name}Web.NoteEditorLive do
+      use #{module_name}Web, :live_view
+
+      alias #{module_name}.Notes
+
+      def mount(%{"id" => id}, _session, socket) do
+        case Notes.get(id) do
+          nil ->
+            {:ok, push_navigate(socket, to: "/")}
+
+          note ->
+            {:ok,
+             assign(socket,
+               note: note,
+               word_count: count_words(note.body),
+               saved: true,
+               page_title: if(note.title == "", do: "New Note", else: note.title)
+             )}
+        end
+      end
+
+      def render(assigns) do
+        ~H\"\"\"
+        <div class="flex flex-col h-screen bg-white">
+          <div class="flex items-center px-4 pt-4 pb-2 border-b border-gray-100">
+            <a
+              href="/"
+              class="flex items-center text-indigo-600 text-sm font-medium mr-4 min-w-[44px] min-h-[44px] -ml-2 px-2 justify-center"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+              </svg>
+              Notes
+            </a>
+            <span class="ml-auto text-xs text-gray-400">
+              {if @saved, do: "Saved", else: "Saving…"}
+            </span>
+          </div>
+
+          <form phx-change="update_note" class="flex-1 flex flex-col overflow-hidden">
+            <input
+              type="text"
+              name="title"
+              value={@note.title}
+              placeholder="Title"
+              class="w-full px-4 pt-4 pb-2 text-2xl font-bold text-gray-900 placeholder-gray-300 border-none outline-none bg-white"
+            />
+
+            <textarea
+              name="body"
+              placeholder="Start writing…"
+              class="flex-1 w-full px-4 py-2 text-base text-gray-800 placeholder-gray-300 border-none outline-none resize-none bg-white leading-relaxed"
+            >{@note.body}</textarea>
+          </form>
+
+          <div class="px-4 py-3 border-t border-gray-100 flex items-center justify-between mb-16">
+            <span class="text-xs text-gray-400">
+              {@word_count} {if @word_count == 1, do: "word", else: "words"}
+            </span>
+            <span class="text-xs text-gray-400">
+              {String.length(@note.body)} chars
+            </span>
+          </div>
+        </div>
+        \"\"\"
+      end
+
+      def handle_event("update_note", %{"title" => title, "body" => body}, socket) do
+        note = Notes.update(socket.assigns.note.id, %{title: title, body: body})
+        {:noreply, assign(socket,
+          note: note,
+          word_count: count_words(body),
+          saved: true,
+          page_title: if(title == "", do: "New Note", else: title)
+        )}
+      end
+
+      defp count_words(""), do: 0
+      defp count_words(text) do
+        text |> String.split(~r/\\s+/, trim: true) |> length()
+      end
+    end
+    """
+  end
+
+  @doc "Generates `lib/<app>_web/live/about_live.ex`."
+  def about_live_content(module_name, _app_name) do
+    """
+    defmodule #{module_name}Web.AboutLive do
+      use #{module_name}Web, :live_view
+
+      def mount(_params, _session, socket) do
+        {:ok,
+         assign(socket,
+           page_title: "About",
+           name: "Anonymous",
+           editing_name: false,
+           name_draft: "Anonymous",
+           blurb: "Write something about yourself here.",
+           blurb_word_count: 5
+         )}
+      end
+
+      def render(assigns) do
+        ~H\"\"\"
+        <div class="px-4 pt-6 max-w-lg mx-auto">
+          <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-4">
+            <div class="flex items-center gap-4 mb-4">
+              <div class="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center text-2xl font-bold text-indigo-600">
+                {String.first(@name) |> String.upcase()}
+              </div>
+              <div class="flex-1 min-w-0">
+                <%= if @editing_name do %>
+                  <form phx-submit="save_name" class="flex gap-2">
+                    <input
+                      type="text"
+                      name="name"
+                      value={@name_draft}
+                      phx-change="draft_name"
+                      autofocus
+                      maxlength="40"
+                      class="flex-1 border border-indigo-300 rounded-lg px-3 py-1.5 text-lg font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <button
+                      type="submit"
+                      class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium"
+                    >
+                      Save
+                    </button>
+                  </form>
+                <% else %>
+                  <div class="flex items-center gap-2">
+                    <p class="text-xl font-bold text-gray-900 truncate">{@name}</p>
+                    <button
+                      phx-click="edit_name"
+                      class="text-gray-400 hover:text-indigo-500 p-1"
+                      aria-label="Edit name"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+                      </svg>
+                    </button>
+                  </div>
+                  <p class="text-sm text-gray-400">Tap the pencil to edit</p>
+                <% end %>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-4">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide">About me</h2>
+              <span class="text-xs text-gray-400">
+                {@blurb_word_count} {if @blurb_word_count == 1, do: "word", else: "words"}
+              </span>
+            </div>
+            <textarea
+              name="blurb"
+              phx-change="update_blurb"
+              phx-debounce="200"
+              placeholder="Write something about yourself…"
+              rows="5"
+              class="w-full text-base text-gray-700 placeholder-gray-300 border-none outline-none resize-none leading-relaxed"
+            >{@blurb}</textarea>
+          </div>
+
+          <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">App info</h2>
+            <dl class="space-y-2 text-sm">
+              <div class="flex justify-between">
+                <dt class="text-gray-500">Framework</dt>
+                <dd class="font-medium text-gray-800">Phoenix LiveView</dd>
+              </div>
+              <div class="flex justify-between">
+                <dt class="text-gray-500">Runtime</dt>
+                <dd class="font-medium text-gray-800">BEAM on device</dd>
+              </div>
+              <div class="flex justify-between">
+                <dt class="text-gray-500">Transport</dt>
+                <dd class="font-medium text-gray-800">WebSocket</dd>
+              </div>
+              <div class="flex justify-between">
+                <dt class="text-gray-500">OTP</dt>
+                <dd class="font-medium text-gray-800">{:erlang.system_info(:otp_release)}</dd>
+              </div>
+              <div class="flex justify-between">
+                <dt class="text-gray-500">Elixir</dt>
+                <dd class="font-medium text-gray-800">{System.version()}</dd>
+              </div>
+              <div class="flex justify-between">
+                <dt class="text-gray-500">Notes stored</dt>
+                <dd class="font-medium text-gray-800">{#{module_name}.Notes.list() |> length()}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+        \"\"\"
+      end
+
+      def handle_event("edit_name", _params, socket) do
+        {:noreply, assign(socket, editing_name: true, name_draft: socket.assigns.name)}
+      end
+
+      def handle_event("draft_name", %{"name" => name}, socket) do
+        {:noreply, assign(socket, name_draft: name)}
+      end
+
+      def handle_event("save_name", %{"name" => name}, socket) do
+        name = if String.trim(name) == "", do: "Anonymous", else: String.trim(name)
+        {:noreply, assign(socket, name: name, editing_name: false)}
+      end
+
+      def handle_event("update_blurb", %{"blurb" => blurb}, socket) do
+        count = blurb |> String.split(~r/\\s+/, trim: true) |> length()
+        {:noreply, assign(socket, blurb: blurb, blurb_word_count: count)}
       end
     end
     """

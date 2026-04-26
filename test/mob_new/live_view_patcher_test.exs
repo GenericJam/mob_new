@@ -401,4 +401,177 @@ defmodule MobNew.LiveViewPatcherTest do
       assert content =~ "import Config"
     end
   end
+
+  # ── mob_live_app_content/4 — Ecto additions ───────────────────────────────────
+
+  describe "mob_live_app_content/4 ecto additions" do
+    defp live_app do
+      LiveViewPatcher.mob_live_app_content("MyApp", "my_app", "secret", "salt")
+    end
+
+    test "starts ecto_sqlite3 before the app" do
+      content = live_app()
+      assert content =~ "ensure_all_started(:ecto_sqlite3)"
+      ecto_pos = :binary.match(content, "ensure_all_started(:ecto_sqlite3)") |> elem(0)
+      app_pos = :binary.match(content, "ensure_all_started(:my_app)") |> elem(0)
+      assert ecto_pos < app_pos
+    end
+
+    test "runs Ecto.Migrator after app start" do
+      content = live_app()
+      assert content =~ "Ecto.Migrator.with_repo(MyApp.Repo"
+      assert content =~ "Ecto.Migrator.run"
+      assert content =~ ":up, all: true"
+    end
+
+    test "has migrations_dir/0 that reads MOB_BEAMS_DIR" do
+      content = live_app()
+      assert content =~ "defp migrations_dir"
+      assert content =~ "MOB_BEAMS_DIR"
+    end
+  end
+
+  # ── repo_content/2 ────────────────────────────────────────────────────────────
+
+  describe "repo_content/2" do
+    defp repo, do: LiveViewPatcher.repo_content("MyApp", "my_app")
+
+    test "has correct module name and otp_app" do
+      assert repo() =~ "defmodule MyApp.Repo"
+      assert repo() =~ "otp_app: :my_app"
+      assert repo() =~ "Ecto.Adapters.SQLite3"
+    end
+
+    test "init/2 reads MOB_DATA_DIR" do
+      assert repo() =~ "MOB_DATA_DIR"
+      assert repo() =~ "app.db"
+    end
+
+    test "init/2 sets pool_size: 1" do
+      assert repo() =~ "pool_size: 1"
+    end
+  end
+
+  # ── note_content/1 ────────────────────────────────────────────────────────────
+
+  describe "note_content/1" do
+    test "has correct module and schema" do
+      content = LiveViewPatcher.note_content("MyApp")
+      assert content =~ "defmodule MyApp.Note"
+      assert content =~ ~s(schema "notes")
+      assert content =~ "field :title"
+      assert content =~ "field :body"
+    end
+  end
+
+  # ── notes_content/2 ───────────────────────────────────────────────────────────
+
+  describe "notes_content/2" do
+    defp notes, do: LiveViewPatcher.notes_content("MyApp", "my_app")
+
+    test "has correct module and alias" do
+      assert notes() =~ "defmodule MyApp.Notes"
+      assert notes() =~ "alias MyApp.{Repo, Note}"
+    end
+
+    test "has list/0, get/1, create/0, update/2, delete/1" do
+      content = notes()
+      assert content =~ "def list"
+      assert content =~ "def get(id)"
+      assert content =~ "def create"
+      assert content =~ "def update(id"
+      assert content =~ "def delete(id)"
+    end
+
+    test "seeds on first load" do
+      assert notes() =~ "maybe_seed"
+      assert notes() =~ "Welcome to Mob"
+    end
+  end
+
+  # ── migration_content/0 ───────────────────────────────────────────────────────
+
+  describe "migration_content/1" do
+    test "creates notes table with title and body" do
+      content = LiveViewPatcher.migration_content("my_app")
+      assert content =~ "MyApp.Repo.Migrations.CreateNotes"
+      assert content =~ "create table(:notes)"
+      assert content =~ "add :title"
+      assert content =~ "add :body"
+    end
+  end
+
+  # ── notes_list_live_content/2 ─────────────────────────────────────────────────
+
+  describe "notes_list_live_content/2" do
+    defp nll, do: LiveViewPatcher.notes_list_live_content("MyApp", "my_app")
+
+    test "correct module and alias" do
+      assert nll() =~ "defmodule MyAppWeb.NotesListLive"
+      assert nll() =~ "alias MyApp.Notes"
+    end
+
+    test "mounts with notes list" do
+      assert nll() =~ "Notes.list()"
+    end
+
+    test "handles new_note, open, delete events" do
+      content = nll()
+      assert content =~ ~s("new_note")
+      assert content =~ ~s("open")
+      assert content =~ ~s("delete")
+    end
+  end
+
+  # ── note_editor_live_content/2 ────────────────────────────────────────────────
+
+  describe "note_editor_live_content/2" do
+    defp nel, do: LiveViewPatcher.note_editor_live_content("MyApp", "my_app")
+
+    test "correct module and alias" do
+      assert nel() =~ "defmodule MyAppWeb.NoteEditorLive"
+      assert nel() =~ "alias MyApp.Notes"
+    end
+
+    test "mounts with note by id" do
+      assert nel() =~ ~s(%{"id" => id})
+      assert nel() =~ "Notes.get(id)"
+    end
+
+    test "handles update_note event" do
+      assert nel() =~ ~s("update_note")
+      assert nel() =~ "Notes.update"
+    end
+
+    test "has word count" do
+      assert nel() =~ "word_count"
+      assert nel() =~ "count_words"
+    end
+  end
+
+  # ── about_live_content/2 ──────────────────────────────────────────────────────
+
+  describe "about_live_content/2" do
+    defp about, do: LiveViewPatcher.about_live_content("MyApp", "my_app")
+
+    test "correct module" do
+      assert about() =~ "defmodule MyAppWeb.AboutLive"
+    end
+
+    test "shows OTP release and Elixir version" do
+      content = about()
+      assert content =~ "system_info(:otp_release)"
+      assert content =~ "System.version()"
+    end
+
+    test "shows notes count via Notes.list()" do
+      assert about() =~ "MyApp.Notes.list() |> length()"
+    end
+
+    test "handles name editing events" do
+      content = about()
+      assert content =~ ~s("edit_name")
+      assert content =~ ~s("save_name")
+    end
+  end
 end

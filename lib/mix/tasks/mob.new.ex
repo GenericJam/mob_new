@@ -240,11 +240,16 @@ defmodule Mix.Tasks.Mob.New do
 
     4. Configure your database in config/dev.exs and run:
 
-        mix ecto.create
+        mix ecto.create && mix ecto.migrate
 
-    5. Start Phoenix locally to verify it works:
+    5. Run the Phoenix server once to download JS/CSS dependencies and compile
+       assets. This is required before deploying — skipping it will result in
+       missing assets on device:
 
         mix phx.server
+
+       Open http://localhost:4000 in your browser to confirm it loads, then
+       stop the server (Ctrl-C).
 
     6. Deploy to device (first time — builds native APK/iOS app):
 

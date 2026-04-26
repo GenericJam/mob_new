@@ -236,11 +236,11 @@ defmodule MobNew.ProjectGenerator do
     # 8. Write .gitignore entry for mob.exs (append if file exists)
     patch_gitignore(project_dir)
 
-    # 9. Generate lib/<app>_web/live/page_live.ex and patch router
-    #    (default get "/", PageController, :home fails on-device due to
-    #    template compilation issues; a LiveView route works correctly)
-    generate_page_live(project_dir, app_name, module_name)
-    patch_router_to_liveview(project_dir, app_name)
+    # 9. Generate the notes starter app: Repo, Note schema, Notes context,
+    #    migration, three LiveViews, and patch router + application.ex + configs.
+    inject_ecto_sqlite3_dep(project_dir)
+    patch_config_for_ecto(project_dir, app_name, module_name)
+    generate_notes_app(project_dir, app_name, module_name)
 
     # 10. Overwrite ios/build.sh with the LiveView-specific version
     #     (different deps copy strategy, crypto shim, ssl copy, priv/static deploy)
@@ -329,17 +329,108 @@ defmodule MobNew.ProjectGenerator do
     Mix.shell().info([:green, "* create ", :reset, path])
   end
 
-  defp generate_page_live(project_dir, app_name, module_name) do
-    dir = Path.join([project_dir, "lib", "#{app_name}_web", "live"])
-    path = Path.join(dir, "page_live.ex")
-    File.mkdir_p!(dir)
-    File.write!(path, MobNew.LiveViewPatcher.page_live_content(module_name, app_name))
-    Mix.shell().info([:green, "* create ", :reset, path])
+  defp inject_ecto_sqlite3_dep(project_dir) do
+    path = Path.join(project_dir, "mix.exs")
+
+    if File.exists?(path) do
+      content = File.read!(path)
+
+      unless String.contains?(content, "ecto_sqlite3") do
+        patched =
+          Regex.replace(
+            ~r/(defp deps do\s*\[)/,
+            content,
+            ~s[\\1\n      {:ecto_sqlite3, "~> 0.18"},],
+            global: false
+          )
+
+        File.write!(path, patched)
+        Mix.shell().info([:green, "* patch ", :reset, path, " (added ecto_sqlite3)"])
+      end
+    end
   end
 
-  defp patch_router_to_liveview(project_dir, app_name) do
+  defp patch_config_for_ecto(project_dir, app_name, module_name) do
+    config_exs = Path.join([project_dir, "config", "config.exs"])
+    dev_exs = Path.join([project_dir, "config", "dev.exs"])
+
+    if File.exists?(config_exs) do
+      content = File.read!(config_exs)
+
+      unless String.contains?(content, "ecto_repos") do
+        ecto_config = """
+
+        config :#{app_name},
+          ecto_repos: [#{module_name}.Repo],
+          generators: [timestamp_type: :utc_datetime]
+        """
+
+        patched = String.replace(content, "import_config", ecto_config <> "\nimport_config", global: false)
+        File.write!(config_exs, patched)
+        Mix.shell().info([:green, "* patch ", :reset, config_exs, " (added ecto_repos)"])
+      end
+    end
+
+    if File.exists?(dev_exs) do
+      content = File.read!(dev_exs)
+
+      unless String.contains?(content, "#{module_name}.Repo") do
+        repo_config = """
+
+        config :#{app_name}, #{module_name}.Repo,
+          database: Path.expand("../priv/repo/#{app_name}_dev.db", __DIR__),
+          pool_size: 5
+        """
+
+        File.write!(dev_exs, content <> repo_config)
+        Mix.shell().info([:green, "* patch ", :reset, dev_exs, " (added Repo dev config)"])
+      end
+    end
+  end
+
+  defp generate_notes_app(project_dir, app_name, module_name) do
+    live_dir = Path.join([project_dir, "lib", "#{app_name}_web", "live"])
+    lib_dir = Path.join([project_dir, "lib", app_name])
+    migrations_dir = Path.join([project_dir, "priv", "repo", "migrations"])
+    File.mkdir_p!(live_dir)
+    File.mkdir_p!(lib_dir)
+    File.mkdir_p!(migrations_dir)
+
+    write = fn path, content ->
+      File.write!(path, content)
+      Mix.shell().info([:green, "* create ", :reset, path])
+    end
+
+    write.(Path.join(lib_dir, "repo.ex"),
+      MobNew.LiveViewPatcher.repo_content(module_name, app_name))
+
+    write.(Path.join(lib_dir, "note.ex"),
+      MobNew.LiveViewPatcher.note_content(module_name))
+
+    write.(Path.join(lib_dir, "notes.ex"),
+      MobNew.LiveViewPatcher.notes_content(module_name, app_name))
+
+    write.(Path.join(migrations_dir, "20260424000000_create_notes.exs"),
+      MobNew.LiveViewPatcher.migration_content(app_name))
+
+    write.(Path.join(live_dir, "notes_list_live.ex"),
+      MobNew.LiveViewPatcher.notes_list_live_content(module_name, app_name))
+
+    write.(Path.join(live_dir, "note_editor_live.ex"),
+      MobNew.LiveViewPatcher.note_editor_live_content(module_name, app_name))
+
+    write.(Path.join(live_dir, "about_live.ex"),
+      MobNew.LiveViewPatcher.about_live_content(module_name, app_name))
+
+    patch_router_for_notes(project_dir, app_name, module_name)
+    patch_application_ex_for_repo(project_dir, app_name, module_name)
+  end
+
+  defp patch_router_for_notes(project_dir, app_name, _module_name) do
     web_name = app_name <> "_web"
     path = Path.join([project_dir, "lib", web_name, "router.ex"])
+
+    notes_routes = ~s[live "/", NotesListLive\n    live "/notes/:id", NoteEditorLive\n    live "/about", AboutLive]
 
     if File.exists?(path) do
       content = File.read!(path)
@@ -348,13 +439,42 @@ defmodule MobNew.ProjectGenerator do
         Regex.replace(
           ~r/get\s+"\/",\s+PageController,\s+:home/,
           content,
-          ~s(live "/", PageLive),
+          notes_routes,
           global: false
         )
 
+      patched =
+        if patched == content do
+          # Fallback: replace any existing live "/" route
+          Regex.replace(~r/live\s+"\/",\s+\w+/, content, notes_routes, global: false)
+        else
+          patched
+        end
+
       if patched != content do
         File.write!(path, patched)
-        Mix.shell().info([:green, "* patch ", :reset, path, " (live \"/\", PageLive)"])
+        Mix.shell().info([:green, "* patch ", :reset, path, " (notes routes)"])
+      end
+    end
+  end
+
+  defp patch_application_ex_for_repo(project_dir, app_name, module_name) do
+    path = Path.join([project_dir, "lib", app_name, "application.ex"])
+
+    if File.exists?(path) do
+      content = File.read!(path)
+
+      unless String.contains?(content, "#{module_name}.Repo") do
+        patched =
+          String.replace(
+            content,
+            "#{module_name}Web.Endpoint",
+            "#{module_name}.Repo,\n      #{module_name}Web.Endpoint",
+            global: false
+          )
+
+        File.write!(path, patched)
+        Mix.shell().info([:green, "* patch ", :reset, path, " (added Repo to supervision tree)"])
       end
     end
   end

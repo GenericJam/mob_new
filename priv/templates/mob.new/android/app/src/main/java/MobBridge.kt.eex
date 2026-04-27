@@ -567,6 +567,29 @@ object MobBridge {
         audioPlayer?.setVolume(vol, vol)
     }
 
+    // ── Background keep-alive ─────────────────────────────────────────────
+    @JvmStatic
+    fun background_keep_alive() {
+        val activity = activityRef?.get() ?: return
+        val intent = Intent(activity, BeamForegroundService::class.java).apply {
+            action = BeamForegroundService.ACTION_START
+        }
+        if (Build.VERSION.SDK_INT >= 26) {
+            activity.startForegroundService(intent)
+        } else {
+            activity.startService(intent)
+        }
+    }
+
+    @JvmStatic
+    fun background_stop() {
+        val activity = activityRef?.get() ?: return
+        val intent = Intent(activity, BeamForegroundService::class.java).apply {
+            action = BeamForegroundService.ACTION_STOP
+        }
+        activity.startService(intent)
+    }
+
     // ── Storage ───────────────────────────────────────────────────────────
     @JvmStatic
     fun storage_dir(type: String): String? {

@@ -33,6 +33,11 @@
     <!-- Haptic feedback -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Background keep-alive (Mob.Background) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+        android:minSdkVersion="34" />
+
     <application
         android:label="<%= display_name %>"
         android:icon="@mipmap/ic_launcher"
@@ -59,6 +64,11 @@
         <!-- Scheduled local notification delivery -->
         <receiver android:name=".NotificationReceiver"
             android:exported="false" />
+
+        <!-- Background keep-alive foreground service (Mob.Background) -->
+        <service android:name=".BeamForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- FileProvider for camera temp files (photo / video capture) -->
         <provider

@@ -946,4 +946,38 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "MOB_BEAMS_DIR"
     end
   end
+
+  describe "generate/3 with platform exclusion" do
+    setup do
+      tmp = Path.join(System.tmp_dir!(), "mob_new_platform_test_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+      on_exit(fn -> File.rm_rf!(tmp) end)
+      {:ok, tmp: tmp}
+    end
+
+    test "default emits both android/ and ios/", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_both", tmp)
+      assert File.dir?(Path.join(dir, "android"))
+      assert File.dir?(Path.join(dir, "ios"))
+    end
+
+    test "no_ios: true skips ios/ but keeps android/", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_android", tmp, no_ios: true)
+      assert File.dir?(Path.join(dir, "android"))
+      refute File.dir?(Path.join(dir, "ios"))
+    end
+
+    test "no_android: true skips android/ but keeps ios/", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_ios", tmp, no_android: true)
+      refute File.dir?(Path.join(dir, "android"))
+      assert File.dir?(Path.join(dir, "ios"))
+    end
+
+    test "common files (mix.exs, lib/) emit regardless of platform exclusion", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_ios2", tmp, no_android: true)
+      assert File.exists?(Path.join(dir, "mix.exs"))
+      assert File.exists?(Path.join(dir, "lib/test_ios2/app.ex"))
+      assert File.exists?(Path.join(dir, "lib/test_ios2/home_screen.ex"))
+    end
+  end
 end

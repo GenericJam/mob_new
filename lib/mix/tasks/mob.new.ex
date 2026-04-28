@@ -6,7 +6,21 @@ defmodule Mix.Tasks.Mob.New do
   @moduledoc """
   Creates a new Mob project with Android and iOS boilerplate.
 
-      mix mob.new APP_NAME [--liveview] [--no-install] [--no-ios] [--dest DIR] [--local]
+      mix mob.new APP_NAME [--liveview] [--ios | --android] [--no-install] [--dest DIR] [--local]
+
+  ## Platform selection
+
+  By default the generator emits boilerplate for both Android and iOS. Pass
+  one of the platform flags to scope it to a single platform:
+
+      mix mob.new my_app --ios        # iOS only — no android/ directory generated
+      mix mob.new my_app --android    # Android only — no ios/ directory generated
+      mix mob.new my_app              # both (default)
+
+  `--no-ios` and `--no-android` are equivalent inverse forms (kept for
+  back-compat). `mix mob.install`, `mix mob.deploy`, and `mix mob.doctor`
+  detect the project's platform set from on-disk layout, so a single-platform
+  project skips the absent platform's setup automatically.
 
   ## Options
 
@@ -16,8 +30,11 @@ defmodule Mix.Tasks.Mob.New do
                          (MobHook in app.js, mob-bridge element in root.html.heex,
                          MobScreen, mob.exs with liveview_port). Requires
                          `phx_new` archive to be installed (`mix archive.install hex phx_new`).
+    * `--ios`          — generate iOS boilerplate only (skip android/)
+    * `--android`      — generate Android boilerplate only (skip ios/)
+    * `--no-ios`       — alias for `--android` (skip iOS boilerplate)
+    * `--no-android`   — alias for `--ios` (skip Android boilerplate)
     * `--no-install`   — skip running `mix deps.get` after generation
-    * `--no-ios`       — skip iOS boilerplate (use on Linux or Android-only projects)
     * `--dest DIR`     — create project in DIR (default: current directory)
     * `--local`        — use `path:` deps pointing to local mob/mob_dev repos
                          instead of hex version constraints. **For Mob framework
@@ -75,6 +92,9 @@ defmodule Mix.Tasks.Mob.New do
   @switches [
     no_install: :boolean,
     no_ios: :boolean,
+    no_android: :boolean,
+    ios: :boolean,
+    android: :boolean,
     dest: :string,
     local: :boolean,
     liveview: :boolean
@@ -110,8 +130,33 @@ defmodule Mix.Tasks.Mob.New do
   defp parse_gen_opts(opts) do
     dest_dir = opts[:dest] || "."
     liveview = opts[:liveview] || false
-    gen_opts = [local: opts[:local] || false, no_ios: opts[:no_ios] || false]
+    {no_ios, no_android} = resolve_platforms!(opts)
+
+    gen_opts = [
+      local: opts[:local] || false,
+      no_ios: no_ios,
+      no_android: no_android
+    ]
+
     {dest_dir, liveview, gen_opts}
+  end
+
+  # Resolves the four platform-related flags into {no_ios?, no_android?}.
+  # Positive flags (--ios, --android) and negative flags (--no-ios, --no-android)
+  # are accepted; --ios is sugar for --no-android and vice versa.
+  defp resolve_platforms!(opts) do
+    ios? = opts[:ios] == true
+    android? = opts[:android] == true
+    no_ios? = opts[:no_ios] == true or android?
+    no_android? = opts[:no_android] == true or ios?
+
+    if no_ios? and no_android? do
+      Mix.raise(
+        "Cannot exclude both platforms. Pass at most one of --ios, --android, --no-ios, --no-android."
+      )
+    end
+
+    {no_ios?, no_android?}
   end
 
   defp log_flags(gen_opts, liveview) do
@@ -120,7 +165,11 @@ defmodule Mix.Tasks.Mob.New do
     end
 
     if gen_opts[:no_ios] do
-      Mix.shell().info([:yellow, "* --no-ios: skipping iOS boilerplate", :reset])
+      Mix.shell().info([:yellow, "* iOS skipped — Android-only project", :reset])
+    end
+
+    if gen_opts[:no_android] do
+      Mix.shell().info([:yellow, "* Android skipped — iOS-only project", :reset])
     end
 
     if liveview do
@@ -141,12 +190,13 @@ defmodule Mix.Tasks.Mob.New do
   end
 
   defp post_generate(project_dir, app_name, liveview, gen_opts, opts) do
-    unless liveview, do: print_created_files(project_dir, app_name, gen_opts[:no_ios])
+    unless liveview, do: print_created_files(project_dir, app_name, gen_opts)
     unless opts[:no_install], do: fetch_deps(project_dir)
+
     if liveview do
       print_liveview_next_steps(app_name, opts[:no_install])
     else
-      print_next_steps(app_name, opts[:no_install])
+      print_next_steps(app_name, opts[:no_install], gen_opts)
     end
   end
 
@@ -171,33 +221,41 @@ defmodule Mix.Tasks.Mob.New do
     end
   end
 
-  defp print_created_files(project_dir, app_name, no_ios) do
-    files =
-      [
-        "mix.exs",
-        "lib/#{app_name}/app.ex",
-        "lib/#{app_name}/home_screen.ex",
-        "android/settings.gradle",
-        "android/build.gradle",
-        "android/app/build.gradle",
-        "android/app/src/main/AndroidManifest.xml",
-        "android/app/src/main/java/com/mob/#{app_name}/MainActivity.kt",
-        "android/app/src/main/java/com/mob/#{app_name}/MobBridge.kt",
-        "android/app/src/main/java/com/mob/#{app_name}/MobNode.kt",
-        "android/app/src/main/java/com/mob/#{app_name}/MobScannerActivity.kt",
-        "android/gradle.properties"
-      ] ++ if(no_ios, do: [], else: ["ios/beam_main.m", "ios/Info.plist"])
+  defp print_created_files(project_dir, app_name, gen_opts) do
+    no_ios = gen_opts[:no_ios] || false
+    no_android = gen_opts[:no_android] || false
 
-    Enum.each(files, fn f ->
+    common = ["mix.exs", "lib/#{app_name}/app.ex", "lib/#{app_name}/home_screen.ex"]
+
+    android_files =
+      if no_android,
+        do: [],
+        else: [
+          "android/settings.gradle",
+          "android/build.gradle",
+          "android/app/build.gradle",
+          "android/app/src/main/AndroidManifest.xml",
+          "android/app/src/main/java/com/mob/#{app_name}/MainActivity.kt",
+          "android/app/src/main/java/com/mob/#{app_name}/MobBridge.kt",
+          "android/app/src/main/java/com/mob/#{app_name}/MobNode.kt",
+          "android/app/src/main/java/com/mob/#{app_name}/MobScannerActivity.kt",
+          "android/gradle.properties"
+        ]
+
+    ios_files = if no_ios, do: [], else: ["ios/beam_main.m", "ios/Info.plist"]
+
+    Enum.each(common ++ android_files ++ ios_files, fn f ->
       Mix.shell().info([:green, "* creating ", :reset, Path.join(project_dir, f)])
     end)
   end
 
-  defp print_next_steps(app_name, no_install) do
+  defp print_next_steps(app_name, no_install, gen_opts) do
     install_hint =
       if no_install,
         do: "\n    mix deps.get",
         else: ""
+
+    {paths_hint, binaries_hint} = platform_specific_hints(gen_opts)
 
     Mix.shell().info("""
 
@@ -206,9 +264,8 @@ defmodule Mix.Tasks.Mob.New do
         cd #{app_name}
         mix mob.install                # generates app icon + first-run setup
 
-    First deploy — edit mob.exs and android/local.properties with your local
-    paths, then build native binaries (APK + iOS app), install on device,
-    and push BEAMs:
+    First deploy — edit mob.exs#{paths_hint}, then build native binaries
+    (#{binaries_hint}), install on device, and push BEAMs:
 
         mix mob.deploy --native        # first time, or after native code changes
 
@@ -217,6 +274,20 @@ defmodule Mix.Tasks.Mob.New do
         mix mob.deploy                 # fast push + restart
         mix mob.watch                  # auto-push on file save
     """)
+  end
+
+  defp platform_specific_hints(gen_opts) do
+    no_ios = gen_opts[:no_ios] || false
+    no_android = gen_opts[:no_android] || false
+
+    case {no_android, no_ios} do
+      # iOS only — no Android SDK path needed
+      {true, false} -> {"", "iOS app"}
+      # Android only
+      {false, true} -> {" and android/local.properties with your local paths", "APK"}
+      # Both
+      _ -> {" and android/local.properties with your local paths", "APK + iOS app"}
+    end
   end
 
   defp print_liveview_next_steps(app_name, no_install) do

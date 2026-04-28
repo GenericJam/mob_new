@@ -74,7 +74,7 @@ defmodule MobNew.ProjectGenerator do
       File.mkdir_p!(project_dir)
       a = assigns(app_name, opts)
       render_templates(a, project_dir, opts)
-      copy_static(project_dir)
+      copy_static(project_dir, opts)
       {:ok, project_dir}
     end
   end
@@ -162,18 +162,14 @@ defmodule MobNew.ProjectGenerator do
     # then move them into the Phoenix project dir.
     a = assigns(app_name, opts)
     no_ios = Keyword.get(opts, :no_ios, false)
+    no_android = Keyword.get(opts, :no_android, false)
 
     executable_templates = ["ios/build.sh"]
     executable_static = ["android/gradlew"]
 
     templates_root()
     |> find_templates()
-    |> Enum.filter(fn path ->
-      rel = Path.relative_to(path, templates_root())
-
-      String.starts_with?(rel, "android/") or
-        (String.starts_with?(rel, "ios/") and not no_ios)
-    end)
+    |> Enum.filter(&platform_included?(&1, templates_root(), no_ios, no_android))
     |> Enum.each(fn template_path ->
       rel = Path.relative_to(template_path, templates_root())
       dest_rel = expand_path(rel, a)
@@ -186,17 +182,12 @@ defmodule MobNew.ProjectGenerator do
       if dest_rel in executable_templates, do: File.chmod!(dest, 0o755)
     end)
 
-    # Copy Android static files (gradlew, wrapper jars, etc.)
+    # Copy static files (gradlew, wrapper jars, iOS assets, etc.)
     static_root()
     |> Path.join("**/*")
     |> Path.wildcard(match_dot: true)
     |> Enum.reject(&File.dir?/1)
-    |> Enum.filter(fn src ->
-      rel = Path.relative_to(src, static_root())
-
-      String.starts_with?(rel, "android/") or
-        (String.starts_with?(rel, "ios/") and not no_ios)
-    end)
+    |> Enum.filter(&platform_included?(&1, static_root(), no_ios, no_android))
     |> Enum.each(fn src ->
       rel = Path.relative_to(src, static_root())
       dest = Path.join(project_dir, rel)
@@ -206,6 +197,20 @@ defmodule MobNew.ProjectGenerator do
     end)
 
     :ok
+  end
+
+  # Decide whether a template/static file should be emitted given the platform
+  # exclusion flags. Files outside android/ and ios/ are always included
+  # (lib/, mix.exs, etc.). Files under android/ are excluded when no_android,
+  # likewise ios/ when no_ios.
+  defp platform_included?(path, root, no_ios, no_android) do
+    rel = Path.relative_to(path, root)
+
+    cond do
+      String.starts_with?(rel, "android/") -> not no_android
+      String.starts_with?(rel, "ios/") -> not no_ios
+      true -> true
+    end
   end
 
   defp apply_liveview_patches(app_name, project_dir, opts) do
@@ -609,12 +614,11 @@ defmodule MobNew.ProjectGenerator do
 
   defp render_templates(assigns, project_dir, opts) do
     no_ios = Keyword.get(opts, :no_ios, false)
+    no_android = Keyword.get(opts, :no_android, false)
 
     templates_root()
     |> find_templates()
-    |> Enum.reject(fn path ->
-      no_ios and String.contains?(Path.relative_to(path, templates_root()), "ios/")
-    end)
+    |> Enum.filter(&platform_included?(&1, templates_root(), no_ios, no_android))
     |> Enum.each(fn template_path ->
       rel = Path.relative_to(template_path, templates_root())
       dest_rel = expand_path(rel, assigns)
@@ -632,11 +636,15 @@ defmodule MobNew.ProjectGenerator do
 
   @executable_static ["android/gradlew"]
 
-  defp copy_static(project_dir) do
+  defp copy_static(project_dir, opts) do
+    no_ios = Keyword.get(opts, :no_ios, false)
+    no_android = Keyword.get(opts, :no_android, false)
+
     static_root()
     |> Path.join("**/*")
     |> Path.wildcard(match_dot: true)
     |> Enum.reject(&File.dir?/1)
+    |> Enum.filter(&platform_included?(&1, static_root(), no_ios, no_android))
     |> Enum.each(fn src ->
       rel = Path.relative_to(src, static_root())
       dest = Path.join(project_dir, rel)

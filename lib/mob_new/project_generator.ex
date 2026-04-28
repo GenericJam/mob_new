@@ -4,17 +4,45 @@ defmodule MobNew.ProjectGenerator do
 
   ## Naming conventions
 
-  Given `app_name = "my_cool_app"`:
+  Given `app_name = "my_cool_app"` and the default bundle prefix:
     - `module_name`  → `"MyCoolApp"`
     - `display_name` → `"MyCoolApp"`
-    - `bundle_id`    → `"com.mob.my_cool_app"`
-    - `java_package` → `"com.mob.my_cool_app"`
+    - `bundle_id`    → `"com.example.my_cool_app"`
+    - `java_package` → `"com.example.my_cool_app"`
     - `lib_name`     → `"mycoolapp"` (no underscores, for `System.loadLibrary`)
-    - `java_path`    → `"com/mob/my_cool_app"` (for directory structure)
+    - `java_path`    → `"com/example/my_cool_app"` (for directory structure)
+
+  ## Bundle prefix
+
+  The reverse-DNS prefix for the bundle ID defaults to `com.example`, the
+  universal "must change before shipping" placeholder. Override at generation
+  time with the `MOB_BUNDLE_PREFIX` env var:
+
+      MOB_BUNDLE_PREFIX=net.acme mix mob.new my_cool_app
+      # → bundle_id = "net.acme.my_cool_app"
+
+  We deliberately do **not** use `com.mob` — that's our reverse-DNS namespace,
+  and Apple/Google enforce ownership at submission time, so a project that
+  ships with `com.mob.*` would have to be renamed before reaching either store.
   """
 
   defp templates_root, do: :mob_new |> :code.priv_dir() |> Path.join("templates/mob.new")
   defp static_root, do: :mob_new |> :code.priv_dir() |> Path.join("static/mob.new")
+
+  # Reverse-DNS prefix for the generated bundle id. Honors MOB_BUNDLE_PREFIX
+  # (typical value: "com.acme" or "net.you"); defaults to "com.example", the
+  # universal "must change before shipping" placeholder. Never defaults to
+  # "com.mob" — Apple and Google enforce reverse-DNS ownership at App Store
+  # / Play Store submission, so apps generated with our namespace would have
+  # to be renamed before reaching either store.
+  @spec bundle_prefix() :: String.t()
+  def bundle_prefix do
+    case System.get_env("MOB_BUNDLE_PREFIX") do
+      nil -> "com.example"
+      "" -> "com.example"
+      raw -> String.trim(raw)
+    end
+  end
 
   @doc """
   Returns the EEx template assigns map for `app_name`.
@@ -29,7 +57,8 @@ defmodule MobNew.ProjectGenerator do
   def assigns(app_name, opts \\ []) do
     module_name = Macro.camelize(app_name)
     display_name = module_name
-    bundle_id = "com.mob.#{app_name}"
+    bundle_prefix = bundle_prefix()
+    bundle_id = "#{bundle_prefix}.#{app_name}"
     java_package = bundle_id
     lib_name = String.replace(app_name, "_", "")
     java_path = String.replace(bundle_id, ".", "/")

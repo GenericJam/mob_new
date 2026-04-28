@@ -1,5 +1,7 @@
 defmodule MobNew.ProjectGeneratorTest do
-  use ExUnit.Case, async: true
+  # async: false because some tests mutate the process-global MOB_BUNDLE_PREFIX
+  # env var. Running them in parallel would race.
+  use ExUnit.Case, async: false
 
   alias MobNew.ProjectGenerator
 
@@ -14,8 +16,32 @@ defmodule MobNew.ProjectGeneratorTest do
       assert ProjectGenerator.assigns("myapp").module_name == "Myapp"
     end
 
-    test "bundle_id uses com.mob prefix" do
-      assert ProjectGenerator.assigns("my_app").bundle_id == "com.mob.my_app"
+    test "bundle_id uses com.example prefix by default" do
+      System.delete_env("MOB_BUNDLE_PREFIX")
+      assert ProjectGenerator.assigns("my_app").bundle_id == "com.example.my_app"
+    end
+
+    test "bundle_id honors MOB_BUNDLE_PREFIX env var" do
+      System.put_env("MOB_BUNDLE_PREFIX", "net.acme")
+
+      try do
+        assigns = ProjectGenerator.assigns("my_app")
+        assert assigns.bundle_id == "net.acme.my_app"
+        assert assigns.java_package == "net.acme.my_app"
+        assert assigns.java_path == "net/acme/my_app"
+      after
+        System.delete_env("MOB_BUNDLE_PREFIX")
+      end
+    end
+
+    test "empty MOB_BUNDLE_PREFIX falls back to com.example" do
+      System.put_env("MOB_BUNDLE_PREFIX", "")
+
+      try do
+        assert ProjectGenerator.assigns("my_app").bundle_id == "com.example.my_app"
+      after
+        System.delete_env("MOB_BUNDLE_PREFIX")
+      end
     end
 
     test "java_package matches bundle_id" do
@@ -32,7 +58,7 @@ defmodule MobNew.ProjectGeneratorTest do
     end
 
     test "java_path replaces dots with slashes" do
-      assert ProjectGenerator.assigns("my_app").java_path == "com/mob/my_app"
+      assert ProjectGenerator.assigns("my_app").java_path == "com/example/my_app"
     end
 
     test "display_name equals module_name" do
@@ -120,12 +146,12 @@ defmodule MobNew.ProjectGeneratorTest do
     test "AndroidManifest.xml has correct bundle_id", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       manifest = File.read!(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
-      assert manifest =~ ~s(package="com.mob.test_app")
+      assert manifest =~ ~s(package="com.example.test_app")
     end
 
     test "generates MainActivity.kt in correct package path", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      kt = Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt")
+      kt = Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt")
       assert File.exists?(kt)
     end
 
@@ -133,16 +159,16 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       kt =
-        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt"))
 
-      assert kt =~ "package com.mob.test_app"
+      assert kt =~ "package com.example.test_app"
     end
 
     test "MainActivity.kt has correct loadLibrary name", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       kt =
-        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt"))
 
       assert kt =~ ~s[System.loadLibrary("testapp")]
     end
@@ -166,7 +192,7 @@ defmodule MobNew.ProjectGeneratorTest do
     test "Info.plist has correct bundle_id and display_name", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "ios/Info.plist"))
-      assert content =~ "com.mob.test_app"
+      assert content =~ "com.example.test_app"
       assert content =~ "TestApp"
     end
 
@@ -205,19 +231,19 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
       assert content =~ ~s(#define APP_MODULE    "test_app")
-      assert content =~ "Java_com_mob_test_1app_MainActivity_nativeSetActivity"
-      assert content =~ "Java_com_mob_test_1app_MainActivity_nativeStartBeam"
+      assert content =~ "Java_com_example_test_1app_MainActivity_nativeSetActivity"
+      assert content =~ "Java_com_example_test_1app_MainActivity_nativeStartBeam"
     end
 
     test "beam_jni.c has correct BRIDGE_CLASS", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
-      assert content =~ ~s("com/mob/test_app/MobBridge")
+      assert content =~ ~s("com/example/test_app/MobBridge")
     end
 
     test "generates MobBridge.kt in correct package path", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      path = Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt")
+      path = Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt")
       assert File.exists?(path)
     end
 
@@ -225,9 +251,9 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       content =
-        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
 
-      assert content =~ "package com.mob.test_app"
+      assert content =~ "package com.example.test_app"
     end
 
     test "app/build.gradle reads local.properties for CMake paths", %{tmp: tmp} do
@@ -241,12 +267,12 @@ defmodule MobNew.ProjectGeneratorTest do
 
     test "assigns jni_package escapes underscores correctly" do
       a = ProjectGenerator.assigns("test_app")
-      assert a.jni_package == "com_mob_test_1app"
+      assert a.jni_package == "com_example_test_1app"
     end
 
     test "assigns jni_package with no underscores is unchanged" do
       a = ProjectGenerator.assigns("myapp")
-      assert a.jni_package == "com_mob_myapp"
+      assert a.jni_package == "com_example_myapp"
     end
 
     test "generates ios/AppDelegate.m", %{tmp: tmp} do
@@ -648,7 +674,7 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       content =
-        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
 
       assert content =~ "data class RootState(val navKey: Int,"
     end
@@ -657,7 +683,7 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       content =
-        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MobBridge.kt"))
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
 
       assert content =~ "navKey + 1"
       assert content =~ ~s(transition != "none")
@@ -667,7 +693,7 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       content =
-        File.read!(Path.join(dir, "android/app/src/main/java/com/mob/test_app/MainActivity.kt"))
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt"))
 
       assert content =~ "contentKey"
       assert content =~ "it.navKey"
@@ -822,7 +848,7 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
 
       assert File.exists?(
-               Path.join(dir, "android/app/src/main/java/com/mob/lv_test/MainActivity.kt")
+               Path.join(dir, "android/app/src/main/java/com/example/lv_test/MainActivity.kt")
              )
     end
 

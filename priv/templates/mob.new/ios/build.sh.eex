@@ -164,17 +164,20 @@ echo "=== Copying EEx stdlib (required by Ecto) ==="
 cp -f "$ELIXIR_LIB/eex/ebin/"*.beam  "$BEAMS_DIR/"
 cp -f "$ELIXIR_LIB/eex/ebin/eex.app" "$BEAMS_DIR/"
 
-# ── Sync OTP runtime to /tmp/otp-ios-sim ─────────────────────────────────────
-# mob_beam.m hardcodes OTP_ROOT=/tmp/otp-ios-sim but build.sh deploys to the
-# cache dir ($OTP_ROOT). Sync the full OTP runtime so the running binary finds
-# all standard library modules and boot scripts at the expected path.
-echo "=== Syncing OTP runtime to /tmp/otp-ios-sim ==="
-mkdir -p "/tmp/otp-ios-sim"
-rsync -a --delete "$OTP_ROOT/" "/tmp/otp-ios-sim/"
+# ── Sync OTP runtime to the simulator's runtime dir ──────────────────────────
+# mob_beam.m reads MOB_SIM_RUNTIME_DIR (passed by `mix mob.deploy` via
+# simctl's SIMCTL_CHILD_* mechanism) to find the OTP runtime at startup.
+# Default lives under ~/.mob/runtime/ios-sim so `mix mob.cache` can list and
+# clean it. Override with MOB_SIM_RUNTIME_DIR in the calling environment.
+RUNTIME_DIR="${MOB_SIM_RUNTIME_DIR:-$HOME/.mob/runtime/ios-sim}"
+echo "=== Syncing OTP runtime to $RUNTIME_DIR ==="
+mkdir -p "$RUNTIME_DIR"
+chmod -R u+w "$RUNTIME_DIR" 2>/dev/null || true
+rsync -a --delete "$OTP_ROOT/" "$RUNTIME_DIR/"
 
 echo "=== Copying Mob logos ==="
-cp "$MOB_DIR/assets/logo/logo_dark.png"  "/tmp/otp-ios-sim/mob_logo_dark.png"
-cp "$MOB_DIR/assets/logo/logo_light.png" "/tmp/otp-ios-sim/mob_logo_light.png"
+cp "$MOB_DIR/assets/logo/logo_dark.png"  "$RUNTIME_DIR/mob_logo_dark.png"
+cp "$MOB_DIR/assets/logo/logo_light.png" "$RUNTIME_DIR/mob_logo_light.png"
 
 echo "=== Spot-check ==="
 ls "$BEAMS_DIR/Elixir.<%= module_name %>.App.beam"

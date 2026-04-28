@@ -69,6 +69,12 @@ mix compile
 
 echo "=== Copying BEAM files to $BEAMS_DIR ==="
 mkdir -p "$BEAMS_DIR"
+# Re-runs can fail with `cp: ... Permission denied` if a previous run left
+# read-only .beam files behind (notably on Nix systems, where the source
+# .beam files in the elixir_lib path are mode 444 and the file mode can leak
+# through depending on the cp implementation). Make everything writable so
+# subsequent cps can overwrite cleanly.
+chmod -R u+w "$BEAMS_DIR" 2>/dev/null || true
 # Copy both .beam and .app files — .app files are required by
 # application:ensure_all_started to resolve each OTP application's metadata.
 cp _build/dev/lib/<%= app_name %>/ebin/*  "$BEAMS_DIR/"
@@ -145,6 +151,7 @@ fi
 echo "=== Copying Elixir stdlib ==="
 mkdir -p "$OTP_ROOT/lib/elixir/ebin"
 mkdir -p "$OTP_ROOT/lib/logger/ebin"
+chmod -R u+w "$OTP_ROOT/lib/elixir/ebin" "$OTP_ROOT/lib/logger/ebin" 2>/dev/null || true
 cp "$ELIXIR_LIB/elixir/ebin/"*.beam  "$OTP_ROOT/lib/elixir/ebin/"
 cp "$ELIXIR_LIB/elixir/ebin/elixir.app" "$OTP_ROOT/lib/elixir/ebin/"
 cp "$ELIXIR_LIB/logger/ebin/"*.beam  "$OTP_ROOT/lib/logger/ebin/"
@@ -154,8 +161,8 @@ echo "=== Copying EEx stdlib (required by Ecto) ==="
 # EEx is part of Elixir but not added to the code path by mob_beam.m.
 # Copy its beams + app into the flat BEAMS_DIR so code:where_is_file("eex.app")
 # resolves correctly and Application.ensure_all_started(:ecto_sqlite3) can start it.
-cp "$ELIXIR_LIB/eex/ebin/"*.beam  "$BEAMS_DIR/"
-cp "$ELIXIR_LIB/eex/ebin/eex.app" "$BEAMS_DIR/"
+cp -f "$ELIXIR_LIB/eex/ebin/"*.beam  "$BEAMS_DIR/"
+cp -f "$ELIXIR_LIB/eex/ebin/eex.app" "$BEAMS_DIR/"
 
 # ── Sync OTP runtime to /tmp/otp-ios-sim ─────────────────────────────────────
 # mob_beam.m hardcodes OTP_ROOT=/tmp/otp-ios-sim but build.sh deploys to the

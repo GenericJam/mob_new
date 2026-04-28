@@ -169,11 +169,24 @@ cp -f "$ELIXIR_LIB/eex/ebin/eex.app" "$BEAMS_DIR/"
 # simctl's SIMCTL_CHILD_* mechanism) to find the OTP runtime at startup.
 # Default lives under ~/.mob/runtime/ios-sim so `mix mob.cache` can list and
 # clean it. Override with MOB_SIM_RUNTIME_DIR in the calling environment.
+#
+# `--no-perms` is essential on Nix systems: ELIXIR_LIB lives in /nix/store
+# where files are mode 444, and macOS BSD `cp` (used above for the stdlib
+# cps) preserves source mode in practice — leaving 444 .beam files all over
+# OTP_ROOT. Without --no-perms, rsync would carry that mode into RUNTIME_DIR
+# and the next `mix mob.deploy` would trip on
+# `cp: cannot create regular file ...: Permission denied` when overwriting.
+# --no-perms keeps existing destination perms untouched and uses the user's
+# umask for newly-created files in RUNTIME_DIR.
 RUNTIME_DIR="${MOB_SIM_RUNTIME_DIR:-$HOME/.mob/runtime/ios-sim}"
 echo "=== Syncing OTP runtime to $RUNTIME_DIR ==="
 mkdir -p "$RUNTIME_DIR"
 chmod -R u+w "$RUNTIME_DIR" 2>/dev/null || true
-rsync -a --delete "$OTP_ROOT/" "$RUNTIME_DIR/"
+rsync -a --delete --no-perms "$OTP_ROOT/" "$RUNTIME_DIR/"
+# Defensive chmod after rsync — even with --no-perms, files that already
+# existed at 444 keep their mode. Make everything writable so the deployer's
+# subsequent BEAM push (mix mob.deploy without --native) can overwrite cleanly.
+chmod -R u+w "$RUNTIME_DIR" 2>/dev/null || true
 
 echo "=== Copying Mob logos ==="
 cp "$MOB_DIR/assets/logo/logo_dark.png"  "$RUNTIME_DIR/mob_logo_dark.png"

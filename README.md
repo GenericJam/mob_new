@@ -24,9 +24,19 @@ mix mob.install    # first-run setup: download OTP runtime, generate icons, writ
 
 | Option | Description |
 |--------|-------------|
+| `--ios` | Generate iOS boilerplate only (skip `android/`) |
+| `--android` | Generate Android boilerplate only (skip `ios/`) |
+| `--liveview` | Wrap a Phoenix LiveView app in a Mob WebView (combines with `--ios` / `--android`) |
 | `--no-install` | Skip `mix deps.get` after generation |
 | `--dest DIR` | Create the project in DIR (default: current directory) |
 | `--local` | Use `path:` deps pointing to local mob/mob_dev repos — see below |
+| `--no-ios` | Alias for `--android` (skip iOS boilerplate) |
+| `--no-android` | Alias for `--ios` (skip Android boilerplate) |
+
+`mix mob.install`, `mix mob.deploy`, and `mix mob.doctor` detect the project's
+platform set from on-disk layout, so a single-platform project skips the
+absent platform's setup automatically (no Android OTP download, no iOS
+toolchain check, etc.).
 
 ### Local development mode (`--local`)
 

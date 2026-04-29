@@ -385,6 +385,7 @@ defmodule MobNew.LiveViewPatcherTest do
       # — the two halves disagreed and the simulator never saw fresh BEAMs.
       content = build_sh()
       assert content =~ ~s(RUNTIME_DIR="${MOB_SIM_RUNTIME_DIR:-$HOME/.mob/runtime/ios-sim}")
+
       refute content =~ "/tmp/otp-ios-sim",
              "build.sh hardcodes /tmp/otp-ios-sim — should use $RUNTIME_DIR"
     end

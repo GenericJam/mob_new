@@ -256,6 +256,7 @@ defmodule Mix.Tasks.Mob.New do
         else: ""
 
     {paths_hint, binaries_hint} = platform_specific_hints(gen_opts)
+    provision_hint = ios_provision_hint(gen_opts)
 
     Mix.shell().info("""
 
@@ -263,7 +264,7 @@ defmodule Mix.Tasks.Mob.New do
     #{install_hint}
         cd #{app_name}
         mix mob.install                # generates app icon + first-run setup
-
+    #{provision_hint}
     First deploy — edit mob.exs#{paths_hint}, then build native binaries
     (#{binaries_hint}), install on device, and push BEAMs:
 
@@ -274,6 +275,24 @@ defmodule Mix.Tasks.Mob.New do
         mix mob.deploy                 # fast push + restart
         mix mob.watch                  # auto-push on file save
     """)
+  end
+
+  # Returns a `mix mob.provision` callout when the project includes iOS, or
+  # an empty string otherwise. Required as a one-time setup step before
+  # `mix mob.deploy --native` can install to a physical iPhone (registers
+  # the bundle ID with Apple and downloads a development provisioning
+  # profile). Skipped for sim-only flows since simctl install doesn't sign.
+  defp ios_provision_hint(gen_opts) do
+    if gen_opts[:no_ios] do
+      ""
+    else
+      """
+
+          mix mob.provision              # iOS only, one-time: register bundle ID
+                                         # + download provisioning profile (skip if
+                                         # you're only running on the simulator)
+      """
+    end
   end
 
   defp platform_specific_hints(gen_opts) do
@@ -322,7 +341,13 @@ defmodule Mix.Tasks.Mob.New do
        Open http://localhost:4000 in your browser to confirm it loads, then
        stop the server (Ctrl-C).
 
-    6. Deploy to device (first time — builds native APK/iOS app):
+    6. iOS only — if you're targeting a physical iPhone, register the bundle
+       ID with Apple and download a provisioning profile (one-time setup;
+       skip for the simulator):
+
+        mix mob.provision
+
+    7. Deploy to device (first time — builds native APK/iOS app):
 
         mix mob.deploy --native
 

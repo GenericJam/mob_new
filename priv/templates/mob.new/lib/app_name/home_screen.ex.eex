@@ -108,6 +108,19 @@ defmodule <%= module_name %>.HomeScreen do
   defp theme_to_module(:birch),  do: Mob.Theme.Birch
   defp theme_to_module(_),       do: Mob.Theme.Obsidian
 
-  defp logo_src(:birch), do: Path.join(System.get_env("ROOTDIR", Path.expand("~/.mob/runtime/ios-sim")), "mob_logo_dark.png")
-  defp logo_src(_),      do: Path.join(System.get_env("ROOTDIR", Path.expand("~/.mob/runtime/ios-sim")), "mob_logo_light.png")
+  defp logo_src(:birch), do: Path.join(rootdir(), "mob_logo_dark.png")
+  defp logo_src(_),      do: Path.join(rootdir(), "mob_logo_light.png")
+
+  # ROOTDIR is set by mob_beam (iOS) and mob_beam.c (Android) before erl_start,
+  # so this fallback is only exercised in unit tests on the host. Don't put
+  # `Path.expand("~/...")` directly in `System.get_env/2`'s default argument —
+  # default args evaluate eagerly, and Android's BEAM has no `HOME` env var,
+  # so `System.user_home!()` would raise `RuntimeError` and abort the screen
+  # before the first render.
+  defp rootdir do
+    case System.get_env("ROOTDIR") do
+      nil -> Path.expand("~/.mob/runtime/ios-sim")
+      val -> val
+    end
+  end
 end

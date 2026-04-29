@@ -230,7 +230,9 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       kt =
-        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt"))
+        File.read!(
+          Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt")
+        )
 
       assert kt =~ "package com.example.test_app"
     end
@@ -239,7 +241,9 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       kt =
-        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt"))
+        File.read!(
+          Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt")
+        )
 
       assert kt =~ ~s[System.loadLibrary("testapp")]
     end
@@ -601,6 +605,26 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "Mob.State.put(:theme"
     end
 
+    test "home_screen.ex does not eagerly evaluate Path.expand in System.get_env default",
+         %{tmp: tmp} do
+      # Regression: `System.get_env("ROOTDIR", Path.expand("~/..."))` evaluates
+      # the second argument unconditionally, and `Path.expand("~/...")` calls
+      # `System.user_home!()` which raises on Android (no `HOME` env var set
+      # by mob_beam.c). That kills the screen GenServer's init silently and
+      # the app stays on the "Starting BEAM…" splash forever. The fix is to
+      # lazy-evaluate the fallback via a helper that uses `case` or `||`.
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/home_screen.ex"))
+
+      refute content =~ ~s|System.get_env("ROOTDIR", Path.expand|,
+             """
+             home_screen.ex eagerly evaluates Path.expand as the default arg
+             to System.get_env — this raises on Android where HOME is unset
+             and crashes the screen's init. Use a `case` or `||` helper so
+             the fallback only fires when ROOTDIR is missing.
+             """
+    end
+
     # ── Ecto SQLite layer ─────────────────────────────────────────────────────
     #
     # Every generated app ships with Ecto + ecto_sqlite3 so developers get a
@@ -764,7 +788,9 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       content =
-        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt"))
+        File.read!(
+          Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt")
+        )
 
       assert content =~ "contentKey"
       assert content =~ "it.navKey"
@@ -876,6 +902,7 @@ defmodule MobNew.ProjectGeneratorTest do
       # _build is in every Phoenix-generated .gitignore, not in the bare-Mob one.
       assert content =~ "_build",
              "phx.new's .gitignore got clobbered — _build exclusion missing"
+
       # And the patch step still ran:
       assert content =~ "mob.exs"
     end
@@ -1109,16 +1136,19 @@ defmodule MobNew.ProjectGeneratorTest do
 
       dev = File.read!(Path.join(dir, "config/dev.exs"))
       assert dev =~ "port: 4200"
+
       refute dev =~ "port: 4000",
              "config/dev.exs still has Phoenix's default 4000 — patch_config_ports regressed"
 
       test_cfg = File.read!(Path.join(dir, "config/test.exs"))
       assert test_cfg =~ "port: 4202"
+
       refute test_cfg =~ "port: 4002",
              "config/test.exs still has Phoenix's default 4002"
 
       runtime = File.read!(Path.join(dir, "config/runtime.exs"))
       assert runtime =~ "\"PORT\") || \"4200\""
+
       refute runtime =~ "\"PORT\") || \"4000\"",
              "config/runtime.exs PORT env-var fallback still 4000"
     end
@@ -1135,7 +1165,12 @@ defmodule MobNew.ProjectGeneratorTest do
 
   describe "generate/3 with platform exclusion" do
     setup do
-      tmp = Path.join(System.tmp_dir!(), "mob_new_platform_test_#{System.unique_integer([:positive])}")
+      tmp =
+        Path.join(
+          System.tmp_dir!(),
+          "mob_new_platform_test_#{System.unique_integer([:positive])}"
+        )
+
       File.mkdir_p!(tmp)
       on_exit(fn -> File.rm_rf!(tmp) end)
       {:ok, tmp: tmp}

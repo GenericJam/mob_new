@@ -403,6 +403,7 @@ defmodule MobNew.LiveViewPatcher do
   @doc "Generates the create_notes Ecto migration."
   def migration_content(app_name) do
     module = app_name |> Macro.camelize()
+
     """
     defmodule #{module}.Repo.Migrations.CreateNotes do
       use Ecto.Migration

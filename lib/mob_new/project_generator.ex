@@ -449,24 +449,24 @@ defmodule MobNew.ProjectGenerator do
     [
       {"config/dev.exs", ~r/port:\s*4000\b/, "port: 4200", "dev port 4000 → 4200"},
       {"config/test.exs", ~r/port:\s*4002\b/, "port: 4202", "test port 4002 → 4202"},
-      {"config/runtime.exs",
-       ~r/"PORT"\s*\)\s*\|\|\s*"4000"/,
-       "\"PORT\") || \"4200\"",
+      {"config/runtime.exs", ~r/"PORT"\s*\)\s*\|\|\s*"4000"/, "\"PORT\") || \"4200\"",
        "runtime PORT default 4000 → 4200"}
     ]
-    |> Enum.each(fn {rel, find, replace, label} ->
-      path = Path.join(project_dir, rel)
+    |> Enum.each(&apply_port_patch(project_dir, &1))
+  end
 
-      if File.exists?(path) do
-        content = File.read!(path)
-        patched = Regex.replace(find, content, replace, global: false)
+  defp apply_port_patch(project_dir, {rel, find, replace, label}) do
+    path = Path.join(project_dir, rel)
 
-        if patched != content do
-          File.write!(path, patched)
-          Mix.shell().info([:green, "* patch ", :reset, path, " (#{label})"])
-        end
+    if File.exists?(path) do
+      content = File.read!(path)
+      patched = Regex.replace(find, content, replace, global: false)
+
+      if patched != content do
+        File.write!(path, patched)
+        Mix.shell().info([:green, "* patch ", :reset, path, " (#{label})"])
       end
-    end)
+    end
   end
 
   defp patch_config_for_ecto(project_dir, app_name, module_name) do
@@ -484,7 +484,11 @@ defmodule MobNew.ProjectGenerator do
           generators: [timestamp_type: :utc_datetime]
         """
 
-        patched = String.replace(content, "import_config", ecto_config <> "\nimport_config", global: false)
+        patched =
+          String.replace(content, "import_config", ecto_config <> "\nimport_config",
+            global: false
+          )
+
         File.write!(config_exs, patched)
         Mix.shell().info([:green, "* patch ", :reset, config_exs, " (added ecto_repos)"])
       end
@@ -520,26 +524,40 @@ defmodule MobNew.ProjectGenerator do
       Mix.shell().info([:green, "* create ", :reset, path])
     end
 
-    write.(Path.join(lib_dir, "repo.ex"),
-      MobNew.LiveViewPatcher.repo_content(module_name, app_name))
+    write.(
+      Path.join(lib_dir, "repo.ex"),
+      MobNew.LiveViewPatcher.repo_content(module_name, app_name)
+    )
 
-    write.(Path.join(lib_dir, "note.ex"),
-      MobNew.LiveViewPatcher.note_content(module_name))
+    write.(
+      Path.join(lib_dir, "note.ex"),
+      MobNew.LiveViewPatcher.note_content(module_name)
+    )
 
-    write.(Path.join(lib_dir, "notes.ex"),
-      MobNew.LiveViewPatcher.notes_content(module_name, app_name))
+    write.(
+      Path.join(lib_dir, "notes.ex"),
+      MobNew.LiveViewPatcher.notes_content(module_name, app_name)
+    )
 
-    write.(Path.join(migrations_dir, "20260424000000_create_notes.exs"),
-      MobNew.LiveViewPatcher.migration_content(app_name))
+    write.(
+      Path.join(migrations_dir, "20260424000000_create_notes.exs"),
+      MobNew.LiveViewPatcher.migration_content(app_name)
+    )
 
-    write.(Path.join(live_dir, "notes_list_live.ex"),
-      MobNew.LiveViewPatcher.notes_list_live_content(module_name, app_name))
+    write.(
+      Path.join(live_dir, "notes_list_live.ex"),
+      MobNew.LiveViewPatcher.notes_list_live_content(module_name, app_name)
+    )
 
-    write.(Path.join(live_dir, "note_editor_live.ex"),
-      MobNew.LiveViewPatcher.note_editor_live_content(module_name, app_name))
+    write.(
+      Path.join(live_dir, "note_editor_live.ex"),
+      MobNew.LiveViewPatcher.note_editor_live_content(module_name, app_name)
+    )
 
-    write.(Path.join(live_dir, "about_live.ex"),
-      MobNew.LiveViewPatcher.about_live_content(module_name, app_name))
+    write.(
+      Path.join(live_dir, "about_live.ex"),
+      MobNew.LiveViewPatcher.about_live_content(module_name, app_name)
+    )
 
     patch_router_for_notes(project_dir, app_name, module_name)
     patch_application_ex_for_repo(project_dir, app_name, module_name)
@@ -549,7 +567,8 @@ defmodule MobNew.ProjectGenerator do
     web_name = app_name <> "_web"
     path = Path.join([project_dir, "lib", web_name, "router.ex"])
 
-    notes_routes = ~s[live "/", NotesListLive\n    live "/notes/:id", NoteEditorLive\n    live "/about", AboutLive]
+    notes_routes =
+      ~s[live "/", NotesListLive\n    live "/notes/:id", NoteEditorLive\n    live "/about", AboutLive]
 
     if File.exists?(path) do
       content = File.read!(path)

@@ -234,18 +234,25 @@ defmodule MobNew.ProjectGenerator do
     :ok
   end
 
-  # When generating a LiveView project, `mix phx.new` already produced its own
-  # mix.exs, config/, lib/<app>/, lib/<app>_web/, .gitignore, and assets/ — and
-  # those are the *correct* versions for a Phoenix app (with gettext,
-  # telemetry_metrics, etc.). The native template's same-named files are
-  # written for the bare-Mob path and would clobber Phoenix's, leaving the
-  # project unable to compile.
-  #
-  # When `:liveview` is true in opts, this predicate returns true for any
-  # template path that Phoenix already owns, so the copy step skips it. Files
-  # that are unique to Mob (mob.exs, src/<app>.erl, android/, ios/, sample
-  # screens we *do* want under lib/<app>/) still get emitted normally.
-  defp liveview_phoenix_owned?(path, root, opts) do
+  @doc """
+  When generating a LiveView project, `mix phx.new` already produced its own
+  mix.exs, config/, lib/<app>/, lib/<app>_web/, .gitignore, and assets/ — and
+  those are the *correct* versions for a Phoenix app (with gettext,
+  telemetry_metrics, etc.). The native template's same-named files are
+  written for the bare-Mob path and would clobber Phoenix's, leaving the
+  project unable to compile.
+
+  When `:liveview` is true in opts, this predicate returns true for any
+  template path that Phoenix already owns, so the copy step skips it. Files
+  that are unique to Mob (mob.exs, src/<app>.erl, android/, ios/) still get
+  emitted normally.
+
+  Public for testing — guards against the regression where a new template
+  path lands in the native tree without being added to the LiveView
+  blocklist.
+  """
+  @spec liveview_phoenix_owned?(String.t(), String.t(), keyword()) :: boolean()
+  def liveview_phoenix_owned?(path, root, opts) do
     if Keyword.get(opts, :liveview, false) do
       rel = Path.relative_to(path, root)
 

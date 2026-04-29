@@ -71,6 +71,77 @@ defmodule MobNew.ProjectGeneratorTest do
     end
   end
 
+  # ── liveview_phoenix_owned?/3 ────────────────────────────────────────────────
+  #
+  # Pure predicate: decides which native-template files must be skipped during
+  # liveview_generate/3 so the freshly-generated Phoenix app's own files
+  # (mix.exs with gettext/telemetry_metrics/etc., config/, lib/<app>/) survive
+  # untouched. Regression target: any new template path that ends up
+  # clobbering a Phoenix-owned file leaves the project unable to compile.
+
+  describe "liveview_phoenix_owned?/3" do
+    @root "/tmp/templates_root"
+
+    defp owned?(rel, opts \\ [liveview: true]) do
+      ProjectGenerator.liveview_phoenix_owned?(Path.join(@root, rel), @root, opts)
+    end
+
+    test "returns false when :liveview is not set (native path is unaffected)" do
+      refute owned?("mix.exs.eex", [])
+      refute owned?("config/config.exs.eex", [])
+      refute owned?("lib/app_name/screen.ex.eex", [])
+    end
+
+    test "returns false when :liveview is explicitly false" do
+      refute owned?("mix.exs.eex", liveview: false)
+    end
+
+    test "blocks mix.exs.eex (Phoenix's mix.exs has gettext/telemetry_metrics)" do
+      assert owned?("mix.exs.eex")
+    end
+
+    test "blocks .gitignore.eex (Phoenix has its own)" do
+      assert owned?(".gitignore.eex")
+    end
+
+    test "blocks .tool-versions.eex (Phoenix has its own)" do
+      assert owned?(".tool-versions.eex")
+    end
+
+    test "blocks anything under config/" do
+      assert owned?("config/config.exs.eex")
+      assert owned?("config/dev.exs.eex")
+      assert owned?("config/runtime.exs.eex")
+    end
+
+    test "blocks anything under lib/app_name/ (native screens collide with Phoenix lib)" do
+      assert owned?("lib/app_name/screen.ex.eex")
+      assert owned?("lib/app_name/audio.ex.eex")
+      assert owned?("lib/app_name/webview.ex.eex")
+    end
+
+    test "blocks anything under priv/ (apply_liveview_patches owns repo migrations)" do
+      assert owned?("priv/static/something.txt")
+      assert owned?("priv/repo/migrations/foo.exs")
+    end
+
+    test "does NOT block native-only paths (android/, ios/, src/, mob.exs)" do
+      refute owned?("android/app/src/main/AndroidManifest.xml.eex")
+      refute owned?("android/build.gradle.eex")
+      refute owned?("ios/beam_main.m")
+      refute owned?("ios/Info.plist.eex")
+      refute owned?("src/app_name.erl.eex")
+      refute owned?("mob.exs.eex")
+    end
+
+    test "does NOT block lib/app_name_web (Mob doesn't ship a _web tree)" do
+      # Defensive: even though there's no native template at this path today,
+      # if one ever lands it should be skipped explicitly via the lib/app_name/
+      # rule, not implicitly by sharing prefix. This test pins the negative case.
+      refute owned?("lib/app_name_web/router.ex.eex")
+    end
+  end
+
   # ── generate/2 ───────────────────────────────────────────────────────────────
 
   describe "generate/2" do
@@ -743,6 +814,70 @@ defmodule MobNew.ProjectGeneratorTest do
       content = File.read!(Path.join(dir, "mix.exs"))
       assert content =~ ":mob"
       assert content =~ ":mob_dev"
+    end
+
+    @tag :integration
+    test "mix.exs preserves Phoenix-owned deps (regression: native mix.exs.eex must not clobber Phoenix's)",
+         %{tmp: tmp} do
+      # The native template ships its own mix.exs.eex which has *only* :mob/:mob_dev.
+      # If `liveview_phoenix_owned?/3` ever stops blocking it, the freshly-generated
+      # Phoenix mix.exs gets overwritten and the project can no longer compile —
+      # `Gettext` / `Telemetry.Metrics` come back as "module not loaded".
+      # Pin every dep that phx.new --no-ecto puts in the file.
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "mix.exs"))
+
+      assert content =~ ":phoenix,",
+             "phx.new's mix.exs got clobbered — :phoenix dep is missing"
+
+      assert content =~ ":phoenix_html",
+             "phx.new's mix.exs got clobbered — :phoenix_html dep is missing"
+
+      assert content =~ ":phoenix_live_view",
+             "phx.new's mix.exs got clobbered — :phoenix_live_view dep is missing"
+
+      assert content =~ ":gettext",
+             "phx.new's mix.exs got clobbered — :gettext dep is missing"
+
+      assert content =~ ":telemetry_metrics",
+             "phx.new's mix.exs got clobbered — :telemetry_metrics dep is missing"
+
+      assert content =~ ":telemetry_poller",
+             "phx.new's mix.exs got clobbered — :telemetry_poller dep is missing"
+
+      assert content =~ ":bandit",
+             "phx.new's mix.exs got clobbered — :bandit dep is missing"
+
+      assert content =~ ":jason",
+             "phx.new's mix.exs got clobbered — :jason dep is missing"
+    end
+
+    @tag :integration
+    test "config/config.exs is Phoenix's (regression: native config must not clobber Phoenix's)",
+         %{tmp: tmp} do
+      # Phoenix's config has Endpoint config, esbuild, tailwind, etc. The native
+      # template's config has only logger + mob settings. If the blocklist
+      # regresses on `config/`, none of the Phoenix wiring survives.
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, "config/config.exs"))
+      # Endpoint config is a marker only Phoenix's config has.
+      assert content =~ "LvTestWeb.Endpoint",
+             "phx.new's config/config.exs got clobbered — Endpoint config missing"
+    end
+
+    @tag :integration
+    test ".gitignore is Phoenix's plus mob.exs patch", %{tmp: tmp} do
+      # Phoenix's .gitignore ignores _build, deps, *.beam, etc. The native template
+      # has its own slimmer version. The blocklist keeps Phoenix's; apply_liveview_patches
+      # appends mob.exs to it. Both should be present — regression: clobbering Phoenix's
+      # .gitignore would lose the standard Elixir/Phoenix exclusions.
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      content = File.read!(Path.join(dir, ".gitignore"))
+      # _build is in every Phoenix-generated .gitignore, not in the bare-Mob one.
+      assert content =~ "_build",
+             "phx.new's .gitignore got clobbered — _build exclusion missing"
+      # And the patch step still ran:
+      assert content =~ "mob.exs"
     end
 
     @tag :integration

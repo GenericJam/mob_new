@@ -1099,6 +1099,31 @@ defmodule MobNew.ProjectGeneratorTest do
     end
 
     @tag :integration
+    test "config ports are 4200 (host endpoint must match on-device mob_app.ex)",
+         %{tmp: tmp} do
+      # phx.new defaults dev=4000, test=4002, runtime PORT=4000 — but Mob's
+      # mob_app.ex pins the on-device endpoint to 4200, and another developer
+      # running `mix phx.server` on 4000 would collide with the generated
+      # project's setup. Pin all three files so the ports stay aligned.
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+
+      dev = File.read!(Path.join(dir, "config/dev.exs"))
+      assert dev =~ "port: 4200"
+      refute dev =~ "port: 4000",
+             "config/dev.exs still has Phoenix's default 4000 — patch_config_ports regressed"
+
+      test_cfg = File.read!(Path.join(dir, "config/test.exs"))
+      assert test_cfg =~ "port: 4202"
+      refute test_cfg =~ "port: 4002",
+             "config/test.exs still has Phoenix's default 4002"
+
+      runtime = File.read!(Path.join(dir, "config/runtime.exs"))
+      assert runtime =~ "\"PORT\") || \"4200\""
+      refute runtime =~ "\"PORT\") || \"4000\"",
+             "config/runtime.exs PORT env-var fallback still 4000"
+    end
+
+    @tag :integration
     test "mob_app.ex starts ecto_sqlite3 and runs migrations", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
       content = File.read!(Path.join(dir, "lib/lv_test/mob_app.ex"))

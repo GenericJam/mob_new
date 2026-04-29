@@ -376,6 +376,28 @@ defmodule MobNew.LiveViewPatcherTest do
     test "uses module_name in swiftc module-name flag" do
       assert build_sh() =~ "-module-name MyApp"
     end
+
+    test "honors MOB_SIM_RUNTIME_DIR env var (regression: must not hardcode /tmp)" do
+      # Native template at priv/templates/mob.new/ios/build.sh.eex respects
+      # MOB_SIM_RUNTIME_DIR with ~/.mob/runtime/ios-sim default; the LV path
+      # used to hardcode /tmp/otp-ios-sim, so `mix mob.deploy --native` synced
+      # OTP into ~/.mob/runtime/ios-sim while build.sh wrote /tmp/otp-ios-sim
+      # — the two halves disagreed and the simulator never saw fresh BEAMs.
+      content = build_sh()
+      assert content =~ ~s(RUNTIME_DIR="${MOB_SIM_RUNTIME_DIR:-$HOME/.mob/runtime/ios-sim}")
+      refute content =~ "/tmp/otp-ios-sim",
+             "build.sh hardcodes /tmp/otp-ios-sim — should use $RUNTIME_DIR"
+    end
+
+    test "all runtime-dir uses go through $RUNTIME_DIR" do
+      # Pins the rsync sync target, the logo-copy targets, and the priv/static
+      # rsync target — every spot that previously used /tmp/otp-ios-sim.
+      content = build_sh()
+      assert content =~ ~s(rsync -a --delete --no-perms "$OTP_ROOT/" "$RUNTIME_DIR/")
+      assert content =~ ~s($RUNTIME_DIR/mob_logo_dark.png)
+      assert content =~ ~s($RUNTIME_DIR/mob_logo_light.png)
+      assert content =~ ~s($RUNTIME_DIR/my_app/priv/)
+    end
   end
 
   # ── mob_exs_content/2 ─────────────────────────────────────────────────────────

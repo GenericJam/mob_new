@@ -316,6 +316,12 @@ defmodule MobNew.ProjectGenerator do
     # 7. Write mob.exs with liveview_port
     write_mob_exs(project_dir, a.mob_exs_mob_dir, a.mob_exs_elixir_lib)
 
+    # 7b. Patch Phoenix's config files to use 4200 (dev) and 4202 (test) so
+    #     `mix phx.server` doesn't collide with another LV project on 4000.
+    #     The on-device runtime in mob_app.ex already uses 4200 — this lines
+    #     up the host-side dev/test endpoints with that.
+    patch_config_ports(project_dir)
+
     # 8. Write .gitignore entry for mob.exs (append if file exists)
     patch_gitignore(project_dir)
 
@@ -431,6 +437,36 @@ defmodule MobNew.ProjectGenerator do
         Mix.shell().info([:green, "* patch ", :reset, path, " (added ecto_sqlite3)"])
       end
     end
+  end
+
+  # phx.new emits Endpoint http port 4000 in dev.exs, 4002 in test.exs, and a
+  # `PORT` env var defaulting to "4000" in runtime.exs. Mob's LiveView mode
+  # standardises on 4200 (host dev + on-device runtime — see mob_app.ex), so
+  # `mix phx.server` from a generated project doesn't collide with someone
+  # else's Phoenix app already on 4000. Idempotent: skips the rewrite if the
+  # file's port has already been bumped.
+  defp patch_config_ports(project_dir) do
+    [
+      {"config/dev.exs", ~r/port:\s*4000\b/, "port: 4200", "dev port 4000 → 4200"},
+      {"config/test.exs", ~r/port:\s*4002\b/, "port: 4202", "test port 4002 → 4202"},
+      {"config/runtime.exs",
+       ~r/"PORT"\s*\)\s*\|\|\s*"4000"/,
+       "\"PORT\") || \"4200\"",
+       "runtime PORT default 4000 → 4200"}
+    ]
+    |> Enum.each(fn {rel, find, replace, label} ->
+      path = Path.join(project_dir, rel)
+
+      if File.exists?(path) do
+        content = File.read!(path)
+        patched = Regex.replace(find, content, replace, global: false)
+
+        if patched != content do
+          File.write!(path, patched)
+          Mix.shell().info([:green, "* patch ", :reset, path, " (#{label})"])
+        end
+      end
+    end)
   end
 
   defp patch_config_for_ecto(project_dir, app_name, module_name) do

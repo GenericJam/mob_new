@@ -923,14 +923,28 @@ defmodule MobNew.LiveViewPatcher do
         echo "WARNING: ssl not found in host OTP — thousand_island may fail to start"
     fi
 
-    # ── Sync OTP runtime to /tmp/otp-ios-sim ─────────────────────────────────────
-    echo "=== Syncing OTP runtime to /tmp/otp-ios-sim ==="
-    mkdir -p "/tmp/otp-ios-sim"
-    rsync -a --delete "$OTP_ROOT/" "/tmp/otp-ios-sim/"
+    # ── Sync OTP runtime to the simulator's runtime dir ──────────────────────────
+    # mob_beam.m reads MOB_SIM_RUNTIME_DIR (passed by `mix mob.deploy` via
+    # simctl's SIMCTL_CHILD_* mechanism) to find the OTP runtime at startup.
+    # Default lives under ~/.mob/runtime/ios-sim so `mix mob.cache` can list and
+    # clean it. Override with MOB_SIM_RUNTIME_DIR in the calling environment.
+    #
+    # `--no-perms` is essential on Nix systems: ELIXIR_LIB lives in /nix/store
+    # where files are mode 444, and macOS BSD `cp` (used above for the stdlib
+    # cps) preserves source mode in practice — leaving 444 .beam files all over
+    # OTP_ROOT. Without --no-perms, rsync would carry that mode into RUNTIME_DIR
+    # and the next `mix mob.deploy` would trip on
+    # `cp: cannot create regular file ...: Permission denied` when overwriting.
+    RUNTIME_DIR="${MOB_SIM_RUNTIME_DIR:-$HOME/.mob/runtime/ios-sim}"
+    echo "=== Syncing OTP runtime to $RUNTIME_DIR ==="
+    mkdir -p "$RUNTIME_DIR"
+    chmod -R u+w "$RUNTIME_DIR" 2>/dev/null || true
+    rsync -a --delete --no-perms "$OTP_ROOT/" "$RUNTIME_DIR/"
+    chmod -R u+w "$RUNTIME_DIR" 2>/dev/null || true
 
     echo "=== Copying Mob logos ==="
-    cp "$MOB_DIR/assets/logo/logo_dark.png"  "/tmp/otp-ios-sim/mob_logo_dark.png"
-    cp "$MOB_DIR/assets/logo/logo_light.png" "/tmp/otp-ios-sim/mob_logo_light.png"
+    cp "$MOB_DIR/assets/logo/logo_dark.png"  "$RUNTIME_DIR/mob_logo_dark.png"
+    cp "$MOB_DIR/assets/logo/logo_light.png" "$RUNTIME_DIR/mob_logo_light.png"
 
     echo "=== Building and copying Phoenix static assets ==="
     # Build JS/CSS with esbuild + tailwind, then place them under
@@ -941,7 +955,7 @@ defmodule MobNew.LiveViewPatcher do
     mix assets.build
     mkdir -p "$BEAMS_DIR/priv/static"
     cp -r priv/static/. "$BEAMS_DIR/priv/static/"
-    rsync -a "$BEAMS_DIR/priv/" "/tmp/otp-ios-sim/#{app_name}/priv/"
+    rsync -a "$BEAMS_DIR/priv/" "$RUNTIME_DIR/#{app_name}/priv/"
 
     echo "=== Spot-check ==="
     ls "$BEAMS_DIR/Elixir.#{module_name}.MobApp.beam"

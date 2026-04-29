@@ -106,6 +106,25 @@ class MainActivity : ComponentActivity() {
 
         MobBridge.init(this)
 
+        // Forward launcher-supplied env vars into the BEAM process. Set BEFORE
+        // nativeStartBeam below so the BEAM (and Mob.Dist in particular) sees
+        // them when it reads getenv()/System.get_env/1.
+        //
+        //   mob_node_suffix — appended to the configured node name
+        //                     (`<app>_android` → `<app>_android_<suffix>`).
+        //                     Lets multiple Android phones running the same
+        //                     app coexist in Mac's shared EPMD.
+        //   mob_dist_port   — Erlang dist listen port (default 9100).
+        intent?.extras?.getString("mob_node_suffix")?.takeIf { it.isNotEmpty() }?.let { suffix ->
+            android.system.Os.setenv("MOB_NODE_SUFFIX", suffix, true)
+            Log.i(TAG, "onCreate: MOB_NODE_SUFFIX=$suffix")
+        }
+
+        intent?.extras?.getInt("mob_dist_port", -1)?.takeIf { it > 0 }?.let { port ->
+            android.system.Os.setenv("MOB_DIST_PORT", port.toString(), true)
+            Log.i(TAG, "onCreate: MOB_DIST_PORT=$port")
+        }
+
         // Check if launched from a notification tap
         intent?.extras?.getString("mob_notification_json")?.let { json ->
             MobBridge.setLaunchNotification(json)

@@ -1,5 +1,15 @@
 # mob_new — Agent Instructions
 
+**Read [`AGENTS.md`](AGENTS.md) first**, then [`~/code/mob/AGENTS.md`](../mob/AGENTS.md)
+for the system view. They cover the three-repo topology, generator
+gotchas (LV blocklist, eager template defaults, App ID name validation),
+and cross-cutting pre-empt-failure rules. This file goes deeper on
+archive-build mechanics.
+
+> **Keep AGENTS.md up to date** when you change template structure, add
+> to the LV blocklist, or hit a generator gotcha. Same commit, not a
+> follow-up.
+
 `mob_new` is a Mix archive — a self-contained `.ez` file that installs a global
 Mix task (`mix mob.new`). It is **not** a regular dependency; it ships as a
 `mix archive.install` package.

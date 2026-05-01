@@ -155,6 +155,21 @@ object MobBridge {
         }
     }
 
+    /**
+     * Called from nif_color_scheme via JNI. Returns "light" or "dark" based on
+     * the current night-mode UI configuration. Falls back to "light" if the
+     * activity is gone (shouldn't happen in practice).
+     */
+    @JvmStatic
+    fun getColorScheme(): String {
+        val activity = activityRef?.get() ?: return "light"
+        val nightMode =
+            activity.resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        return if (nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES) "dark"
+        else "light"
+    }
+
     /** Called from nif_exit_app via JNI — backgrounds the app without killing it. */
     @JvmStatic
     fun moveToBack() {
@@ -162,6 +177,19 @@ object MobBridge {
             activity.runOnUiThread { activity.moveTaskToBack(true) }
         }
     }
+
+    /**
+     * Called from MainActivity.onConfigurationChanged when uiMode flips.
+     * Forwards to the BEAM via JNI so Mob.Device :appearance subscribers
+     * see {:mob_device, :color_scheme_changed, :light | :dark}.
+     */
+    @JvmStatic
+    fun notifyColorSchemeChanged(scheme: String) {
+        nativeNotifyColorScheme(scheme)
+    }
+
+    /** JNI bridge — implemented in beam_jni.c. */
+    @JvmStatic external fun nativeNotifyColorScheme(scheme: String)
 
     /** Called from mob_nif.c's nif_set_root — updates Compose state. */
     @JvmStatic

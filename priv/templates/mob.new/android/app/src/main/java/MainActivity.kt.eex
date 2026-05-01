@@ -2,6 +2,7 @@ package <%= java_package %>
 
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -162,5 +163,16 @@ class MainActivity : ComponentActivity() {
         Log.i(TAG, "onCreate — handing off to BEAM")
         nativeSetActivity(this)
         Thread({ nativeStartBeam() }, "beam-main").start()
+    }
+
+    // Manifest declares `android:configChanges` including `uiMode`, so a
+    // dark/light toggle delivers here instead of recreating the activity.
+    // Forward to MobBridge so Mob.Device :appearance subscribers can react
+    // (e.g. re-resolve Mob.Theme.Adaptive without an app restart).
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val nightMode = newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        val scheme = if (nightMode == Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
+        MobBridge.notifyColorSchemeChanged(scheme)
     }
 }

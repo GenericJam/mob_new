@@ -73,6 +73,19 @@ Java_<%= jni_package %>_MobBridge_nativeHandleBack(JNIEnv* env, jclass cls) {
     mob_handle_back();
 }
 
+// Called from MobBridge.notifyColorSchemeChanged when MainActivity's
+// onConfigurationChanged sees a uiMode flip. `scheme` is "light" or "dark".
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeNotifyColorScheme(JNIEnv* env, jclass cls,
+    jstring scheme) {
+    if (!scheme) return;
+    const char* utf8 = (*env)->GetStringUTFChars(env, scheme, NULL);
+    if (utf8) {
+        mob_send_color_scheme_changed(utf8);
+        (*env)->ReleaseStringUTFChars(env, scheme, utf8);
+    }
+}
+
 // ── Device capability result delivery ────────────────────────────────────
 // Called from MobBridge when async results are ready.
 

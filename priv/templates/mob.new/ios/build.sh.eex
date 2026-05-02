@@ -25,7 +25,7 @@ fi
 
 BEAMS_DIR="$OTP_ROOT/<%= app_name %>"
 SDKROOT=$(xcrun -sdk iphonesimulator --show-sdk-path)
-CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=16.0 -isysroot $SDKROOT"
+CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=17.0 -isysroot $SDKROOT"
 
 IFLAGS="-I$OTP_ROOT/$ERTS_VSN/include \
         -I$OTP_ROOT/$ERTS_VSN/include/aarch64-apple-iossimulator \
@@ -205,7 +205,7 @@ $CC -fobjc-arc -fmodules $IFLAGS \
     -c "$MOB_DIR/ios/MobNode.m" -o "$BUILD_DIR/MobNode.o"
 
 xcrun -sdk iphonesimulator swiftc \
-    -target arm64-apple-ios16.0-simulator \
+    -target arm64-apple-ios17.0-simulator \
     -module-name <%= display_name %> \
     -emit-objc-header -emit-objc-header-path "$BUILD_DIR/MobApp-Swift.h" \
     -import-objc-header "$SWIFT_BRIDGING" \
@@ -237,7 +237,7 @@ $CC -fobjc-arc -fmodules $IFLAGS \
 # ── Link ───────────────────────────────────────────────────────────────────────
 echo "=== Linking <%= display_name %> binary ==="
 xcrun -sdk iphonesimulator swiftc \
-    -target arm64-apple-ios16.0-simulator \
+    -target arm64-apple-ios17.0-simulator \
     "$BUILD_DIR/driver_tab_ios.o" \
     "$BUILD_DIR/MobNode.o" \
     "$BUILD_DIR/swift_mob.o" \
@@ -266,7 +266,7 @@ if [ -d "ios/Assets.xcassets/AppIcon.appiconset" ]; then
     xcrun actool ios/Assets.xcassets \
         --compile "$APP" \
         --platform iphonesimulator \
-        --minimum-deployment-target 16.0 \
+        --minimum-deployment-target 17.0 \
         --app-icon AppIcon \
         --output-partial-info-plist "$ACTOOL_PLIST" \
         2>/dev/null || true

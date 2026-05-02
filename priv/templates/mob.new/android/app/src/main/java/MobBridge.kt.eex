@@ -34,6 +34,7 @@ import java.io.File
 import java.lang.ref.WeakReference
 import java.util.concurrent.Executor
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
@@ -1713,6 +1714,15 @@ private fun nodeModifier(props: Map<String, Any?>): Modifier {
     // rectangular bleed doesn't show through the rounded corners.
     longColorProp(props, "background")?.let { bg ->
         m = if (shape != null) m.background(bg, shape) else m.background(bg)
+    }
+
+    // Border (opt-in: requires both border_color and border_width). Drawn on
+    // the same shape as the background so rounded boxes get a proper outline.
+    val borderColor = longColorProp(props, "border_color")
+    val borderWidth = floatProp(props, "border_width") ?: 0f
+    if (borderColor != null && borderWidth > 0f) {
+        m = if (shape != null) m.border(borderWidth.dp, borderColor, shape)
+            else m.border(borderWidth.dp, borderColor)
     }
 
     val uniform = intProp(props, "padding")

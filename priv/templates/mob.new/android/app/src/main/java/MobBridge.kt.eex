@@ -34,6 +34,7 @@ import java.io.File
 import java.lang.ref.WeakReference
 import java.util.concurrent.Executor
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -58,8 +59,39 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.QuestionMark
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -1048,6 +1080,24 @@ object MobBridge {
             }
         }
     }
+
+    /** Called from nif_open_url via JNI — hands a URL to the OS to open in the
+     *  default browser/handler. Fire-and-forget; failures are silently ignored. */
+    @JvmStatic
+    fun openUrl(url: String) {
+        activityRef?.get()?.let { activity ->
+            activity.runOnUiThread {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    activity.startActivity(intent)
+                } catch (e: Exception) {
+                    android.util.Log.w("MobBridge", "openUrl failed for $url: ${e.message}")
+                }
+            }
+        }
+    }
 }
 
 // ── Composables ───────────────────────────────────────────────────────────────
@@ -1101,13 +1151,16 @@ fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
                 RenderNode(child, if (w != null) Modifier.weight(w) else Modifier)
             }
         }
-        "row" -> Row(modifier = m) {
+        "row" -> Row(modifier = m, verticalAlignment = rowAlignProp(node.props)) {
             node.children.forEach { child ->
                 val w = floatProp(child.props, "weight")
                 RenderNode(child, if (w != null) Modifier.weight(w) else Modifier)
             }
         }
-        "box" -> Box(modifier = m, contentAlignment = Alignment.TopStart) {
+        // Box defaults to fillMaxWidth (matching iOS .frame(maxWidth: .infinity))
+        // so panels like the results "ACRES PER FILL" extend edge-to-edge.
+        // App code can opt out with an explicit width modifier on the inner content.
+        "box" -> Box(modifier = m.fillMaxWidth(), contentAlignment = Alignment.TopStart) {
             node.children.forEach { RenderNode(it) }
         }
         "scroll" -> {
@@ -1132,6 +1185,7 @@ fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
         "spacer"     -> MobSpacer(node, m)
         "progress"   -> MobProgress(node, m)
         "image"      -> MobImage(node, m)
+        "icon"       -> MobIcon(node, m)
         "lazy_list"  -> MobLazyList(node, m)
         "video"          -> MobVideoPlayer(node, m)
         "camera_preview" -> MobCameraPreview(node, m)
@@ -1151,13 +1205,17 @@ private fun MobText(node: MobNode, modifier: Modifier) {
     val letterSpacing = floatProp(node.props, "letter_spacing")
     val lineHeightMul = floatProp(node.props, "line_height")
     val fontFamily    = fontFamilyProp(node.props)
+    val tapHandle     = intProp(node.props, "on_tap")
 
     val resolvedLineHeight = if (lineHeightMul != null && fontSize != TextUnit.Unspecified)
         (lineHeightMul * fontSize.value).sp else TextUnit.Unspecified
 
+    val tappableModifier = if (tapHandle != null)
+        modifier.clickable { MobBridge.nativeSendTap(tapHandle) } else modifier
+
     Text(
         text          = text,
-        modifier      = modifier,
+        modifier      = tappableModifier,
         color         = color,
         fontSize      = fontSize,
         fontWeight    = fontWeight,
@@ -1364,6 +1422,63 @@ private fun MobImage(node: MobNode, modifier: Modifier) {
         modifier           = m,
     )
 }
+
+@Composable
+private fun MobIcon(node: MobNode, modifier: Modifier) {
+    val name        = node.props["name"] as? String ?: "questionmark"
+    val tint        = colorProp(node.props, "text_color")
+    val fontSizeSp  = sizeProp(node.props, "text_size")
+    val sizeDp      = if (fontSizeSp != androidx.compose.ui.unit.TextUnit.Unspecified)
+        fontSizeSp.value.dp else 24.dp
+    val description = node.props["text"] as? String
+
+    val onTap   = (node.props["on_tap"] as? Number)?.toInt()
+    val baseMod = if (onTap != null) modifier.clickable { MobBridge.nativeSendTap(onTap) } else modifier
+
+    Icon(
+        imageVector       = materialIconFor(name),
+        contentDescription = description,
+        tint              = if (tint == Color.Unspecified) Color.Unspecified else tint,
+        modifier          = baseMod.size(sizeDp),
+    )
+}
+
+// Logical icon name → Material icon. Names mirror MobRootView.swift's
+// sfSymbolName/1 so the same `name:` prop renders an Apple-styled icon on iOS
+// and a Material-styled icon on Android. Unknown names fall back to a "?".
+private fun materialIconFor(logical: String): androidx.compose.ui.graphics.vector.ImageVector =
+    when (logical) {
+        "settings"        -> Icons.Filled.Settings
+        "back"            -> Icons.Filled.ArrowBack
+        "forward"         -> Icons.Filled.ArrowForward
+        "close"           -> Icons.Filled.Close
+        "add"             -> Icons.Filled.Add
+        "remove"          -> Icons.Filled.Remove
+        "edit"            -> Icons.Filled.Edit
+        "check"           -> Icons.Filled.Check
+        "chevron_right"   -> Icons.Filled.ChevronRight
+        "chevron_left"    -> Icons.Filled.ChevronLeft
+        "chevron_up"      -> Icons.Filled.KeyboardArrowUp
+        "chevron_down"    -> Icons.Filled.ExpandMore
+        "info"            -> Icons.Filled.Info
+        "warning"         -> Icons.Filled.Warning
+        "error"           -> Icons.Filled.Error
+        "search"          -> Icons.Filled.Search
+        "trash"           -> Icons.Filled.Delete
+        "share"           -> Icons.Filled.Share
+        "more"            -> Icons.Filled.MoreVert
+        "menu"            -> Icons.Filled.Menu
+        "refresh"         -> Icons.Filled.Refresh
+        "favorite"        -> Icons.Filled.FavoriteBorder
+        "favorite_filled" -> Icons.Filled.Favorite
+        "star"            -> Icons.Filled.StarBorder
+        "star_filled"     -> Icons.Filled.Star
+        "user"            -> Icons.Filled.Person
+        "home"            -> Icons.Filled.Home
+        "expand_more"     -> Icons.Filled.ExpandMore
+        "expand_less"     -> Icons.Filled.ExpandLess
+        else              -> Icons.Filled.QuestionMark
+    }
 
 @Composable
 private fun MobCameraPreview(node: MobNode, modifier: Modifier) {
@@ -1611,6 +1726,17 @@ private fun tabDefsProp(props: Map<String, Any?>): List<Map<String, String>> {
 }
 
 // ── Prop extraction ───────────────────────────────────────────────────────────
+
+// Vertical alignment for Row from the `align:` prop — :top / :center / :bottom
+// (atom from Elixir arrives as a String). Defaults to CenterVertically because
+// that matches the most common visual expectation (e.g. icon next to title);
+// opt back into Top with align: :top.
+private fun rowAlignProp(props: Map<String, Any?>): Alignment.Vertical =
+    when (props["align"] as? String) {
+        "top"    -> Alignment.Top
+        "bottom" -> Alignment.Bottom
+        else     -> Alignment.CenterVertically
+    }
 
 private fun colorProp(props: Map<String, Any?>, key: String): Color =
     longColorProp(props, key) ?: Color.Unspecified

@@ -61,3 +61,17 @@ mix hex.publish archive    # publishes the .ez archive (not a library package)
 ```bash
 mix test
 ```
+
+## Pre-commit checklist
+
+Before committing changes, run **all three** in this order:
+
+```bash
+mix test            # full suite must pass (call out any pre-existing flake explicitly)
+mix format          # apply Elixir formatting
+mix credo --strict  # address new issues; pre-existing ones are tracked separately
+```
+
+When changing the EEx templates under `priv/templates/`, the unit tests
+don't render them on a real device — generate a fresh project with
+`mix mob.new /tmp/foo` and verify it builds before committing.

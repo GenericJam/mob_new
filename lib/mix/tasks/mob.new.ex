@@ -362,5 +362,15 @@ defmodule Mix.Tasks.Mob.New do
     """)
   end
 
-  defp valid_app_name?(name), do: Regex.match?(~r/^[a-z][a-z0-9_]*$/, name)
+  defp valid_app_name?(name) do
+    case name do
+      <<first, rest::binary>> when first in ?a..?z ->
+        rest
+        |> :binary.bin_to_list()
+        |> Enum.all?(fn c -> c in ?a..?z or c in ?0..?9 or c == ?_ end)
+
+      _ ->
+        false
+    end
+  end
 end

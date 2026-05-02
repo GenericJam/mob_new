@@ -170,7 +170,60 @@ object MobBridge {
     @JvmStatic
     fun init(activity: Activity) {
         activityRef = WeakReference(activity)
+        extractOtpIfNeeded(activity)
         copyMobLogos(activity)
+    }
+
+    /**
+     * Extracts the bundled OTP runtime from `assets/otp.zip` into `<filesDir>/otp/`.
+     *
+     * Release builds (assembleRelease / bundleRelease) ship the OTP tree as an
+     * asset zip because Play Store installs can't `adb push` it. The extractor
+     * runs once on first launch (and again after each app update, keyed by
+     * PackageInfo.lastUpdateTime).
+     *
+     * Debug builds skip extraction — `mix mob.deploy --native --android` pushes
+     * the OTP tree directly to `<filesDir>/otp/` via adb, so no asset zip exists
+     * and this method becomes a no-op.
+     *
+     * Pattern mirrors elixir-desktop's `Bridge.kt:unpackZip()`.
+     */
+    private fun extractOtpIfNeeded(activity: Activity) {
+        val assetList = try { activity.assets.list("") ?: emptyArray() } catch (_: Exception) { return }
+        if ("otp.zip" !in assetList) return
+
+        val otpDir = java.io.File(activity.filesDir, "otp")
+        val marker = java.io.File(otpDir, ".installed_version")
+        val expectedVersion = activity.packageManager
+            .getPackageInfo(activity.packageName, 0).lastUpdateTime.toString()
+
+        if (marker.exists() && marker.readText() == expectedVersion) return
+
+        if (otpDir.exists()) otpDir.deleteRecursively()
+        otpDir.mkdirs()
+
+        activity.assets.open("otp.zip").use { input ->
+            java.util.zip.ZipInputStream(java.io.BufferedInputStream(input)).use { zis ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val entry = zis.nextEntry ?: break
+                    val out = java.io.File(otpDir, entry.name)
+                    if (entry.isDirectory) {
+                        out.mkdirs()
+                    } else {
+                        out.parentFile?.mkdirs()
+                        java.io.FileOutputStream(out).use { fos ->
+                            var n = zis.read(buffer)
+                            while (n != -1) { fos.write(buffer, 0, n); n = zis.read(buffer) }
+                        }
+                    }
+                    zis.closeEntry()
+                }
+            }
+        }
+
+        marker.writeText(expectedVersion)
+        android.util.Log.i("MobBridge", "extracted OTP runtime, version=$expectedVersion")
     }
 
     /** Extracts Mob logo PNGs from APK assets to the OTP root so Elixir can reference them. */

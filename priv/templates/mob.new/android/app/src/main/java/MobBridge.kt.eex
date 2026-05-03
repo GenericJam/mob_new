@@ -35,7 +35,22 @@ import java.lang.ref.WeakReference
 import java.util.concurrent.Executor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size as ComposeSize
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import android.graphics.Paint
+import android.graphics.Typeface
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -1028,13 +1043,16 @@ object MobBridge {
 
     @JvmStatic
     fun notify_register_push(pid: Long, arg: String?) {
-        // FCM token retrieval — requires Firebase SDK in build.gradle.
-        // Uncomment when com.google.firebase:firebase-messaging is added:
-        // com.google.firebase.messaging.FirebaseMessaging.getInstance().token
-        //     .addOnCompleteListener { task ->
-        //         if (task.isSuccessful) nativeDeliverPushToken(pid, task.result)
-        //     }
-        android.util.Log.w("MobBridge", "notify_register_push: add Firebase SDK to build.gradle")
+        // Deliver any token that refreshed while no screen was active.
+        MobFirebaseService.pendingToken?.let { token ->
+            MobFirebaseService.pendingToken = null
+            nativeDeliverPushToken(pid, token)
+            return
+        }
+        com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) nativeDeliverPushToken(pid, task.result)
+            }
     }
 
     @JvmStatic
@@ -1245,6 +1263,7 @@ fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
         "camera_preview" -> MobCameraPreview(node, m)
         "web_view"       -> MobWebView(node, m)
         "native_view"    -> MobNativeViewRegistry.render(node)
+        "canvas"         -> MobCanvas(node, m)
     }
 }
 
@@ -1622,6 +1641,221 @@ private fun MobWebView(node: MobNode, modifier: Modifier) {
             update = { wv -> MobBridge._webView = wv }
         )
     }
+}
+
+// ── Canvas (Mob.Canvas declarative draw spec) ───────────────────────────────
+// Renders the node.props["draw"] list via Compose Canvas. Each op is a
+// Map<String, Any?> with an "op" key plus op-specific fields, pre-resolved
+// by the Elixir renderer (color tokens already converted to ARGB integers).
+@Composable
+private fun MobCanvas(node: MobNode, modifier: Modifier) {
+    val width = floatProp(node.props, "width") ?: 0f
+    val height = floatProp(node.props, "height") ?: 0f
+    @Suppress("UNCHECKED_CAST")
+    val ops = (node.props["draw"] as? List<Map<String, Any?>>) ?: emptyList()
+
+    val sized = if (width > 0f && height > 0f) {
+        modifier.size(width.dp, height.dp)
+    } else {
+        modifier
+    }
+
+    Canvas(modifier = sized) {
+        ops.forEach { op -> drawCanvasOp(op) }
+    }
+}
+
+private fun DrawScope.drawCanvasOp(op: Map<String, Any?>) {
+    val opName = op["op"] as? String ?: return
+    val color = canvasColor(op["color"])
+    val opacity = (op["opacity"] as? Double)?.toFloat() ?: 1f
+    val isFill = (op["fill"] as? Boolean) ?: false
+    val stroke = canvasStroke(op)
+
+    when (opName) {
+        "line" -> drawLine(
+            color = color,
+            start = Offset(canvasFloat(op["x1"]), canvasFloat(op["y1"])),
+            end = Offset(canvasFloat(op["x2"]), canvasFloat(op["y2"])),
+            strokeWidth = stroke.width,
+            cap = stroke.cap,
+            pathEffect = stroke.pathEffect,
+            alpha = opacity
+        )
+
+        "circle" -> {
+            val center = Offset(canvasFloat(op["x"]), canvasFloat(op["y"]))
+            val radius = canvasFloat(op["r"])
+            if (isFill) {
+                drawCircle(color = color, radius = radius, center = center, alpha = opacity)
+            } else {
+                drawCircle(color = color, radius = radius, center = center, alpha = opacity, style = stroke)
+            }
+        }
+
+        "ellipse" -> {
+            val cx = canvasFloat(op["x"])
+            val cy = canvasFloat(op["y"])
+            val rx = canvasFloat(op["rx"])
+            val ry = canvasFloat(op["ry"])
+            val topLeft = Offset(cx - rx, cy - ry)
+            val size = ComposeSize(rx * 2, ry * 2)
+            if (isFill) {
+                drawOval(color = color, topLeft = topLeft, size = size, alpha = opacity)
+            } else {
+                drawOval(color = color, topLeft = topLeft, size = size, alpha = opacity, style = stroke)
+            }
+        }
+
+        "arc" -> {
+            // Mob.Canvas arc: degrees, 0° to the right, sweeping clockwise.
+            // Compose drawArc takes startAngle + sweepAngle in degrees, same convention.
+            val cx = canvasFloat(op["x"])
+            val cy = canvasFloat(op["y"])
+            val r = canvasFloat(op["r"])
+            val startDeg = canvasFloat(op["start_deg"])
+            val endDeg = canvasFloat(op["end_deg"])
+            val sweep = endDeg - startDeg
+            drawArc(
+                color = color,
+                startAngle = startDeg,
+                sweepAngle = sweep,
+                useCenter = false,
+                topLeft = Offset(cx - r, cy - r),
+                size = ComposeSize(r * 2, r * 2),
+                alpha = opacity,
+                style = stroke
+            )
+        }
+
+        "rect" -> {
+            val topLeft = Offset(canvasFloat(op["x"]), canvasFloat(op["y"]))
+            val size = ComposeSize(canvasFloat(op["w"]), canvasFloat(op["h"]))
+            val radius = canvasFloat(op["radius"])
+            if (radius > 0f) {
+                val cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius, radius)
+                if (isFill) {
+                    drawRoundRect(color = color, topLeft = topLeft, size = size,
+                        cornerRadius = cornerRadius, alpha = opacity)
+                } else {
+                    drawRoundRect(color = color, topLeft = topLeft, size = size,
+                        cornerRadius = cornerRadius, alpha = opacity, style = stroke)
+                }
+            } else {
+                if (isFill) {
+                    drawRect(color = color, topLeft = topLeft, size = size, alpha = opacity)
+                } else {
+                    drawRect(color = color, topLeft = topLeft, size = size, alpha = opacity, style = stroke)
+                }
+            }
+        }
+
+        "path" -> {
+            @Suppress("UNCHECKED_CAST")
+            val pts = op["points"] as? List<List<Any?>> ?: return
+            if (pts.isEmpty()) return
+            val closed = (op["closed"] as? Boolean) ?: false
+            val path = Path().apply {
+                moveTo(canvasFloat(pts[0].getOrNull(0)), canvasFloat(pts[0].getOrNull(1)))
+                for (i in 1 until pts.size) {
+                    lineTo(canvasFloat(pts[i].getOrNull(0)), canvasFloat(pts[i].getOrNull(1)))
+                }
+                if (closed || isFill) close()
+            }
+            if (isFill) {
+                drawPath(path = path, color = color, alpha = opacity)
+            } else {
+                drawPath(path = path, color = color, alpha = opacity, style = stroke)
+            }
+        }
+
+        "text" -> {
+            val str = op["text"] as? String ?: return
+            val size = canvasFloat(op["size"])
+            val anchor = op["anchor"] as? String ?: "start"
+            val weight = op["weight"] as? String
+            // Compose has no DrawScope text primitive prior to TextMeasurer; the
+            // simplest cross-version path is the platform Canvas via drawIntoCanvas.
+            // Anchor is handled by measuring with Paint and offsetting x.
+            drawIntoCanvas { canvas ->
+                val paint = Paint().apply {
+                    isAntiAlias = true
+                    textSize = size
+                    this.color = color.toArgb()
+                    alpha = (opacity * 255).toInt().coerceIn(0, 255)
+                    typeface = canvasTypeface(weight)
+                }
+                val measured = paint.measureText(str)
+                val x = canvasFloat(op["x"])
+                val y = canvasFloat(op["y"])
+                val drawX = when (anchor) {
+                    "center" -> x - measured / 2f
+                    "end"    -> x - measured
+                    else     -> x
+                }
+                // Compose Canvas positions text by baseline; offset by font ascent
+                // so y is the top edge (matches SwiftUI Canvas convention).
+                val baseline = y - paint.fontMetrics.ascent
+                canvas.nativeCanvas.drawText(str, drawX, baseline, paint)
+            }
+        }
+
+        "image" -> {
+            // Image asset rendering deferred — needs context-aware loading from the
+            // app's drawable resources or asset catalog. Tracked separately.
+        }
+    }
+}
+
+private fun canvasFloat(v: Any?): Float = when (v) {
+    is Float  -> v
+    is Double -> v.toFloat()
+    is Int    -> v.toFloat()
+    is Long   -> v.toFloat()
+    else      -> 0f
+}
+
+private fun canvasColor(v: Any?): Color = when (v) {
+    is Long   -> Color(v.toInt())
+    is Int    -> Color(v)
+    is Double -> Color(v.toLong().toInt())
+    is String -> {
+        // Hex string fallback ("#rrggbb"). Pre-resolved ARGB integers are the
+        // hot path; this is for raw color strings that bypass theme resolution.
+        if (v.startsWith("#") && v.length == 7) {
+            val rgb = v.substring(1).toLong(16)
+            val r = ((rgb shr 16) and 0xFF).toInt()
+            val g = ((rgb shr 8) and 0xFF).toInt()
+            val b = (rgb and 0xFF).toInt()
+            Color(red = r, green = g, blue = b)
+        } else Color.Black
+    }
+    else      -> Color.Black
+}
+
+private fun canvasStroke(op: Map<String, Any?>): Stroke {
+    val width = canvasFloat(op["width"]).let { if (it > 0f) it else 1f }
+    val cap = when (op["cap"] as? String) {
+        "round"  -> StrokeCap.Round
+        "square" -> StrokeCap.Square
+        else     -> StrokeCap.Butt
+    }
+    val join = when (op["join"] as? String) {
+        "round" -> StrokeJoin.Round
+        "bevel" -> StrokeJoin.Bevel
+        else    -> StrokeJoin.Miter
+    }
+    @Suppress("UNCHECKED_CAST")
+    val dashList = (op["dash"] as? List<Any?>)?.map { canvasFloat(it) }?.toFloatArray()
+    val pathEffect = if (dashList != null && dashList.isNotEmpty()) {
+        PathEffect.dashPathEffect(dashList, 0f)
+    } else null
+    return Stroke(width = width, cap = cap, join = join, pathEffect = pathEffect)
+}
+
+private fun canvasTypeface(weight: String?): Typeface = when (weight) {
+    "bold", "semibold", "medium" -> Typeface.DEFAULT_BOLD
+    else -> Typeface.DEFAULT
 }
 
 @Composable

@@ -40,11 +40,21 @@ target_link_libraries(<%= lib_name %>
     ${OTP_DIR}/${ERTS_VSN}/lib/libepcre.a
     ${OTP_DIR}/${ERTS_VSN}/lib/libryu.a
     ${OTP_DIR}/${ERTS_VSN}/lib/asn1rt_nif.a
+    # crypto NIF + OpenSSL, statically linked. crypto_nif_init is exported
+    # by crypto.a and resolved at on_load time via STATIC_ERLANG_NIF (see
+    # mob/android/jni/driver_tab_android.c). libcrypto.a is OpenSSL 3.x
+    # built with no-shared. No separate crypto.so ships in the APK.
+    ${OTP_DIR}/${ERTS_VSN}/lib/crypto.a
     -Wl,--no-whole-archive
+    ${OTP_DIR}/${ERTS_VSN}/lib/libcrypto.a
     android
     log
     z
     c++_static
+    # NDK 27 / clang 18 split libc++: __cxa_* and exception/RTTI ABI
+    # symbols moved out of libc++_static.a into libc++abi.a. Without this,
+    # libbeam.a's C++ exception code fails to link.
+    c++abi
 )
 
 # ── exqlite / SQLite NIF ──────────────────────────────────────────────────────

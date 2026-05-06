@@ -104,8 +104,50 @@ defmodule MobNew.ProjectGenerator do
       a = assigns(app_name, opts)
       render_templates(a, project_dir, opts)
       copy_static(project_dir, opts)
+      write_dotfiles(project_dir)
       {:ok, project_dir}
     end
+  end
+
+  # `mix archive.build` packages files in `priv/` via `Path.wildcard/2`
+  # without `match_dot: true`, which silently drops every dotfile in
+  # the template tree. We sidestep that by writing them inline here so
+  # the archive packaging never has to know about them. If you need
+  # variable substitution in a future dotfile, switch to a non-dot
+  # template name (e.g. `dot_tool_versions.eex`) and rename in
+  # `expand_path/2` rather than relying on the archive to ship `.eex`
+  # dotfiles directly.
+  @dotfiles %{
+    ".tool-versions" => """
+    # Pinned toolchain versions for Mob development.
+    # Both mise and asdf read this file automatically.
+    #
+    #   mise install    https://mise.jdx.dev  (recommended — brew install mise)
+    #   asdf install    https://asdf-vm.com
+    #
+    # OTP 29 matches the device runtime tarballs. Java 17 LTS is required for Gradle.
+    erlang 29.0-rc3
+    elixir 1.20.0-rc.4-otp-29
+    java temurin-17.0.18
+    """,
+    ".gitignore" => """
+    /_build/
+    /deps/
+    /doc/
+    /.fetch
+    *.ez
+    *.beam
+    mob.exs
+    android/local.properties
+    android/.gradle/
+    android/app/build/
+    """
+  }
+
+  defp write_dotfiles(project_dir) do
+    Enum.each(@dotfiles, fn {name, content} ->
+      File.write!(Path.join(project_dir, name), content)
+    end)
   end
 
   @doc """

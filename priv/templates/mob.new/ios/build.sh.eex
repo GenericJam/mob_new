@@ -122,25 +122,11 @@ $CC -dynamiclib \
     -o "$EXQLITE_LIB_DIR/priv/sqlite3_nif.so" \
     || echo "WARNING: exqlite NIF cross-compile failed"
 
-echo "=== Creating crypto shim (iOS OTP has no OpenSSL) ==="
-# Ecto lists 'crypto' as a required OTP application. The iOS OTP build does not
-# include crypto (no OpenSSL). We provide a minimal shim so ensure_all_started
-# can start it. strong_rand_bytes delegates to rand:bytes/1 (OTP 26+, pure Erlang).
-CRYPTO_TMP=$(mktemp -d)
-cat > "$CRYPTO_TMP/crypto.erl" << 'ERLEOF'
--module(crypto).
--export([strong_rand_bytes/1, hash/2, mac/4, mac/3, supports/1]).
-strong_rand_bytes(N) -> rand:bytes(N).
-hash(_Type, Data) -> erlang:md5(Data).
-mac(_Type, _SubType, _Key, _Data) -> <<>>.
-mac(_Type, _Key, _Data) -> <<>>.
-supports(_Type) -> [].
-ERLEOF
-erlc -o "$BEAMS_DIR" "$CRYPTO_TMP/crypto.erl"
-cat > "$BEAMS_DIR/crypto.app" << 'APPEOF'
-{application,crypto,[{modules,[crypto]},{applications,[kernel,stdlib]},{description,"Crypto shim for iOS (no OpenSSL; uses rand:bytes)"},{registered,[]},{vsn,"5.6"}]}.
-APPEOF
-rm -rf "$CRYPTO_TMP"
+# crypto: provided by the OTP runtime tarball (real OpenSSL, statically
+# linked into the app's main native lib via crypto.a + libcrypto.a in
+# erts-VSN/lib/). No shim needed. crypto.beam, crypto.app, public_key,
+# and ssl ship in the tarball under lib/crypto-VSN/, lib/public_key-VSN/,
+# and lib/ssl-VSN/ respectively.
 
 echo "=== Copying priv/repo assets ==="
 mkdir -p "$BEAMS_DIR/priv/repo/migrations"

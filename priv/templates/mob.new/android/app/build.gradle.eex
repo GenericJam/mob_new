@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'kotlin-android'
+    id 'com.google.gms.google-services'
 }
 
 // ── Mob path config ───────────────────────────────────────────────────────────
@@ -20,6 +21,13 @@ def ertsVsn = new File(mobOtpRelease).listFiles()
 android {
     namespace '<%= bundle_id %>'
     compileSdk 34
+
+    // Pin NDK to match the one that built the bundled OTP runtime.
+    // libbeam.a embeds C++ stdlib symbols using a specific libc++ ABI
+    // namespace. NDK 27 / clang 18 produces ne180000; NDK 25 / clang 14
+    // produces ne140000. Mismatch fails to link with undefined
+    // __cxa_* symbols. Bumping this requires rebuilding the OTP tarballs.
+    ndkVersion '27.2.12479018'
 
     defaultConfig {
         applicationId "<%= bundle_id %>"
@@ -97,4 +105,8 @@ dependencies {
     // Media3 ExoPlayer (video playback)
     implementation 'androidx.media3:media3-exoplayer:1.3.1'
     implementation 'androidx.media3:media3-ui:1.3.1'
+
+    // Firebase Cloud Messaging (remote push notifications)
+    implementation platform('com.google.firebase:firebase-bom:33.1.0')
+    implementation 'com.google.firebase:firebase-messaging'
 }

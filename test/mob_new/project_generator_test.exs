@@ -423,6 +423,13 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "mob.exs"
     end
 
+    test "generates .formatter.exs with Mob.Formatter plugin", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, ".formatter.exs"))
+      assert content =~ "Mob.Formatter"
+      assert content =~ "plugins:"
+    end
+
     test "generates android/gradlew", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "android/gradlew"))

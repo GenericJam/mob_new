@@ -148,6 +148,12 @@ defmodule MobNew.ProjectGenerator do
     elixir 1.20.0-rc.4-otp-29
     java temurin-17.0.18
     """,
+    ".formatter.exs" => """
+    [
+      plugins: [Mob.Formatter],
+      inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"]
+    ]
+    """,
     ".gitignore" => """
     /_build/
     /deps/

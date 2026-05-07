@@ -84,7 +84,8 @@ defmodule MobNew.ProjectGenerator do
       mob_dep: mob_dep,
       mob_dev_dep: mob_dev_dep,
       mob_exs_mob_dir: mob_exs_mob_dir,
-      mob_exs_elixir_lib: mob_exs_elixir_lib
+      mob_exs_elixir_lib: mob_exs_elixir_lib,
+      ndk_version: MobNew.NdkVersion.recommended()
     }
   end
 

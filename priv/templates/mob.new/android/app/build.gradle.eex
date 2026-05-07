@@ -27,7 +27,7 @@ android {
     // namespace. NDK 27 / clang 18 produces ne180000; NDK 25 / clang 14
     // produces ne140000. Mismatch fails to link with undefined
     // __cxa_* symbols. Bumping this requires rebuilding the OTP tarballs.
-    ndkVersion '27.2.12479018'
+    ndkVersion '<%= ndk_version %>'
 
     defaultConfig {
         applicationId "<%= bundle_id %>"

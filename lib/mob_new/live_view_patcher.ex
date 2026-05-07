@@ -594,7 +594,13 @@ defmodule MobNew.LiveViewPatcher do
 
       defp count_words(""), do: 0
       defp count_words(text) do
-        text |> String.split(~r/\\s+/, trim: true) |> length()
+        # Regex.compile!/1 (not ~r/...) — a sigil regex gets precompiled
+        # into this beam file using a bytecode format that references
+        # :re.import/1, which is missing on OTP 28.0 (the version mob's
+        # bundled iOS/Android tarballs ship). Compiling at runtime
+        # sidesteps that. Once you upgrade off OTP 28.0 you can switch
+        # back to ~r/\\s+/.
+        text |> String.split(Regex.compile!("\\s+"), trim: true) |> length()
       end
     end
     """
@@ -728,7 +734,9 @@ defmodule MobNew.LiveViewPatcher do
       end
 
       def handle_event("update_blurb", %{"blurb" => blurb}, socket) do
-        count = blurb |> String.split(~r/\\s+/, trim: true) |> length()
+        # See note in NoteEditorLive.count_words about Regex.compile!/1
+        # vs ~r/.../ — OTP 28.0 sigil-regex precompile bug.
+        count = blurb |> String.split(Regex.compile!("\\s+"), trim: true) |> length()
         {:noreply, assign(socket, blurb: blurb, blurb_word_count: count)}
       end
     end
@@ -777,7 +785,7 @@ defmodule MobNew.LiveViewPatcher do
 
     BEAMS_DIR="$OTP_ROOT/#{app_name}"
     SDKROOT=$(xcrun -sdk iphonesimulator --show-sdk-path)
-    CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=16.0 -isysroot $SDKROOT"
+    CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=17.0 -isysroot $SDKROOT"
 
     IFLAGS="-I$OTP_ROOT/$ERTS_VSN/include \\
             -I$OTP_ROOT/$ERTS_VSN/include/aarch64-apple-iossimulator \\
@@ -791,6 +799,8 @@ defmodule MobNew.LiveViewPatcher do
       $OTP_ROOT/$ERTS_VSN/lib/libepcre.a
       $OTP_ROOT/$ERTS_VSN/lib/libryu.a
       $OTP_ROOT/$ERTS_VSN/lib/asn1rt_nif.a
+      $OTP_ROOT/$ERTS_VSN/lib/crypto.a
+      $OTP_ROOT/$ERTS_VSN/lib/libcrypto.a
     "
 
     # ── Find booted simulator ──────────────────────────────────────────────────────
@@ -971,7 +981,7 @@ defmodule MobNew.LiveViewPatcher do
         -c "$MOB_DIR/ios/MobNode.m" -o "$BUILD_DIR/MobNode.o"
 
     xcrun -sdk iphonesimulator swiftc \\
-        -target arm64-apple-ios16.0-simulator \\
+        -target arm64-apple-ios17.0-simulator \\
         -module-name #{display_name} \\
         -emit-objc-header -emit-objc-header-path "$BUILD_DIR/MobApp-Swift.h" \\
         -import-objc-header "$SWIFT_BRIDGING" \\
@@ -1003,7 +1013,7 @@ defmodule MobNew.LiveViewPatcher do
     # ── Link ───────────────────────────────────────────────────────────────────────
     echo "=== Linking #{display_name} binary ==="
     xcrun -sdk iphonesimulator swiftc \\
-        -target arm64-apple-ios16.0-simulator \\
+        -target arm64-apple-ios17.0-simulator \\
         "$BUILD_DIR/driver_tab_ios.o" \\
         "$BUILD_DIR/MobNode.o" \\
         "$BUILD_DIR/swift_mob.o" \\

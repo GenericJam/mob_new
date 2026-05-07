@@ -64,14 +64,37 @@ mix test
 
 ## Pre-commit checklist
 
-Before committing changes, run **all three** in this order:
+Before committing changes, run **all** in this order:
 
 ```bash
 mix test            # full suite must pass (call out any pre-existing flake explicitly)
 mix format          # apply Elixir formatting
 mix credo --strict  # address new issues; pre-existing ones are tracked separately
+mix test --only lint  # generate project + ktlint generated Kotlin (requires brew install ktlint)
 ```
 
-When changing the EEx templates under `priv/templates/`, the unit tests
-don't render them on a real device — generate a fresh project with
-`mix mob.new /tmp/foo` and verify it builds before committing.
+## Template linting strategy
+
+EEx templates (`priv/templates/**/*.kt.eex`, `*.m.eex`, etc.) cannot be
+linted directly — the `<%= %>` syntax breaks all native language parsers.
+
+**The solution:** generate a real project, lint the output.
+
+```bash
+mix test --only lint          # runs the generate-then-ktlint test in the suite
+```
+
+If ktlint reports a violation, the fix goes in the `.kt.eex` template, not
+the generated file. The generated file is a canary; the template is the source.
+
+This approach means every template change is validated against the real
+Kotlin style guide automatically. Normalized generated code also makes
+Claude-assisted work more reliable — consistent patterns are easier to
+reason about and modify correctly.
+
+When changing the EEx templates under `priv/templates/`, also generate a
+fresh project and verify it compiles before committing:
+
+```bash
+mix mob.new /tmp/foo && cd /tmp/foo && mix mob.install
+```

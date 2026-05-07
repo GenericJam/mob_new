@@ -50,7 +50,17 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import android.graphics.Paint
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -103,6 +113,11 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -121,7 +136,13 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -154,8 +175,7 @@ import androidx.lifecycle.LifecycleOwner
  *
  * Tap events: Compose onClick calls nativeSendTap(handle), which routes
  * to mob_send_tap() in mob_nif.c and sends {:tap, tag} to the registered PID.
- */
-/**
+ *
  * Holds the rendered tree and the nav transition to animate.
  *
  * navKey only increments on actual navigation transitions (push/pop/reset).
@@ -890,11 +910,11 @@ object MobBridge {
     }
 
     // ── WebView ────────────────────────────────────────────────────────────
-    @Volatile var _webView: android.webkit.WebView? = null
+    @Volatile var webView: android.webkit.WebView? = null
 
     @JvmStatic
     fun webview_eval_js(code: String) {
-        val wv = _webView ?: return
+        val wv = webView ?: return
         activityRef?.get()?.runOnUiThread { wv.evaluateJavascript(code, null) }
     }
 
@@ -906,7 +926,7 @@ object MobBridge {
 
     @JvmStatic
     fun webview_can_go_back(): Boolean {
-        val wv = _webView ?: return false
+        val wv = webView ?: return false
         val latch = java.util.concurrent.CountDownLatch(1)
         var result = false
         activityRef?.get()?.runOnUiThread {
@@ -919,7 +939,7 @@ object MobBridge {
 
     @JvmStatic
     fun webview_go_back() {
-        val wv = _webView ?: return
+        val wv = webView ?: return
         activityRef?.get()?.runOnUiThread { wv.goBack() }
     }
 
@@ -1214,7 +1234,27 @@ object MobNativeViewRegistry {
 /** Renders a MobNode tree produced by Mob.Renderer. */
 @Composable
 fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
-    val m = modifier.then(nodeModifier(node.props))
+    val ox = floatProp(node.props, "offset_x") ?: 0f
+    val oy = floatProp(node.props, "offset_y") ?: 0f
+    if (ox != 0f || oy != 0f) {
+        Box(modifier = Modifier.offset(x = ox.dp, y = oy.dp)) {
+            RenderNodeInner(node, modifier)
+        }
+    } else {
+        RenderNodeInner(node, modifier)
+    }
+}
+
+@Composable
+private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
+    // Apply on_tap as a clickable modifier for any node type except button —
+    // button installs its own onClick via the Button composable. Mirrors iOS,
+    // where most node types pick up onTapGesture via .ifLet(node.onTap).
+    val tapHandle = intProp(node.props, "on_tap")
+    val tapModifier = if (tapHandle != null && node.type != "button") {
+        modifier.clickable { MobBridge.nativeSendTap(tapHandle) }
+    } else modifier
+    val m = tapModifier.then(nodeModifier(node.props))
     when (node.type) {
         "column" -> Column(modifier = m) {
             node.children.forEach { child ->
@@ -1229,10 +1269,16 @@ fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
             }
         }
         // Box defaults to fillMaxWidth (matching iOS .frame(maxWidth: .infinity))
-        // so panels like the results "ACRES PER FILL" extend edge-to-edge.
-        // App code can opt out with an explicit width modifier on the inner content.
-        "box" -> Box(modifier = m.fillMaxWidth(), contentAlignment = Alignment.TopStart) {
-            node.children.forEach { RenderNode(it) }
+        // when no explicit width is set; otherwise it uses the explicit
+        // width applied via nodeModifier above.
+        // contentAlignment derives from the "align" prop ("center" /
+        // "top_leading" / etc.) — defaults to TopStart for back-compat.
+        "box" -> {
+            val hasWidth = floatProp(node.props, "width") != null
+            val boxModifier = if (hasWidth) m else m.fillMaxWidth()
+            Box(modifier = boxModifier, contentAlignment = boxAlignProp(node.props)) {
+                node.children.forEach { RenderNode(it) }
+            }
         }
         "scroll" -> {
             val scrollState = rememberScrollState()
@@ -1285,9 +1331,17 @@ private fun MobText(node: MobNode, modifier: Modifier) {
     val tappableModifier = if (tapHandle != null)
         modifier.clickable { MobBridge.nativeSendTap(tapHandle) } else modifier
 
+    // text_align is a no-op when the Text wraps to its content width — the
+    // alignment only matters if the Text is wider than its content. Apply
+    // fillMaxWidth in that case so center/right alignment behaves like iOS.
+    val textModifier = if (textAlign != null && boolProp(node.props, "fill_width") != false &&
+        floatProp(node.props, "width") == null) {
+        tappableModifier.fillMaxWidth()
+    } else tappableModifier
+
     Text(
         text          = text,
-        modifier      = tappableModifier,
+        modifier      = textModifier,
         color         = color,
         fontSize      = fontSize,
         fontWeight    = fontWeight,
@@ -1357,6 +1411,13 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
         mutableStateOf(node.props["value"] as? String ?: "")
     }
 
+    // Only fill width when explicitly asked. The unconditional fillMaxWidth
+    // we used to apply broke layouts like ImperialInput's row of three
+    // text_fields — the first field swallowed all the row's width and the
+    // siblings got 0 px (silently invisible).
+    val fillWidth = boolProp(node.props, "fill_width") ?: false
+    val tfModifier = if (fillWidth) modifier.fillMaxWidth() else modifier
+
     TextField(
         value         = localValue,
         onValueChange = { new ->
@@ -1364,7 +1425,7 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
             changeHandle?.let { MobBridge.nativeSendChangeStr(it, new) }
         },
         placeholder   = { Text(placeholder) },
-        modifier      = modifier.fillMaxWidth()
+        modifier      = tfModifier
             .onFocusChanged { state ->
                 if (state.isFocused) focusHandle?.let { MobBridge.nativeSendFocus(it) }
                 else                 blurHandle?.let  { MobBridge.nativeSendBlur(it)  }
@@ -1633,11 +1694,11 @@ private fun MobWebView(node: MobNode, modifier: Modifier) {
                             return true
                         }
                     }
-                    MobBridge._webView = this
+                    MobBridge.webView = this
                     loadUrl(url)
                 }
             },
-            update = { wv -> MobBridge._webView = wv }
+            update = { wv -> MobBridge.webView = wv }
         )
     }
 }
@@ -1651,7 +1712,11 @@ private fun MobCanvas(node: MobNode, modifier: Modifier) {
     val width = floatProp(node.props, "width") ?: 0f
     val height = floatProp(node.props, "height") ?: 0f
     @Suppress("UNCHECKED_CAST")
-    val ops = (node.props["draw"] as? List<Map<String, Any?>>) ?: emptyList()
+    val ops: List<Map<String, Any?>> = when (val raw = node.props["draw"]) {
+        is JSONArray -> (0 until raw.length()).map { i -> jsonObjectToMap(raw.getJSONObject(i)) }
+        is List<*>   -> raw as List<Map<String, Any?>>
+        else         -> emptyList()
+    }
 
     val sized = if (width > 0f && height > 0f) {
         modifier.size(width.dp, height.dp)
@@ -1806,12 +1871,17 @@ private fun DrawScope.drawCanvasOp(op: Map<String, Any?>) {
     }
 }
 
-private fun canvasFloat(v: Any?): Float = when (v) {
-    is Float  -> v
-    is Double -> v.toFloat()
-    is Int    -> v.toFloat()
-    is Long   -> v.toFloat()
-    else      -> 0f
+// Canvas coordinates from BEAM are in dp (matching the canvas's declared
+// width/height). Compose's DrawScope works in pixels, so convert dp→px here.
+private fun DrawScope.canvasFloat(v: Any?): Float {
+    val dp = when (v) {
+        is Float  -> v
+        is Double -> v.toFloat()
+        is Int    -> v.toFloat()
+        is Long   -> v.toFloat()
+        else      -> 0f
+    }
+    return dp.dp.toPx()
 }
 
 private fun canvasColor(v: Any?): Color = when (v) {
@@ -1832,7 +1902,7 @@ private fun canvasColor(v: Any?): Color = when (v) {
     else      -> Color.Black
 }
 
-private fun canvasStroke(op: Map<String, Any?>): Stroke {
+private fun DrawScope.canvasStroke(op: Map<String, Any?>): Stroke {
     val width = canvasFloat(op["width"]).let { if (it > 0f) it else 1f }
     val cap = when (op["cap"] as? String) {
         "round"  -> StrokeCap.Round
@@ -1921,7 +1991,7 @@ private fun MobTabBar(node: MobNode, modifier: Modifier) {
                         selected = index == activeIdx,
                         onClick  = { handle?.let { MobBridge.nativeSendChangeStr(it, tab["id"] ?: "") } },
                         label    = { Text(tab["label"] ?: "") },
-                        icon     = { Text(tab["icon"] ?: "○") }
+                        icon     = { Icon(materialIconForLogical(tab["icon"] ?: ""), contentDescription = tab["label"]) }
                     )
                 }
             }
@@ -1980,7 +2050,22 @@ private fun nodeModifier(props: Map<String, Any?>): Modifier {
     if (shape != null) m = m.clip(shape)
 
     if (boolProp(props, "fill_width") == true) m = m.fillMaxWidth()
+    // fill_height: true stretches the node to the parent's vertical bounds.
+    // Used by full-screen overlay boxes whose center alignment needs the
+    // viewport as its reference frame, not the contained children's height.
+    if (boolProp(props, "fill_height") == true) m = m.fillMaxHeight()
 
+    // Explicit width / height — when set, the node uses that exact size
+    // instead of stretching to fill its parent. Used by SquareTriangle's
+    // ring cells (110x110 boxes acting as rings via corner_radius +
+    // border).
+    floatProp(props, "width")?.let  { w -> m = m.width(w.dp) }
+    floatProp(props, "height")?.let { h -> m = m.height(h.dp) }
+
+    // Per-node offset is NOT applied here. Compose's Modifier.offset on the
+    // node's own modifier chain didn't displace siblings reliably when stacking
+    // multiple offset boxes inside a parent Box. RenderNode wraps the whole
+    // node in an outer Box(Modifier.offset(...)) instead — see RenderNode.
     return m
 }
 
@@ -2003,6 +2088,24 @@ private fun textAlignProp(props: Map<String, Any?>): TextAlign? =
         else     -> null
     }
 
+// Recursively convert org.json.JSONObject/JSONArray trees to plain Kotlin
+// Map<String, Any?> / List<Any?> so they're usable by code that expects
+// Kotlin collections (e.g. MobCanvas's "draw" op list).
+private fun jsonObjectToMap(obj: JSONObject): Map<String, Any?> {
+    val result = mutableMapOf<String, Any?>()
+    for (key in obj.keys()) {
+        result[key] = jsonValueToKotlin(obj.get(key))
+    }
+    return result
+}
+
+private fun jsonValueToKotlin(v: Any?): Any? = when (v) {
+    is JSONObject -> jsonObjectToMap(v)
+    is JSONArray  -> (0 until v.length()).map { i -> jsonValueToKotlin(v.get(i)) }
+    JSONObject.NULL -> null
+    else -> v
+}
+
 private fun fontFamilyProp(props: Map<String, Any?>): FontFamily? {
     val name = props["font"] as? String ?: return null
     return try { FontFamily(Typeface.create(name, Typeface.NORMAL)) }
@@ -2010,6 +2113,25 @@ private fun fontFamilyProp(props: Map<String, Any?>): FontFamily? {
 }
 
 // ── Tab bar helpers ───────────────────────────────────────────────────────────
+
+// Logical icon name → Material Icon. Mirrors the iOS sfSymbolName/2 lookup so
+// the same Elixir tab declaration ("history", "qr_code", etc.) renders a
+// platform-native icon on each side. Falls back to a visible Star for unknown
+// names so missing mappings show up in the UI rather than failing silently.
+private fun materialIconForLogical(logical: String): androidx.compose.ui.graphics.vector.ImageVector =
+    when (logical) {
+        "home"      -> Icons.Filled.Home
+        "history"   -> Icons.Filled.History
+        "list"      -> Icons.Filled.List
+        "qr_code"   -> Icons.Filled.QrCode
+        "link"      -> Icons.Filled.Link
+        "snowflake" -> Icons.Filled.AcUnit
+        "star"      -> Icons.Filled.Star
+        "settings"  -> Icons.Filled.Settings
+        "search"    -> Icons.Filled.Search
+        "user"      -> Icons.Filled.Person
+        else        -> Icons.Filled.Star
+    }
 
 private fun tabDefsProp(props: Map<String, Any?>): List<Map<String, String>> {
     return when (val raw = props["tabs"]) {
@@ -2032,6 +2154,23 @@ private fun rowAlignProp(props: Map<String, Any?>): Alignment.Vertical =
         "top"    -> Alignment.Top
         "bottom" -> Alignment.Bottom
         else     -> Alignment.CenterVertically
+    }
+
+// 2D alignment for Box content — same string keys as iOS so the
+// renderer doesn't have to discriminate per platform.
+private fun boxAlignProp(props: Map<String, Any?>): Alignment =
+    when (props["align"] as? String) {
+        "center"          -> Alignment.Center
+        "top"             -> Alignment.TopCenter
+        "top_center"      -> Alignment.TopCenter
+        "top_trailing"    -> Alignment.TopEnd
+        "leading"         -> Alignment.CenterStart
+        "trailing"        -> Alignment.CenterEnd
+        "bottom"          -> Alignment.BottomCenter
+        "bottom_leading"  -> Alignment.BottomStart
+        "bottom_center"   -> Alignment.BottomCenter
+        "bottom_trailing" -> Alignment.BottomEnd
+        else              -> Alignment.TopStart
     }
 
 private fun colorProp(props: Map<String, Any?>, key: String): Color =

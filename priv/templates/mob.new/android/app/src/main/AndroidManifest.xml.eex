@@ -90,6 +90,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- FCM token refresh (remote push notifications) -->
+        <service android:name=".MobFirebaseService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- FileProvider for camera temp files (photo / video capture) -->
         <provider
             android:name="androidx.core.content.FileProvider"

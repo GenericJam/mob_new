@@ -1,0 +1,17 @@
+package <%= bundle_id %>
+
+import com.google.firebase.messaging.FirebaseMessagingService
+import com.google.firebase.messaging.RemoteMessage
+
+// Receives FCM token refreshes. The refreshed token is cached and delivered
+// to Elixir the next time a screen calls Mob.Notify.register_push/0.
+class MobFirebaseService : FirebaseMessagingService() {
+
+    override fun onNewToken(token: String) {
+        pendingToken = token
+    }
+
+    companion object {
+        @Volatile var pendingToken: String? = null
+    }
+}

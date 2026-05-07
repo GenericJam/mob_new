@@ -322,6 +322,18 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(path)
     end
 
+    test "generates MobFirebaseService.kt in correct package path", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      path = Path.join(dir, "android/app/src/main/java/com/example/test_app/MobFirebaseService.kt")
+      assert File.exists?(path)
+    end
+
+    test "MobFirebaseService.kt has correct package declaration", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobFirebaseService.kt"))
+      assert content =~ "package com.example.test_app"
+    end
+
     test "MobBridge.kt has correct package declaration", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
@@ -794,6 +806,58 @@ defmodule MobNew.ProjectGeneratorTest do
 
       assert content =~ "contentKey"
       assert content =~ "it.navKey"
+    end
+
+    # ── Template linting ──────────────────────────────────────────────────────
+    #
+    # Generate a real project and lint the output. This is the canonical way
+    # to validate templates: EEx files can't be linted directly (the <%= %>
+    # syntax breaks all native parsers), but generated output is plain Kotlin/C
+    # and fully lintable. A lint failure here means a template needs fixing.
+    #
+    # Requires: brew install ktlint
+    # Run:      mix test --only lint
+
+    @tag :lint
+    test "all generated Kotlin files pass ktlint", %{tmp: tmp} do
+      case System.find_executable("ktlint") do
+        nil ->
+          IO.puts("\n  [lint] ktlint not installed — brew install ktlint")
+
+        ktlint ->
+          {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+          kt_files = Path.wildcard(Path.join(dir, "android/**/*.kt"))
+          # Auto-format first (fixes whitespace, blank lines, signature wrapping, etc.)
+          # then check — only non-auto-correctable violations (wildcard imports,
+          # backing property naming, etc.) will cause the test to fail.
+          System.cmd(ktlint, ["--format" | kt_files], stderr_to_stdout: true)
+          {output, exit_code} = System.cmd(ktlint, kt_files, stderr_to_stdout: true)
+          assert exit_code == 0, "ktlint found issues in generated Kotlin:\n#{output}"
+      end
+    end
+
+    test "MainActivity.kt calls enableEdgeToEdge before super.onCreate", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(
+          Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt")
+        )
+
+      assert content =~ "enableEdgeToEdge()"
+      assert content =~ "import androidx.activity.enableEdgeToEdge"
+    end
+
+    test "MainActivity.kt applies safeDrawingPadding to root modifier", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(
+          Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt")
+        )
+
+      assert content =~ "safeDrawingPadding()"
+      assert content =~ "import androidx.compose.foundation.layout.safeDrawingPadding"
     end
   end
 

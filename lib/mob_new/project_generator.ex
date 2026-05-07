@@ -104,7 +104,7 @@ defmodule MobNew.ProjectGenerator do
       a = assigns(app_name, opts)
       render_templates(a, project_dir, opts)
       copy_static(project_dir, opts)
-      write_dotfiles(project_dir)
+      write_dotfiles(project_dir, opts)
       {:ok, project_dir}
     end
   end
@@ -118,6 +118,24 @@ defmodule MobNew.ProjectGenerator do
   # `expand_path/2` rather than relying on the archive to ship `.eex`
   # dotfiles directly.
   @dotfiles %{
+    "android/.editorconfig" => """
+    # ktlint configuration for Mob-generated Android projects.
+    #
+    # package-name: Mob app names use underscores (e.g. my_app → com.example.my_app).
+    #   Android allows underscores in package names; the style guide discourages them
+    #   but the Mob naming convention requires them.
+    #
+    # function-naming: JNI bridge functions (nativeSetActivity, nativeStartBeam, etc.)
+    #   must match the JNI symbol names declared in beam_jni.c. Renaming them to
+    #   camelCase would break the native linkage.
+    #
+    # no-multi-spaces: Mob templates use column-aligned arrows in when expressions
+    #   for readability. ktlint cannot auto-correct this, so we suppress it globally.
+    [*.kt]
+    ktlint_standard_package-name = disabled
+    ktlint_standard_function-naming = disabled
+    ktlint_standard_no-multi-spaces = disabled
+    """,
     ".tool-versions" => """
     # Pinned toolchain versions for Mob development.
     # Both mise and asdf read this file automatically.
@@ -144,9 +162,18 @@ defmodule MobNew.ProjectGenerator do
     """
   }
 
-  defp write_dotfiles(project_dir) do
+  defp write_dotfiles(project_dir, opts) do
+    no_android = Keyword.get(opts, :no_android, false)
+    no_ios = Keyword.get(opts, :no_ios, false)
+
     Enum.each(@dotfiles, fn {name, content} ->
-      File.write!(Path.join(project_dir, name), content)
+      skip =
+        (no_android and String.starts_with?(name, "android/")) or
+          (no_ios and String.starts_with?(name, "ios/"))
+
+      unless skip do
+        File.write!(Path.join(project_dir, name), content)
+      end
     end)
   end
 

@@ -39,6 +39,8 @@ LIBS="
   $OTP_ROOT/$ERTS_VSN/lib/libepcre.a
   $OTP_ROOT/$ERTS_VSN/lib/libryu.a
   $OTP_ROOT/$ERTS_VSN/lib/asn1rt_nif.a
+  $OTP_ROOT/$ERTS_VSN/lib/crypto.a
+  $OTP_ROOT/$ERTS_VSN/lib/libcrypto.a
 "
 
 # ── Find booted simulator ──────────────────────────────────────────────────────

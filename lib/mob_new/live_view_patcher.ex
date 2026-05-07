@@ -79,7 +79,7 @@ defmodule MobNew.LiveViewPatcher do
       content
     else
       Regex.replace(
-        ~r/<body([^>]*)>/,
+        Regex.compile!("<body([^>]*)>"),
         content,
         "<body\\1>\n    #{@mob_bridge_element}",
         global: false
@@ -100,7 +100,7 @@ defmodule MobNew.LiveViewPatcher do
       # Insert before the closing bracket of the deps list
       String.replace(
         content,
-        ~r/(defp deps do\s*\[)/,
+        Regex.compile!("(defp deps do\\s*\\[)"),
         "\\1\n      #{mob_dep},\n      #{mob_dev_dep},",
         global: false
       )
@@ -1096,7 +1096,9 @@ defmodule MobNew.LiveViewPatcher do
       depth = count_brace_depth(line)
 
       if depth <= 0 do
-        patched = Regex.replace(~r/\)\s*$/, line, ", {hooks: {MobHook}})", global: false)
+        patched =
+          Regex.replace(Regex.compile!("\\)\\s*$"), line, ", {hooks: {MobHook}})", global: false)
+
         {acc ++ [patched], :done}
       else
         {acc ++ [line], {:in_call, depth}}
@@ -1162,9 +1164,14 @@ defmodule MobNew.LiveViewPatcher do
       String.contains?(content, "hooks: {}") ->
         String.replace(content, "hooks: {}", "hooks: {MobHook}")
 
-      Regex.match?(~r/hooks:\s*\{/, content) ->
+      Regex.match?(Regex.compile!("hooks:\\s*\\{"), content) ->
         # hooks key already exists — prepend MobHook to it
-        Regex.replace(~r/(hooks:\s*\{)/, content, "\\1MobHook, ", global: false)
+        Regex.replace(
+          Regex.compile!("(hooks:\\s*\\{)"),
+          content,
+          "\\1MobHook, ",
+          global: false
+        )
 
       true ->
         # No hooks key. Insert `hooks: {MobHook}` into the LiveSocket options.

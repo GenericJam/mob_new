@@ -324,13 +324,21 @@ defmodule MobNew.ProjectGeneratorTest do
 
     test "generates MobFirebaseService.kt in correct package path", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      path = Path.join(dir, "android/app/src/main/java/com/example/test_app/MobFirebaseService.kt")
+
+      path =
+        Path.join(dir, "android/app/src/main/java/com/example/test_app/MobFirebaseService.kt")
+
       assert File.exists?(path)
     end
 
     test "MobFirebaseService.kt has correct package declaration", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobFirebaseService.kt"))
+
+      content =
+        File.read!(
+          Path.join(dir, "android/app/src/main/java/com/example/test_app/MobFirebaseService.kt")
+        )
+
       assert content =~ "package com.example.test_app"
     end
 

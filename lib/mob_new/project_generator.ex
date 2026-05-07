@@ -503,7 +503,7 @@ defmodule MobNew.ProjectGenerator do
       unless String.contains?(content, "ecto_sqlite3") do
         patched =
           Regex.replace(
-            ~r/(defp deps do\s*\[)/,
+            Regex.compile!("(defp deps do\\s*\\[)"),
             content,
             ~s[\\1\n      {:ecto_sqlite3, "~> 0.18"},],
             global: false
@@ -523,10 +523,12 @@ defmodule MobNew.ProjectGenerator do
   # file's port has already been bumped.
   defp patch_config_ports(project_dir) do
     [
-      {"config/dev.exs", ~r/port:\s*4000\b/, "port: 4200", "dev port 4000 → 4200"},
-      {"config/test.exs", ~r/port:\s*4002\b/, "port: 4202", "test port 4002 → 4202"},
-      {"config/runtime.exs", ~r/"PORT"\s*\)\s*\|\|\s*"4000"/, "\"PORT\") || \"4200\"",
-       "runtime PORT default 4000 → 4200"}
+      {"config/dev.exs", Regex.compile!("port:\\s*4000\\b"), "port: 4200",
+       "dev port 4000 → 4200"},
+      {"config/test.exs", Regex.compile!("port:\\s*4002\\b"), "port: 4202",
+       "test port 4002 → 4202"},
+      {"config/runtime.exs", Regex.compile!(~S{"PORT"\s*\)\s*\|\|\s*"4000"}),
+       "\"PORT\") || \"4200\"", "runtime PORT default 4000 → 4200"}
     ]
     |> Enum.each(&apply_port_patch(project_dir, &1))
   end
@@ -651,7 +653,7 @@ defmodule MobNew.ProjectGenerator do
 
       patched =
         Regex.replace(
-          ~r/get\s+"\/",\s+PageController,\s+:home/,
+          Regex.compile!("get\\s+\"\\/\",\\s+PageController,\\s+:home"),
           content,
           notes_routes,
           global: false
@@ -660,7 +662,12 @@ defmodule MobNew.ProjectGenerator do
       patched =
         if patched == content do
           # Fallback: replace any existing live "/" route
-          Regex.replace(~r/live\s+"\/",\s+\w+/, content, notes_routes, global: false)
+          Regex.replace(
+            Regex.compile!("live\\s+\"\\/\",\\s+\\w+"),
+            content,
+            notes_routes,
+            global: false
+          )
         else
           patched
         end
@@ -707,7 +714,7 @@ defmodule MobNew.ProjectGenerator do
     if File.exists?(dev_exs) do
       content = File.read!(dev_exs)
 
-      case Regex.run(~r/secret_key_base:\s*"([^"]{40,})"/, content) do
+      case Regex.run(Regex.compile!("secret_key_base:\\s*\"([^\"]{40,})\""), content) do
         [_, key] -> key
         _ -> nil
       end
@@ -744,7 +751,7 @@ defmodule MobNew.ProjectGenerator do
       else
         patched =
           Regex.replace(
-            ~r/(def project do\s*\[)/,
+            Regex.compile!("(def project do\\s*\\[)"),
             content,
             "\\1\n      erlc_paths: [\"src\"],\n      erlc_options: [:debug_info],",
             global: false

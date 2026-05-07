@@ -25,7 +25,11 @@ fi
 
 BEAMS_DIR="$OTP_ROOT/<%= app_name %>"
 SDKROOT=$(xcrun -sdk iphonesimulator --show-sdk-path)
-CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=17.0 -isysroot $SDKROOT"
+# -Os + per-function/data sections (the C-side analog of beam_lib:strip_release/1).
+# Combined with -Wl,-dead_strip on the final link, the linker drops every
+# function and data object that no live symbol references. Per the GRiSP nano
+# 2025-06-11 writeup, this is the single biggest C-side win on bundle size.
+CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=17.0 -isysroot $SDKROOT -Os -ffunction-sections -fdata-sections"
 
 IFLAGS="-I$OTP_ROOT/$ERTS_VSN/include \
         -I$OTP_ROOT/$ERTS_VSN/include/aarch64-apple-iossimulator \
@@ -235,6 +239,7 @@ xcrun -sdk iphonesimulator swiftc \
     "$BUILD_DIR/beam_main.o" \
     $LIBS \
     -lz -lc++ -lpthread \
+    -Xlinker -dead_strip \
     -Xlinker -framework -Xlinker UIKit \
     -Xlinker -framework -Xlinker Foundation \
     -Xlinker -framework -Xlinker CoreGraphics \

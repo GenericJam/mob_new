@@ -797,8 +797,15 @@ defmodule MobNew.ProjectGenerator do
       mob_dev_dep = ~s({:mob_dev, "~> 0.3", only: :dev, runtime: false})
       mob_exs_mob_dir = "Path.join(File.cwd!(), \"deps/mob\")"
 
+      # Default to the running Elixir's actual lib dir — `:code.lib_dir(:elixir)`
+      # returns ".../lib/elixir", so `Path.dirname/1` yields the parent that
+      # holds elixir/, logger/, eex/, etc. that build.sh's stdlib copy needs.
+      # A hardcoded version path here drifts the moment the user's mise
+      # install moves; a build.sh that copies from an old Elixir into a tarball
+      # whose OTP is much newer breaks Phoenix's Regex layer
+      # (Elixir.Regex.safe_run/3 function_clause on the on-device re_pattern).
       mob_exs_elixir_lib =
-        "System.get_env(\"MOB_ELIXIR_LIB\", System.get_env(\"HOME\") <> \"/.local/share/mise/installs/elixir/1.18.4-otp-28/lib\")"
+        "System.get_env(\"MOB_ELIXIR_LIB\", :code.lib_dir(:elixir) |> to_string() |> Path.dirname())"
 
       {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
     end

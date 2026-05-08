@@ -851,6 +851,36 @@ defmodule MobNew.LiveViewPatcher do
     cp "$ELIXIR_LIB/eex/ebin/"*.beam  "$BEAMS_DIR/"
     cp "$ELIXIR_LIB/eex/ebin/eex.app" "$BEAMS_DIR/"
 
+    echo "=== Installing exqlite NIF + beams ==="
+    # exqlite expects an OTP-style layout at lib/exqlite-VSN/{ebin,priv} so
+    # `:code.priv_dir(:exqlite)` resolves to the .so. Without this, NIF load
+    # fails with `:filename.join({:error, :bad_name}, ~c"sqlite3_nif")` and
+    # every Repo connection raises UndefinedFunctionError.
+    #
+    # The .so we ship is the host-built (macOS arm64) sqlite3_nif.so — iOS
+    # simulator's loader accepts host-arch dylibs (the sim runs on macOS's
+    # dyld stack), so this is the same NIF the user's host mix runs against.
+    # On a real iOS device this would need a separate cross-compile.
+    EXQLITE_BUILD="_build/dev/lib/exqlite"
+    if [ -d "$EXQLITE_BUILD/ebin" ]; then
+        EXQLITE_VSN=$(grep -o '{vsn,"[^"]*"}' "$EXQLITE_BUILD/ebin/exqlite.app" \\
+            | grep -o '"[^"]*"' | tr -d '"')
+        if [ -n "$EXQLITE_VSN" ]; then
+            EXQLITE_DIR="$OTP_ROOT/lib/exqlite-$EXQLITE_VSN"
+            mkdir -p "$EXQLITE_DIR/ebin" "$EXQLITE_DIR/priv"
+            cp "$EXQLITE_BUILD/ebin/"*.beam "$EXQLITE_DIR/ebin/" 2>/dev/null || true
+            cp "$EXQLITE_BUILD/ebin/exqlite.app" "$EXQLITE_DIR/ebin/" 2>/dev/null || true
+            if [ -f "$EXQLITE_BUILD/priv/sqlite3_nif.so" ]; then
+                cp "$EXQLITE_BUILD/priv/sqlite3_nif.so" "$EXQLITE_DIR/priv/"
+            fi
+            echo "* exqlite $EXQLITE_VSN bundled at $EXQLITE_DIR"
+        else
+            echo "* WARNING: could not detect exqlite version — DB queries will fail"
+        fi
+    else
+        echo "* exqlite not found in $EXQLITE_BUILD (skipping — DB queries will fail if Ecto is used)"
+    fi
+
     echo "=== Installing crypto shim (iOS OTP has no OpenSSL) ==="
     # phoenix and plug_crypto list :crypto as a required OTP application.
     # The iOS OTP build does not include crypto (no OpenSSL NIF).

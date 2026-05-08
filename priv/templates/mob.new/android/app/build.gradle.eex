@@ -16,7 +16,7 @@ def mobDir             = localProps.getProperty('mob.mob_dir',           System.
 
 // Auto-detect ERTS version from the OTP release directory (arm64 is canonical).
 def ertsVsn = new File(mobOtpRelease).listFiles()
-    ?.find { it.name.startsWith('erts-') }?.name ?: 'erts-16.3'
+    ?.find { it.name.startsWith('erts-') }?.name ?: 'erts-17.0'
 
 android {
     namespace '<%= bundle_id %>'

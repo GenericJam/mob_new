@@ -245,7 +245,7 @@ defmodule MobNew.ProjectGeneratorTest do
           Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt")
         )
 
-      assert kt =~ ~s[System.loadLibrary("testapp")]
+      assert kt =~ ~s[System.loadLibrary("test_app")]
     end
 
     test "generates ios/beam_main.m", %{tmp: tmp} do
@@ -281,11 +281,11 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(Path.join(dir, "android/app/src/main/jni/CMakeLists.txt"))
     end
 
-    test "CMakeLists.txt uses lib_name for project and library", %{tmp: tmp} do
+    test "CMakeLists.txt uses app_name for project and library", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/CMakeLists.txt"))
-      assert content =~ "project(testapp)"
-      assert content =~ "add_library(testapp SHARED"
+      assert content =~ "project(test_app)"
+      assert content =~ "add_library(test_app SHARED"
     end
 
     test "CMakeLists.txt uses CMake variables not hardcoded paths", %{tmp: tmp} do
@@ -761,7 +761,7 @@ defmodule MobNew.ProjectGeneratorTest do
          %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/CMakeLists.txt"))
-      assert content =~ "target_link_libraries(testapp\n    PRIVATE"
+      assert content =~ "target_link_libraries(test_app\n    PRIVATE"
     end
 
     # ── MOB_BEAMS_DIR migration path — Ecto on flat -pa directories ──────────────

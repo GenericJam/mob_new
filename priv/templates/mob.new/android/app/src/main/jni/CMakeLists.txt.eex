@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(<%= lib_name %>)
+project(<%= app_name %>)
 
 # Paths injected by build.gradle (read from android/local.properties or env vars).
 # OTP_RELEASE (arm64), OTP_RELEASE_ARM32, ERTS_VSN, MOB_DIR are set via -D flags.
@@ -15,19 +15,19 @@ endif()
 # (android/app/src/main/jni → ../../../../../). Used to locate deps/.
 set(MOB_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../deps")
 
-add_library(<%= lib_name %> SHARED
+add_library(<%= app_name %> SHARED
     beam_jni.c
     ${MOB_DIR}/android/jni/mob_nif.c
     ${MOB_DIR}/android/jni/mob_beam.c
     ${MOB_DIR}/android/jni/driver_tab_android.c
 )
 
-target_include_directories(<%= lib_name %> PRIVATE
+target_include_directories(<%= app_name %> PRIVATE
     ${MOB_DIR}/android/jni
     ${OTP_DIR}/${ERTS_VSN}/include
 )
 
-target_compile_definitions(<%= lib_name %> PRIVATE STATIC_ERLANG_NIF)
+target_compile_definitions(<%= app_name %> PRIVATE STATIC_ERLANG_NIF)
 
 # -Os over -O2 (smaller, no measurable runtime cost on phone hardware).
 # -ffunction-sections / -fdata-sections puts every function and data
@@ -35,11 +35,11 @@ target_compile_definitions(<%= lib_name %> PRIVATE STATIC_ERLANG_NIF)
 # unreferenced ones from the final libpigeon.so. Per the GRiSP nano
 # 2025-06-11 writeup, these flags are the single biggest C-side win
 # for shrinking BEAM bundles.
-target_compile_options(<%= lib_name %> PRIVATE
+target_compile_options(<%= app_name %> PRIVATE
     -Os -ffunction-sections -fdata-sections
 )
 
-target_link_libraries(<%= lib_name %>
+target_link_libraries(<%= app_name %>
     PRIVATE
     -Wl,--gc-sections
     -Wl,--allow-multiple-definition
@@ -94,7 +94,7 @@ target_compile_definitions(sqlite3_nif PRIVATE
 )
 
 target_link_libraries(sqlite3_nif
-    <%= lib_name %>
+    <%= app_name %>
     android
     log
 )

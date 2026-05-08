@@ -363,6 +363,7 @@ object MobBridge {
     // ── Pending callback PIDs ──────────────────────────────────────────────
     var pendingPermissionPid:  Long = 0
     var pendingPermissionCap:  String = ""
+    @Volatile var notifyPid:   Long = 0
     var pendingCameraPid:      Long = 0
     var pendingCameraIsVideo:  Boolean = false
     var pendingPhotosPid:      Long = 0
@@ -375,7 +376,7 @@ object MobBridge {
         pendingPermissionPid = pid
         pendingPermissionCap = cap
         val activity = activityRef?.get() ?: run {
-            nativeDeliverAtom2(pid, "permission", "denied"); return
+            nativeDeliverAtom3(pid, "permission", cap, "denied"); return
         }
         val perms = when (cap) {
             "camera"        -> arrayOf(android.Manifest.permission.CAMERA)
@@ -386,11 +387,11 @@ object MobBridge {
             "location"      -> arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
             "notifications" -> if (android.os.Build.VERSION.SDK_INT >= 33)
                 arrayOf(android.Manifest.permission.POST_NOTIFICATIONS)
-            else { nativeDeliverAtom2(pid, "permission", "granted"); return }
-            else -> { nativeDeliverAtom2(pid, "permission", "denied"); return }
+            else { nativeDeliverAtom3(pid, "permission", "notifications", "granted"); return }
+            else -> { nativeDeliverAtom3(pid, "permission", cap, "denied"); return }
         }
         if (perms.all { ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED }) {
-            nativeDeliverAtom2(pid, "permission", "granted")
+            nativeDeliverAtom3(pid, "permission", cap, "granted")
         } else {
             ActivityCompat.requestPermissions(activity, perms, PERM_REQUEST_CODE)
         }
@@ -398,7 +399,7 @@ object MobBridge {
 
     @JvmStatic
     fun onPermissionResult(granted: Boolean) {
-        nativeDeliverAtom2(pendingPermissionPid, "permission", if (granted) "granted" else "denied")
+        nativeDeliverAtom3(pendingPermissionPid, "permission", pendingPermissionCap, if (granted) "granted" else "denied")
     }
 
     // ── Biometric ─────────────────────────────────────────────────────────
@@ -1064,6 +1065,7 @@ object MobBridge {
 
     @JvmStatic
     fun notify_register_push(pid: Long, arg: String?) {
+        notifyPid = pid
         // Deliver any token that refreshed while no screen was active.
         MobFirebaseService.pendingToken?.let { token ->
             MobFirebaseService.pendingToken = null

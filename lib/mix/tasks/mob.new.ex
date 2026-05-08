@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mob.New do
   @moduledoc """
   Creates a new Mob project with Android and iOS boilerplate.
 
-      mix mob.new APP_NAME [--liveview] [--ios | --android] [--no-install] [--dest DIR] [--local]
+      mix mob.new APP_NAME [--liveview] [--python] [--ios | --android] [--no-install] [--dest DIR] [--local]
 
   ## Platform selection
 
@@ -34,6 +34,14 @@ defmodule Mix.Tasks.Mob.New do
     * `--android`      — generate Android boilerplate only (skip ios/)
     * `--no-ios`       — alias for `--android` (skip iOS boilerplate)
     * `--no-android`   — alias for `--ios` (skip Android boilerplate)
+    * `--python`       — pre-configure embedded CPython via Pythonx (iOS only).
+                         Adds `:pythonx` to deps, generates a
+                         `<App>.PythonPaths` detection module, and gates
+                         `:pythonx, :uv_init` in `config.exs` on
+                         `MOB_TARGET=ios`. Mirrors `mix mob.enable python`
+                         post-scaffold. Bundle size ~70 MB; iOS only —
+                         Android Python is intentionally out of scope. See
+                         the `Embedded CPython` guide in mob_dev's docs.
     * `--no-install`   — skip running `mix deps.get` after generation
     * `--dest DIR`     — create project in DIR (default: current directory)
     * `--local`        — use `path:` deps pointing to local mob/mob_dev repos
@@ -97,7 +105,8 @@ defmodule Mix.Tasks.Mob.New do
     android: :boolean,
     dest: :string,
     local: :boolean,
-    liveview: :boolean
+    liveview: :boolean,
+    python: :boolean
   ]
 
   @impl Mix.Task
@@ -135,7 +144,8 @@ defmodule Mix.Tasks.Mob.New do
     gen_opts = [
       local: opts[:local] || false,
       no_ios: no_ios,
-      no_android: no_android
+      no_android: no_android,
+      python: opts[:python] || false
     ]
 
     {dest_dir, liveview, gen_opts}
@@ -176,6 +186,14 @@ defmodule Mix.Tasks.Mob.New do
       Mix.shell().info([
         :cyan,
         "* --liveview: generating Phoenix LiveView app with Mob bridge",
+        :reset
+      ])
+    end
+
+    if gen_opts[:python] do
+      Mix.shell().info([
+        :cyan,
+        "* --python: enabling embedded CPython (iOS only). See python_embedding guide.",
         :reset
       ])
     end

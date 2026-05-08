@@ -106,8 +106,173 @@ defmodule MobNew.ProjectGenerator do
       render_templates(a, project_dir, opts)
       copy_static(project_dir, opts)
       write_dotfiles(project_dir, opts)
+      if Keyword.get(opts, :python, false), do: apply_python_patches(project_dir, app_name)
       {:ok, project_dir}
     end
+  end
+
+  @doc """
+  Patches a generated project to enable Pythonx (embedded CPython, iOS only).
+
+  Three patches:
+    * `mix.exs` — adds `{:pythonx, "~> 0.4"}` to deps.
+    * `lib/<app>/python_paths.ex` — pure detection module that reads
+      `:code.root_dir/0` and reports `:desktop` / `{:ios, paths}` /
+      `{:partial, missing}` for the bundled CPython.
+    * `config/config.exs` — appends a `MOB_TARGET=ios`-gated
+      `:pythonx, :uv_init` block so desktop dev still uses uv.
+
+  Mirrors `mix mob.enable python` (in `mob_dev`). Idempotent — safe to
+  run twice. Public for testing.
+  """
+  @spec apply_python_patches(String.t(), String.t()) :: :ok
+  def apply_python_patches(project_dir, app_name) do
+    add_pythonx_dep(project_dir)
+    write_python_paths_module(project_dir, app_name)
+    patch_config_exs_for_pythonx(project_dir, app_name)
+    :ok
+  end
+
+  defp add_pythonx_dep(project_dir) do
+    path = Path.join(project_dir, "mix.exs")
+
+    case File.read(path) do
+      {:ok, content} ->
+        cond do
+          String.contains?(content, ":pythonx") ->
+            :ok
+
+          Regex.match?(~r/defp\s+deps\s+do\s*\[/, content) ->
+            patched =
+              Regex.replace(
+                ~r/(defp\s+deps\s+do\s*\[)/,
+                content,
+                ~s(\\1\n      {:pythonx, "~> 0.4"},),
+                global: false
+              )
+
+            File.write!(path, patched)
+
+          true ->
+            :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp write_python_paths_module(project_dir, app_name) do
+    module_name = Macro.camelize(app_name)
+    dir = Path.join([project_dir, "lib", app_name])
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "python_paths.ex")
+
+    unless File.exists?(path) do
+      File.write!(path, """
+      defmodule #{module_name}.PythonPaths do
+        @moduledoc \"\"\"
+        Detects bundled CPython on iOS and reports the paths needed for
+        `Pythonx.init/4` (dl_path, home_path, stdlib_path).
+
+        Pure detection logic — see your app's `App` module for how the
+        result is fed into `Pythonx.init/4` at boot.
+
+        ## Returns
+
+          * `:desktop` — no `<otp_root>/python/` present; Pythonx's
+            `Application.start/2` handles desktop init via `:uv_init`.
+          * `{:ios, paths}` — full bundle present; pass paths into
+            `Pythonx.init/4`.
+          * `{:partial, missing}` — directory exists but artifacts are
+            missing; surface the list to the user.
+        \"\"\"
+
+        @type python_paths :: %{
+                dl_path: String.t(),
+                home_path: String.t(),
+                stdlib_path: String.t()
+              }
+
+        @type detection ::
+                :desktop
+                | {:ios, python_paths()}
+                | {:partial, [atom()]}
+
+        @python_version "python3.13"
+
+        @spec detect(String.t()) :: detection()
+        def detect(otp_root) when is_binary(otp_root) do
+          paths = build_paths(otp_root)
+
+          if File.dir?(Path.join(otp_root, "python")) do
+            case missing(paths) do
+              [] -> {:ios, paths}
+              missing -> {:partial, missing}
+            end
+          else
+            :desktop
+          end
+        end
+
+        @spec build_paths(String.t()) :: python_paths()
+        def build_paths(otp_root) when is_binary(otp_root) do
+          python_dir = Path.join(otp_root, "python")
+
+          %{
+            dl_path: Path.join([python_dir, "Python.framework", "Python"]),
+            home_path: python_dir,
+            stdlib_path: Path.join([python_dir, "lib", @python_version])
+          }
+        end
+
+        @spec missing(python_paths()) :: [atom()]
+        def missing(%{dl_path: dl, home_path: home, stdlib_path: stdlib}) do
+          [
+            {:dl_path, File.exists?(dl)},
+            {:home_path, File.dir?(home)},
+            {:stdlib_path, File.dir?(stdlib)}
+          ]
+          |> Enum.reject(fn {_, present?} -> present? end)
+          |> Enum.map(&elem(&1, 0))
+        end
+      end
+      """)
+    end
+  end
+
+  defp patch_config_exs_for_pythonx(project_dir, app_name) do
+    config_dir = Path.join(project_dir, "config")
+    File.mkdir_p!(config_dir)
+    path = Path.join(config_dir, "config.exs")
+
+    content =
+      if File.exists?(path), do: File.read!(path), else: "import Config\n"
+
+    cond do
+      String.contains?(content, "MOB_TARGET") -> :ok
+      String.contains?(content, ":pythonx") -> :ok
+      true -> File.write!(path, content <> pythonx_uv_init_block(app_name))
+    end
+  end
+
+  defp pythonx_uv_init_block(app_name) do
+    """
+
+    # Pythonx desktop venv setup. On iOS the build script sets MOB_TARGET=ios
+    # which short-circuits this block — Pythonx is initialized at runtime
+    # against the bundled framework instead.
+    unless System.get_env("MOB_TARGET") == "ios" do
+      config :pythonx, :uv_init,
+        pyproject_toml: \"\"\"
+        [project]
+        name = "#{app_name}"
+        version = "0.1.0"
+        requires-python = "==3.13.*"
+        dependencies = []
+        \"\"\"
+    end
+    """
   end
 
   # `mix archive.build` packages files in `priv/` via `Path.wildcard/2`

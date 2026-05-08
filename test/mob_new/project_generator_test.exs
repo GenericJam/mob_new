@@ -1309,4 +1309,86 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(Path.join(dir, "lib/test_ios2/home_screen.ex"))
     end
   end
+
+  # ── --python flag (apply_python_patches) ──────────────────────────────────
+
+  describe "generate/3 with python: true" do
+    setup do
+      tmp =
+        Path.join(
+          System.tmp_dir!(),
+          "mob_new_python_test_#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(tmp)
+      on_exit(fn -> File.rm_rf!(tmp) end)
+      {:ok, tmp: tmp}
+    end
+
+    test "writes lib/<app>/python_paths.ex with the right module name", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("py_app", tmp, python: true)
+      path = Path.join(dir, "lib/py_app/python_paths.ex")
+      assert File.exists?(path)
+
+      content = File.read!(path)
+      assert content =~ "defmodule PyApp.PythonPaths do"
+      assert content =~ "def detect("
+      assert content =~ "def build_paths("
+      assert content =~ "def missing("
+      assert content =~ ~s|"python3.13"|
+    end
+
+    test "adds {:pythonx, ...} to mix.exs deps", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("py_app", tmp, python: true)
+      content = File.read!(Path.join(dir, "mix.exs"))
+      assert content =~ ~r/\{:pythonx,\s*"~>/
+    end
+
+    test "appends MOB_TARGET=ios gate to config/config.exs", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("py_app", tmp, python: true)
+      content = File.read!(Path.join(dir, "config/config.exs"))
+      assert content =~ ~s|System.get_env("MOB_TARGET") == "ios"|
+      assert content =~ "config :pythonx, :uv_init"
+      assert content =~ ~s|name = "py_app"|
+    end
+
+    test "python: false (default) skips all three patches", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("vanilla_app", tmp)
+      refute File.exists?(Path.join(dir, "lib/vanilla_app/python_paths.ex"))
+
+      mix_content = File.read!(Path.join(dir, "mix.exs"))
+      refute mix_content =~ ":pythonx"
+
+      config_path = Path.join(dir, "config/config.exs")
+
+      if File.exists?(config_path) do
+        config_content = File.read!(config_path)
+        refute config_content =~ ":pythonx"
+      end
+    end
+  end
+
+  describe "apply_python_patches/2" do
+    @tag :tmp_dir
+    test "is idempotent — running twice doesn't double-add the dep", %{tmp_dir: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("idem_app", tmp, python: true)
+      content_before = File.read!(Path.join(dir, "mix.exs"))
+
+      ProjectGenerator.apply_python_patches(dir, "idem_app")
+      content_after = File.read!(Path.join(dir, "mix.exs"))
+
+      assert content_before == content_after
+    end
+
+    @tag :tmp_dir
+    test "is idempotent — config gate not duplicated on re-run", %{tmp_dir: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("idem_app2", tmp, python: true)
+      content_before = File.read!(Path.join(dir, "config/config.exs"))
+
+      ProjectGenerator.apply_python_patches(dir, "idem_app2")
+      content_after = File.read!(Path.join(dir, "config/config.exs"))
+
+      assert content_before == content_after
+    end
+  end
 end

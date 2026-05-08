@@ -851,35 +851,44 @@ defmodule MobNew.LiveViewPatcher do
     cp "$ELIXIR_LIB/eex/ebin/"*.beam  "$BEAMS_DIR/"
     cp "$ELIXIR_LIB/eex/ebin/eex.app" "$BEAMS_DIR/"
 
-    echo "=== Installing exqlite NIF + beams ==="
-    # exqlite expects an OTP-style layout at lib/exqlite-VSN/{ebin,priv} so
-    # `:code.priv_dir(:exqlite)` resolves to the .so. Without this, NIF load
-    # fails with `:filename.join({:error, :bad_name}, ~c"sqlite3_nif")` and
-    # every Repo connection raises UndefinedFunctionError.
-    #
-    # The .so we ship is the host-built (macOS arm64) sqlite3_nif.so — iOS
-    # simulator's loader accepts host-arch dylibs (the sim runs on macOS's
-    # dyld stack), so this is the same NIF the user's host mix runs against.
-    # On a real iOS device this would need a separate cross-compile.
-    EXQLITE_BUILD="_build/dev/lib/exqlite"
-    if [ -d "$EXQLITE_BUILD/ebin" ]; then
-        EXQLITE_VSN=$(grep -o '{vsn,"[^"]*"}' "$EXQLITE_BUILD/ebin/exqlite.app" \\
+    echo "=== Installing exqlite as OTP library ==="
+    # `:code.priv_dir(:exqlite)` requires the standard OTP lib structure
+    # (lib/exqlite-VERSION/priv/) to resolve the NIF path. Stage it in
+    # OTP_ROOT so the rsync to RUNTIME_DIR carries the correct layout.
+    EXQLITE_VSN=$(grep '"exqlite"' mix.lock \\
+        | grep -o '"[0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*"' | head -1 | tr -d '"')
+    if [ -z "$EXQLITE_VSN" ]; then
+        EXQLITE_VSN=$(grep -o '{vsn,"[^"]*"}' _build/dev/lib/exqlite/ebin/exqlite.app \\
             | grep -o '"[^"]*"' | tr -d '"')
-        if [ -n "$EXQLITE_VSN" ]; then
-            EXQLITE_DIR="$OTP_ROOT/lib/exqlite-$EXQLITE_VSN"
-            mkdir -p "$EXQLITE_DIR/ebin" "$EXQLITE_DIR/priv"
-            cp "$EXQLITE_BUILD/ebin/"*.beam "$EXQLITE_DIR/ebin/" 2>/dev/null || true
-            cp "$EXQLITE_BUILD/ebin/exqlite.app" "$EXQLITE_DIR/ebin/" 2>/dev/null || true
-            if [ -f "$EXQLITE_BUILD/priv/sqlite3_nif.so" ]; then
-                cp "$EXQLITE_BUILD/priv/sqlite3_nif.so" "$EXQLITE_DIR/priv/"
-            fi
-            echo "* exqlite $EXQLITE_VSN bundled at $EXQLITE_DIR"
-        else
-            echo "* WARNING: could not detect exqlite version — DB queries will fail"
-        fi
-    else
-        echo "* exqlite not found in $EXQLITE_BUILD (skipping — DB queries will fail if Ecto is used)"
     fi
+    EXQLITE_LIB_DIR="$OTP_ROOT/lib/exqlite-${EXQLITE_VSN}"
+    rm -rf "$OTP_ROOT/lib/exqlite-"  # remove any previous broken empty-version dir
+    mkdir -p "$EXQLITE_LIB_DIR/ebin" "$EXQLITE_LIB_DIR/priv"
+    cp _build/dev/lib/exqlite/ebin/*.beam "$EXQLITE_LIB_DIR/ebin/"
+    cp _build/dev/lib/exqlite/ebin/exqlite.app "$EXQLITE_LIB_DIR/ebin/"
+
+    echo "=== Cross-compiling sqlite3_nif.so for iOS simulator ==="
+    # The macOS-compiled NIF from `mix deps.compile` is platform 1 (macOS) —
+    # iOS Simulator's dyld rejects it with "incompatible platform (have
+    # 'macOS', need 'iOS-simulator')". Recompile against the iphonesimulator
+    # SDK so the dylib has platform 7 (iossimulator) and dlopen succeeds.
+    # `-undefined dynamic_lookup` lets enif_* symbols resolve from the
+    # parent BEAM at load time. Mirrors the equivalent step in the vanilla
+    # iOS build.sh (priv/templates/mob.new/ios/build.sh.eex). Device builds
+    # would static-link instead via driver_tab_ios.c's MOB_STATIC_SQLITE_NIF
+    # pathway — sim sticks with dynamic to keep the existing convention.
+    EXQLITE_SRC="deps/exqlite/c_src"
+    $CC -dynamiclib \\
+        -undefined dynamic_lookup \\
+        -I "$EXQLITE_SRC" \\
+        -I "$OTP_ROOT/$ERTS_VSN/include" \\
+        -I "$OTP_ROOT/$ERTS_VSN/include/aarch64-apple-iossimulator" \\
+        -DSQLITE_THREADSAFE=1 \\
+        -Wno-#warnings \\
+        "$EXQLITE_SRC/sqlite3_nif.c" \\
+        "$EXQLITE_SRC/sqlite3.c" \\
+        -o "$EXQLITE_LIB_DIR/priv/sqlite3_nif.so" \\
+        || echo "WARNING: exqlite NIF cross-compile failed — DB queries will fail"
 
     echo "=== Installing crypto shim (iOS OTP has no OpenSSL) ==="
     # phoenix and plug_crypto list :crypto as a required OTP application.

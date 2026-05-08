@@ -436,6 +436,13 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "PYTHON_APPLE_SUPPORT"
     end
 
+    test "build.sh exports MOB_TARGET=ios so config.exs gates fire at compile time",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/build.sh"))
+      assert content =~ "export MOB_TARGET=ios"
+    end
+
     test "generates mob.exs config template", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "mob.exs"))

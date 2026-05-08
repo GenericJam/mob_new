@@ -10,6 +10,13 @@
 set -e
 cd "$(dirname "$0")/.."     # project root (contains mix.exs)
 
+# Tell `mix compile` we're building for iOS so any `unless
+# System.get_env("MOB_TARGET") == "ios" do …` compile-time gates in the
+# user's config.exs short-circuit. The python feature uses this gate to
+# skip Pythonx's desktop `:uv_init` (which can't run in the simulator —
+# no uv at compile time). Harmless for non-Python apps.
+export MOB_TARGET=ios
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 MOB_DIR="${MOB_DIR:?MOB_DIR not set — configure mob.exs}"
 ELIXIR_LIB="${MOB_ELIXIR_LIB:?MOB_ELIXIR_LIB not set — configure mob.exs}"
@@ -110,6 +117,14 @@ rm -rf "$OTP_ROOT/lib/exqlite-"  # remove any previous broken empty-version dir
 mkdir -p "$EXQLITE_LIB_DIR/ebin" "$EXQLITE_LIB_DIR/priv"
 cp _build/dev/lib/exqlite/ebin/*.beam "$EXQLITE_LIB_DIR/ebin/"
 cp _build/dev/lib/exqlite/ebin/exqlite.app "$EXQLITE_LIB_DIR/ebin/"
+
+echo "=== Forcing erl_nif.o into the binary for dlopen'd NIFs (Pythonx, others) ==="
+# `-dead_strip` on the final link drops unused enif_* symbols. Dynamic NIFs
+# loaded via dlopen at runtime (libpythonx.so, etc.) need them. A single
+# reference pulls all of erl_nif.o (which defines them) from libbeam.a.
+# The earlier crypto.a + libcrypto.a in LIBS already keep enif_* alive for
+# the static crypto NIF, but pulling them transitively via dead-strip is
+# unreliable — make the reference explicit.
 
 echo "=== Cross-compiling sqlite3_nif.so for iOS simulator ==="
 # The macOS-compiled NIF from mix deps.compile is incompatible with the iOS
@@ -289,6 +304,28 @@ $CC -fobjc-arc -fmodules $IFLAGS \
 $CC -fobjc-arc -fmodules $IFLAGS \
     -c ios/beam_main.m    -o "$BUILD_DIR/beam_main.o"
 
+# Generate enif_* keep-alive table so -dead_strip doesn't remove enif_*
+# symbols that dlopen'd dynamic NIFs (libpythonx.so, others) need at
+# runtime. Each enif_* exported by erl_nif.o gets one __attribute__((used))
+# reference — `used` only protects the listed symbol (not siblings in the
+# same .o), so we need one reference per symbol. See README in mob_dev for
+# the dead_strip + flat namespace background.
+echo "=== Generating enif_* keep-alive table ==="
+NIF_O_TMP=$(mktemp -d)
+$(xcrun -find ar) x "$OTP_ROOT/$ERTS_VSN/lib/libbeam.a" --output="$NIF_O_TMP" erl_nif.o 2>/dev/null \
+    || $(xcrun -find ar) x "$OTP_ROOT/$ERTS_VSN/lib/libbeam.a" erl_nif.o
+[ ! -f erl_nif.o ] || mv erl_nif.o "$NIF_O_TMP/erl_nif.o"
+
+{
+    echo "/* Auto-generated. References every enif_* in erl_nif.o so dead_strip keeps them. */"
+    xcrun nm -arch arm64 "$NIF_O_TMP/erl_nif.o" 2>/dev/null \
+        | awk '/ T _enif_/ { sym = substr($3, 2); printf "extern void %s(void); __attribute__((used)) static void *_keep_%s = (void *)&%s;\n", sym, sym, sym }'
+} > "$BUILD_DIR/enif_keepalive.c"
+rm -rf "$NIF_O_TMP"
+KEEP_COUNT=$(grep -c '^extern void enif_' "$BUILD_DIR/enif_keepalive.c" || true)
+echo "  $KEEP_COUNT enif_* symbols pinned"
+$CC -c "$BUILD_DIR/enif_keepalive.c" -o "$BUILD_DIR/enif_keepalive.o"
+
 # ── Link ───────────────────────────────────────────────────────────────────────
 echo "=== Linking <%= display_name %> binary ==="
 xcrun -sdk iphonesimulator swiftc \
@@ -300,6 +337,7 @@ xcrun -sdk iphonesimulator swiftc \
     "$BUILD_DIR/mob_beam.o" \
     "$BUILD_DIR/AppDelegate.o" \
     "$BUILD_DIR/beam_main.o" \
+    "$BUILD_DIR/enif_keepalive.o" \
     $LIBS \
     -lz -lc++ -lpthread \
     -Xlinker -dead_strip \

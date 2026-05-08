@@ -966,6 +966,18 @@ defmodule MobNew.LiveViewPatcher do
     mix assets.build
     mkdir -p "$BEAMS_DIR/priv/static"
     cp -r priv/static/. "$BEAMS_DIR/priv/static/"
+
+    # Ecto migrations are .exs files (source, not compiled bytecode), so
+    # they have to be shipped explicitly. mob_app.ex's migrations_dir/0
+    # reads $MOB_BEAMS_DIR/priv/repo/migrations at runtime — without this
+    # copy, Ecto.Migrator finds zero files, says "Migrations already up",
+    # and the user's mount/3 hits "no such table" on first query.
+    echo "=== Copying priv/repo assets ==="
+    mkdir -p "$BEAMS_DIR/priv/repo/migrations"
+    if ls priv/repo/migrations/*.exs >/dev/null 2>&1; then
+        cp priv/repo/migrations/*.exs "$BEAMS_DIR/priv/repo/migrations/"
+    fi
+
     rsync -a "$BEAMS_DIR/priv/" "$RUNTIME_DIR/#{app_name}/priv/"
 
     echo "=== Spot-check ==="

@@ -173,9 +173,63 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // If the project ships embedded Python (mix mob.enable python), the
+        // APK contains assets/python/{stdlib,lib-dynload}/. Extract those to
+        // filesDir on first launch and tell the BEAM where they landed via
+        // env vars consumed by <App>.PythonPaths. Idempotent — re-launches
+        // skip extraction once the marker file is present.
+        extractPythonAssetsIfNeeded()
+
         Log.i(TAG, "onCreate — handing off to BEAM")
         nativeSetActivity(this)
         Thread({ nativeStartBeam() }, "beam-main").start()
+    }
+
+    private fun extractPythonAssetsIfNeeded() {
+        val pythonRoot = File(filesDir, "python")
+        val marker = File(pythonRoot, ".extracted")
+
+        // libpython3.13.so is auto-extracted by the APK installer to the
+        // app's nativeLibraryDir — point Pythonx.init/4 at it.
+        val libPython = File(applicationInfo.nativeLibraryDir, "libpython3.13.so")
+
+        if (libPython.exists()) {
+            android.system.Os.setenv("MOB_PYTHON_DL", libPython.absolutePath, true)
+        }
+
+        // Skip extraction if no assets ship Python (project doesn't use Pythonx)
+        // or if extraction has already happened.
+        val assetList = try { assets.list("python") ?: emptyArray() } catch (_: Throwable) { emptyArray() }
+        if (assetList.isEmpty() || marker.exists()) {
+            if (pythonRoot.exists()) {
+                android.system.Os.setenv("MOB_PYTHON_HOME", pythonRoot.absolutePath, true)
+            }
+            return
+        }
+
+        Log.i(TAG, "extractPythonAssets: extracting assets/python → ${pythonRoot.absolutePath}")
+        copyAssetTree("python", pythonRoot)
+        marker.createNewFile()
+        android.system.Os.setenv("MOB_PYTHON_HOME", pythonRoot.absolutePath, true)
+        Log.i(TAG, "extractPythonAssets: done")
+    }
+
+    private fun copyAssetTree(srcPath: String, destDir: File) {
+        val children = assets.list(srcPath) ?: emptyArray()
+
+        if (children.isEmpty()) {
+            // Leaf: copy the file
+            destDir.parentFile?.mkdirs()
+            assets.open(srcPath).use { input ->
+                destDir.outputStream().use { output -> input.copyTo(output) }
+            }
+            return
+        }
+
+        destDir.mkdirs()
+        for (child in children) {
+            copyAssetTree("$srcPath/$child", File(destDir, child))
+        }
     }
 
     // Called when a notification is tapped and the activity already exists at

@@ -426,6 +426,16 @@ defmodule MobNew.ProjectGeneratorTest do
       refute content =~ "MOB_OTP_SRC"
     end
 
+    test "build.sh ships Pythonx detection block (gated on _build/dev/lib/pythonx)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/build.sh"))
+      assert content =~ ~s|if [ -d "_build/dev/lib/pythonx" ]|
+      assert content =~ "Cross-compiling libpythonx.so"
+      assert content =~ "ios-arm64_x86_64-simulator"
+      assert content =~ "PYTHON_APPLE_SUPPORT"
+    end
+
     test "generates mob.exs config template", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "mob.exs"))

@@ -1,0 +1,90 @@
+// build.zig — Native build orchestration for <%= display_name %> (iOS sim).
+//
+// Phase 2 of the build-system migration. Today this owns just the plain-C
+// compile of driver_tab_ios.c — same scope as the direct `zig cc` invocation
+// that build.sh used in Phase 1, now expressed as a Zig build step so the
+// dependency graph can grow without dragging shell glue along.
+//
+// Subsequent Phase 2 commits will expand scope: enif_keepalive.c, then ObjC
+// files (via system commands wrapping xcrun cc), then Swift + link.
+//
+// Inputs are passed via -D options. build.sh sets them from the same env
+// vars it already uses; running `zig build` directly works too if you set
+// them by hand.
+//
+//   zig build c-objects \
+//       -Dmob_dir=$MOB_DIR \
+//       -Dotp_root=$OTP_ROOT \
+//       -Derts_vsn=$ERTS_VSN \
+//       -Dsdkroot=$SDKROOT \
+//       -Ddriver_tab=$DRIVER_TAB_IOS
+
+const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const target = b.resolveTargetQuery(.{
+        .cpu_arch = .aarch64,
+        .os_tag = .ios,
+        .abi = .simulator,
+    });
+    const optimize: std.builtin.OptimizeMode = .ReleaseSmall;
+
+    const mob_dir = required(b, "mob_dir", "Path to mob library");
+    const otp_root = required(b, "otp_root", "Path to iOS OTP runtime");
+    const erts_vsn = required(b, "erts_vsn", "ERTS version dir name (e.g. erts-17.0)");
+    const sdkroot = required(b, "sdkroot", "iOS simulator SDK path");
+    const driver_tab = required(b, "driver_tab", "Absolute path to driver_tab_ios.c");
+
+    const driver_tab_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+    });
+    driver_tab_mod.addCSourceFile(.{
+        .file = .{ .cwd_relative = driver_tab },
+        .flags = &.{
+            "-Os",
+            "-ffunction-sections",
+            "-fdata-sections",
+            "-mios-simulator-version-min=17.0",
+        },
+    });
+    driver_tab_mod.addIncludePath(.{
+        .cwd_relative = b.fmt("{s}/{s}/include", .{ otp_root, erts_vsn }),
+    });
+    driver_tab_mod.addIncludePath(.{
+        .cwd_relative = b.fmt("{s}/{s}/include/aarch64-apple-iossimulator", .{ otp_root, erts_vsn }),
+    });
+    driver_tab_mod.addIncludePath(.{
+        .cwd_relative = b.fmt("{s}/ios", .{mob_dir}),
+    });
+    driver_tab_mod.addSystemIncludePath(.{
+        .cwd_relative = b.fmt("{s}/usr/include", .{sdkroot}),
+    });
+    driver_tab_mod.addFrameworkPath(.{
+        .cwd_relative = b.fmt("{s}/System/Library/Frameworks", .{sdkroot}),
+    });
+
+    const driver_tab_obj = b.addObject(.{
+        .name = "driver_tab_ios",
+        .root_module = driver_tab_mod,
+    });
+
+    // Install the .o into zig-out/ at a stable name so build.sh can pick it up.
+    const install = b.addInstallFile(driver_tab_obj.getEmittedBin(), "driver_tab_ios.o");
+
+    const c_objects_step = b.step(
+        "c-objects",
+        "Compile C objects driving the iOS sim native build (Phase 2)",
+    );
+    c_objects_step.dependOn(&install.step);
+}
+
+fn required(b: *std.Build, name: []const u8, desc: []const u8) []const u8 {
+    return b.option([]const u8, name, desc) orelse {
+        std.debug.print(
+            "ERROR: -D{s}=... is required ({s})\n",
+            .{ name, desc },
+        );
+        std.process.exit(1);
+    };
+}

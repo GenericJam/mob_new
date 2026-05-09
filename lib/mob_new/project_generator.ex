@@ -149,10 +149,10 @@ defmodule MobNew.ProjectGenerator do
           String.contains?(content, ":pythonx") ->
             :ok
 
-          Regex.match?(~r/defp\s+deps\s+do\s*\[/, content) ->
+          Regex.match?(Regex.compile!(~S{defp\s+deps\s+do\s*\[}), content) ->
             patched =
               Regex.replace(
-                ~r/(defp\s+deps\s+do\s*\[)/,
+                Regex.compile!(~S{(defp\s+deps\s+do\s*\[)}),
                 content,
                 ~s(\\1\n      {:pythonx, "~> 0.4"},),
                 global: false

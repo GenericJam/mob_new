@@ -305,12 +305,22 @@ $CC -fobjc-arc -fmodules $IFLAGS \
 # (priv/generated/driver_tab_ios.c) so each app's :static_nifs declaration is the
 # source of truth. Falls back to mob's reference copy for projects that haven't
 # run `mix mob.regen_driver_tab` yet.
-DRIVER_TAB_IOS="priv/generated/driver_tab_ios.c"
+DRIVER_TAB_IOS="$(pwd)/priv/generated/driver_tab_ios.c"
 if [ ! -f "$DRIVER_TAB_IOS" ]; then
     DRIVER_TAB_IOS="$MOB_DIR/ios/driver_tab_ios.c"
 fi
-$ZIG_CC $IFLAGS \
-    -c "$DRIVER_TAB_IOS" -o "$BUILD_DIR/driver_tab_ios.o"
+
+# Phase 2 of the build-system migration: native compile lives in build.zig
+# rather than as a direct $ZIG_CC invocation. Today this owns just the C
+# portion of the build (driver_tab_ios.c); subsequent commits extend it to
+# enif_keepalive.c, then ObjC files, then Swift + link.
+zig build c-objects --build-file ios/build.zig \
+    -Dmob_dir="$MOB_DIR" \
+    -Dotp_root="$OTP_ROOT" \
+    -Derts_vsn="$ERTS_VSN" \
+    -Dsdkroot="$SDKROOT" \
+    -Ddriver_tab="$DRIVER_TAB_IOS"
+cp ios/zig-out/driver_tab_ios.o "$BUILD_DIR/driver_tab_ios.o"
 
 $CC -fobjc-arc -fmodules $IFLAGS \
     -I "$BUILD_DIR" \

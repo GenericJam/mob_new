@@ -37,27 +37,10 @@ SDKROOT=$(xcrun -sdk iphonesimulator --show-sdk-path)
 # C/ObjC/Swift compiles + the link have moved into build.zig as of Phase 2.
 CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=17.0 -isysroot $SDKROOT -Os -ffunction-sections -fdata-sections"
 
-# ── Find booted simulator ──────────────────────────────────────────────────────
-if [ -n "$1" ]; then
-    SIM_ID="$1"
-else
-    SIM_ID=$(xcrun simctl list devices booted -j \
-        | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-for sims in d['devices'].values():
-    for s in sims:
-        if s.get('state') == 'Booted':
-            print(s['udid'])
-            exit()
-" 2>/dev/null || true)
-fi
-
-if [ -z "$SIM_ID" ]; then
-    echo "ERROR: No booted simulator found. Boot one in Simulator.app or pass UDID as argument."
-    exit 1
-fi
-echo "=== Target simulator: $SIM_ID ==="
+# Simulator discovery + install moved to MobDev.NativeBuild as of Phase 2 iter 6.
+# This script's job ends after `zig build binary` produces the Mach-O at
+# ios/zig-out/<%= display_name %>; the calling Mix task assembles the .app
+# bundle and installs to the chosen simulator.
 
 # ── Compile Erlang/Elixir ──────────────────────────────────────────────────────
 echo "=== Compiling Erlang/Elixir ==="
@@ -297,29 +280,9 @@ zig build binary --build-file ios/build.zig \
     -Denif_keepalive="$BUILD_DIR/enif_keepalive.c" \
     -Dproject_ios_dir="$(pwd)/ios" \
     -Dmodule_name="<%= display_name %>"
-cp "ios/zig-out/<%= display_name %>" "$BUILD_DIR/<%= display_name %>"
 
-# ── Bundle + install ───────────────────────────────────────────────────────────
-echo "=== Building .app bundle ==="
-APP="$BUILD_DIR/<%= display_name %>.app"
-rm -rf "$APP"
-mkdir -p "$APP"
-cp "$BUILD_DIR/<%= display_name %>" "$APP/"
-cp ios/Info.plist "$APP/"
-if [ -d "ios/Assets.xcassets/AppIcon.appiconset" ]; then
-    ACTOOL_PLIST=$(mktemp /tmp/actool_XXXXXX.plist)
-    xcrun actool ios/Assets.xcassets \
-        --compile "$APP" \
-        --platform iphonesimulator \
-        --minimum-deployment-target 17.0 \
-        --app-icon AppIcon \
-        --output-partial-info-plist "$ACTOOL_PLIST" \
-        2>/dev/null || true
-    /usr/libexec/PlistBuddy -c "Merge $ACTOOL_PLIST" "$APP/Info.plist" 2>/dev/null || true
-    rm -f "$ACTOOL_PLIST"
-fi
-
-echo "=== Installing on simulator $SIM_ID ==="
-xcrun simctl install "$SIM_ID" "$APP"
-
-echo "=== Installing complete ==="
+# Binary now lives at ios/zig-out/<%= display_name %>. The calling Mix task
+# (MobDev.NativeBuild.build_ios_simulator/1) takes over from here:
+#   1. Assemble the .app bundle (cp Info.plist, run actool for icons)
+#   2. Install on the chosen simulator via xcrun simctl install
+echo "=== Native build complete ==="

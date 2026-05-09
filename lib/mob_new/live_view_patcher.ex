@@ -785,49 +785,15 @@ defmodule MobNew.LiveViewPatcher do
 
     BEAMS_DIR="$OTP_ROOT/#{app_name}"
     SDKROOT=$(xcrun -sdk iphonesimulator --show-sdk-path)
-    # See ios/build.sh.eex for rationale: ObjC stays on Apple's xcrun cc (needs
-    # -fmodules to find Apple frameworks); plain C uses zig cc as Phase 1 of
-    # the build-system migration.
-    CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=17.0 -isysroot $SDKROOT"
-    ZIG_CC="zig cc -target aarch64-ios-simulator -mios-simulator-version-min=17.0 -isysroot $SDKROOT -iframework $SDKROOT/System/Library/Frameworks -isystem $SDKROOT/usr/include"
+    # CC stays defined here only for the exqlite NIF cross-compile below (a
+    # one-off -dynamiclib build outside the build.zig graph). All other
+    # C/ObjC/Swift compiles + the link have moved into build.zig as of Phase 2.
+    CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=17.0 -isysroot $SDKROOT -Os -ffunction-sections -fdata-sections"
 
-    IFLAGS="-I$OTP_ROOT/$ERTS_VSN/include \\
-            -I$OTP_ROOT/$ERTS_VSN/include/aarch64-apple-iossimulator \\
-            -I$MOB_DIR/ios"
-
-    LIBS="
-      $OTP_ROOT/$ERTS_VSN/lib/libbeam.a
-      $OTP_ROOT/$ERTS_VSN/lib/internal/liberts_internal_r.a
-      $OTP_ROOT/$ERTS_VSN/lib/internal/libethread.a
-      $OTP_ROOT/$ERTS_VSN/lib/libzstd.a
-      $OTP_ROOT/$ERTS_VSN/lib/libepcre.a
-      $OTP_ROOT/$ERTS_VSN/lib/libryu.a
-      $OTP_ROOT/$ERTS_VSN/lib/asn1rt_nif.a
-      $OTP_ROOT/$ERTS_VSN/lib/crypto.a
-      $OTP_ROOT/$ERTS_VSN/lib/libcrypto.a
-    "
-
-    # ── Find booted simulator ──────────────────────────────────────────────────────
-    if [ -n "$1" ]; then
-        SIM_ID="$1"
-    else
-        SIM_ID=$(xcrun simctl list devices booted -j \\
-            | python3 -c "
-    import json,sys
-    d=json.load(sys.stdin)
-    for sims in d['devices'].values():
-        for s in sims:
-            if s.get('state') == 'Booted':
-                print(s['udid'])
-                exit()
-    " 2>/dev/null || true)
-    fi
-
-    if [ -z "$SIM_ID" ]; then
-        echo "ERROR: No booted simulator found. Boot one in Simulator.app or pass UDID as argument."
-        exit 1
-    fi
-    echo "=== Target simulator: $SIM_ID ==="
+    # Simulator discovery + install moved to MobDev.NativeBuild as of Phase 2 iter 7.
+    # This script's job ends after `zig build binary` produces the Mach-O at
+    # ios/zig-out/#{display_name}; the calling Mix task assembles the .app
+    # bundle and installs to the chosen simulator.
 
     # ── Compile Erlang/Elixir ──────────────────────────────────────────────────────
     echo "=== Compiling Erlang/Elixir ==="
@@ -1027,95 +993,59 @@ defmodule MobNew.LiveViewPatcher do
     ls "$BEAMS_DIR/Elixir.#{module_name}.MobApp.beam"
     ls "$BEAMS_DIR/Elixir.#{module_name}.MobScreen.beam"
 
-    # ── Compile C/ObjC/Swift ──────────────────────────────────────────────────────
+    # ── Compile native sources ────────────────────────────────────────────────────
     echo "=== Compiling native sources ==="
     BUILD_DIR=$(mktemp -d)
-    SWIFT_BRIDGING="$MOB_DIR/ios/MobDemo-Bridging-Header.h"
-
-    $CC -fobjc-arc -fmodules $IFLAGS \\
-        -c "$MOB_DIR/ios/MobNode.m" -o "$BUILD_DIR/MobNode.o"
-
-    xcrun -sdk iphonesimulator swiftc \\
-        -target arm64-apple-ios17.0-simulator \\
-        -module-name #{display_name} \\
-        -emit-objc-header -emit-objc-header-path "$BUILD_DIR/MobApp-Swift.h" \\
-        -import-objc-header "$SWIFT_BRIDGING" \\
-        -I "$MOB_DIR/ios" \\
-        -parse-as-library \\
-        -wmo \\
-        "$MOB_DIR/ios/MobViewModel.swift" \\
-        "$MOB_DIR/ios/MobRootView.swift" \\
-        -c -o "$BUILD_DIR/swift_mob.o"
-
-    $CC -fobjc-arc -fmodules $IFLAGS \\
-        -I "$BUILD_DIR" \\
-        -DSTATIC_ERLANG_NIF \\
-        -c "$MOB_DIR/ios/mob_nif.m"   -o "$BUILD_DIR/mob_nif.o"
-
-    $CC -fobjc-arc -fmodules $IFLAGS \\
-        -c "$MOB_DIR/ios/mob_beam.m"  -o "$BUILD_DIR/mob_beam.o"
 
     # Phase 0 of the build-system migration: prefer the per-app generated
     # driver_tab so each app's :static_nifs declaration is the source of truth.
     # Falls back to mob's reference copy until the project runs `mix mob.regen_driver_tab`.
-    DRIVER_TAB_IOS="priv/generated/driver_tab_ios.c"
+    DRIVER_TAB_IOS="$(pwd)/priv/generated/driver_tab_ios.c"
     if [ ! -f "$DRIVER_TAB_IOS" ]; then
         DRIVER_TAB_IOS="$MOB_DIR/ios/driver_tab_ios.c"
     fi
-    $ZIG_CC $IFLAGS \\
-        -c "$DRIVER_TAB_IOS" -o "$BUILD_DIR/driver_tab_ios.o"
 
-    $CC -fobjc-arc -fmodules $IFLAGS \\
-        -I "$BUILD_DIR" \\
-        -c ios/AppDelegate.m  -o "$BUILD_DIR/AppDelegate.o"
+    # Generate enif_* keep-alive table so -dead_strip doesn't remove enif_*
+    # symbols that dlopen'd dynamic NIFs (Pythonx, others) need at runtime.
+    # Each enif_* exported by erl_nif.o gets one __attribute__((used))
+    # reference. Harmless for projects without dynamic NIFs (the keepalive
+    # entries link into the binary as no-ops and dead_strip removes them
+    # transitively when nothing references them).
+    echo "=== Generating enif_* keep-alive table ==="
+    NIF_O_TMP=$(mktemp -d)
+    $(xcrun -find ar) x "$OTP_ROOT/$ERTS_VSN/lib/libbeam.a" --output="$NIF_O_TMP" erl_nif.o 2>/dev/null \\
+        || $(xcrun -find ar) x "$OTP_ROOT/$ERTS_VSN/lib/libbeam.a" erl_nif.o
+    [ ! -f erl_nif.o ] || mv erl_nif.o "$NIF_O_TMP/erl_nif.o"
 
-    $CC -fobjc-arc -fmodules $IFLAGS \\
-        -c ios/beam_main.m    -o "$BUILD_DIR/beam_main.o"
+    {
+        echo "/* Auto-generated. References every enif_* in erl_nif.o so dead_strip keeps them. */"
+        xcrun nm -arch arm64 "$NIF_O_TMP/erl_nif.o" 2>/dev/null \\
+            | awk '/ T _enif_/ { sym = substr($3, 2); printf "extern void %s(void); __attribute__((used)) static void *_keep_%s = (void *)&%s;\\n", sym, sym, sym }'
+    } > "$BUILD_DIR/enif_keepalive.c"
+    rm -rf "$NIF_O_TMP"
+    KEEP_COUNT=$(grep -c '^extern void enif_' "$BUILD_DIR/enif_keepalive.c" || true)
+    echo "  $KEEP_COUNT enif_* symbols pinned"
 
-    # ── Link ───────────────────────────────────────────────────────────────────────
-    echo "=== Linking #{display_name} binary ==="
-    xcrun -sdk iphonesimulator swiftc \\
-        -target arm64-apple-ios17.0-simulator \\
-        "$BUILD_DIR/driver_tab_ios.o" \\
-        "$BUILD_DIR/MobNode.o" \\
-        "$BUILD_DIR/swift_mob.o" \\
-        "$BUILD_DIR/mob_nif.o" \\
-        "$BUILD_DIR/mob_beam.o" \\
-        "$BUILD_DIR/AppDelegate.o" \\
-        "$BUILD_DIR/beam_main.o" \\
-        $LIBS \\
-        -lz -lc++ -lpthread \\
-        -Xlinker -framework -Xlinker UIKit \\
-        -Xlinker -framework -Xlinker Foundation \\
-        -Xlinker -framework -Xlinker CoreGraphics \\
-        -Xlinker -framework -Xlinker QuartzCore \\
-        -Xlinker -framework -Xlinker SwiftUI \\
-        -o "$BUILD_DIR/#{display_name}"
+    # Phase 2 of the build-system migration: build.zig owns the entire native
+    # compile + link pipeline. Plain C uses zig cc; ObjC and Swift go through
+    # xcrun-wrapped system command steps because Apple's clang is the only
+    # one that handles -fmodules for Apple framework module maps; the link
+    # uses xcrun swiftc to bring in the Swift runtime.
+    zig build binary --build-file ios/build.zig \\
+        -Dmob_dir="$MOB_DIR" \\
+        -Dotp_root="$OTP_ROOT" \\
+        -Derts_vsn="$ERTS_VSN" \\
+        -Dsdkroot="$SDKROOT" \\
+        -Ddriver_tab="$DRIVER_TAB_IOS" \\
+        -Denif_keepalive="$BUILD_DIR/enif_keepalive.c" \\
+        -Dproject_ios_dir="$(pwd)/ios" \\
+        -Dmodule_name="#{display_name}"
 
-    # ── Bundle + install ───────────────────────────────────────────────────────────
-    echo "=== Building .app bundle ==="
-    APP="$BUILD_DIR/#{display_name}.app"
-    rm -rf "$APP"
-    mkdir -p "$APP"
-    cp "$BUILD_DIR/#{display_name}" "$APP/"
-    cp ios/Info.plist "$APP/"
-    if [ -d "ios/Assets.xcassets/AppIcon.appiconset" ]; then
-        ACTOOL_PLIST=$(mktemp /tmp/actool_XXXXXX.plist)
-        xcrun actool ios/Assets.xcassets \\
-            --compile "$APP" \\
-            --platform iphonesimulator \\
-            --minimum-deployment-target 16.0 \\
-            --app-icon AppIcon \\
-            --output-partial-info-plist "$ACTOOL_PLIST" \\
-            2>/dev/null || true
-        /usr/libexec/PlistBuddy -c "Merge $ACTOOL_PLIST" "$APP/Info.plist" 2>/dev/null || true
-        rm -f "$ACTOOL_PLIST"
-    fi
-
-    echo "=== Installing on simulator $SIM_ID ==="
-    xcrun simctl install "$SIM_ID" "$APP"
-
-    echo "=== Installing complete ==="
+    # Binary now lives at ios/zig-out/#{display_name}. The calling Mix task
+    # (MobDev.NativeBuild.build_ios) takes over from here:
+    #   1. Assemble the .app bundle (cp Info.plist, run actool for icons)
+    #   2. Install on the chosen simulator via xcrun simctl install
+    echo "=== Native build complete ==="
     """
   end
 

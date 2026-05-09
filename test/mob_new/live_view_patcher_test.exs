@@ -373,8 +373,10 @@ defmodule MobNew.LiveViewPatcherTest do
       assert build_sh() =~ "OTP_ROOT/my_app"
     end
 
-    test "uses module_name in swiftc module-name flag" do
-      assert build_sh() =~ "-module-name MyApp"
+    test "passes module_name through to build.zig (was a swiftc flag pre-Phase 2)" do
+      # Phase 2 iter 7: swiftc moved into build.zig. The LV build.sh now
+      # only references the module name when invoking `zig build binary`.
+      assert build_sh() =~ ~s(-Dmodule_name="MyApp")
     end
 
     test "honors MOB_SIM_RUNTIME_DIR env var (regression: must not hardcode /tmp)" do

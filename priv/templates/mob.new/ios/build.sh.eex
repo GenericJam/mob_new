@@ -273,14 +273,13 @@ echo "=== Spot-check ==="
 ls "$BEAMS_DIR/Elixir.<%= module_name %>.App.beam"
 ls "$BEAMS_DIR/Elixir.<%= module_name %>.HomeScreen.beam"
 
-# ── Compile C/ObjC/Swift ──────────────────────────────────────────────────────
+# ── Compile native sources ────────────────────────────────────────────────────
 echo "=== Compiling native sources ==="
 BUILD_DIR=$(mktemp -d)
 SWIFT_BRIDGING="$MOB_DIR/ios/MobDemo-Bridging-Header.h"
 
-$CC -fobjc-arc -fmodules $IFLAGS \
-    -c "$MOB_DIR/ios/MobNode.m" -o "$BUILD_DIR/MobNode.o"
-
+# Swift compile + Swift→ObjC header emit. Stays in build.sh for now; a later
+# Phase 2 commit will move it into build.zig as a system command step.
 xcrun -sdk iphonesimulator swiftc \
     -target arm64-apple-ios17.0-simulator \
     -module-name <%= display_name %> \
@@ -293,14 +292,6 @@ xcrun -sdk iphonesimulator swiftc \
     "$MOB_DIR/ios/MobRootView.swift" \
     -c -o "$BUILD_DIR/swift_mob.o"
 
-$CC -fobjc-arc -fmodules $IFLAGS \
-    -I "$BUILD_DIR" \
-    -DSTATIC_ERLANG_NIF \
-    -c "$MOB_DIR/ios/mob_nif.m"   -o "$BUILD_DIR/mob_nif.o"
-
-$CC -fobjc-arc -fmodules $IFLAGS \
-    -c "$MOB_DIR/ios/mob_beam.m"  -o "$BUILD_DIR/mob_beam.o"
-
 # Phase 0 of the build-system migration: prefer the per-app generated driver_tab
 # (priv/generated/driver_tab_ios.c) so each app's :static_nifs declaration is the
 # source of truth. Falls back to mob's reference copy for projects that haven't
@@ -309,13 +300,6 @@ DRIVER_TAB_IOS="$(pwd)/priv/generated/driver_tab_ios.c"
 if [ ! -f "$DRIVER_TAB_IOS" ]; then
     DRIVER_TAB_IOS="$MOB_DIR/ios/driver_tab_ios.c"
 fi
-
-$CC -fobjc-arc -fmodules $IFLAGS \
-    -I "$BUILD_DIR" \
-    -c ios/AppDelegate.m  -o "$BUILD_DIR/AppDelegate.o"
-
-$CC -fobjc-arc -fmodules $IFLAGS \
-    -c ios/beam_main.m    -o "$BUILD_DIR/beam_main.o"
 
 # Generate enif_* keep-alive table so -dead_strip doesn't remove enif_*
 # symbols that dlopen'd dynamic NIFs (libpythonx.so, others) need at
@@ -338,18 +322,26 @@ rm -rf "$NIF_O_TMP"
 KEEP_COUNT=$(grep -c '^extern void enif_' "$BUILD_DIR/enif_keepalive.c" || true)
 echo "  $KEEP_COUNT enif_* symbols pinned"
 
-# Phase 2 of the build-system migration: build.zig owns the plain-C compile.
-# Both driver_tab_ios.c (from :static_nifs) and enif_keepalive.c (just
-# generated above from libbeam.a's symbols) flow through the Zig build graph.
-zig build c-objects --build-file ios/build.zig \
+# Phase 2 of the build-system migration: build.zig owns the plain-C and ObjC
+# compiles. ObjC steps shell out to `xcrun cc` because Apple's clang is the
+# only one that builds Apple framework module maps under -fmodules. Plain-C
+# steps use zig cc directly.
+zig build objects --build-file ios/build.zig \
     -Dmob_dir="$MOB_DIR" \
     -Dotp_root="$OTP_ROOT" \
     -Derts_vsn="$ERTS_VSN" \
     -Dsdkroot="$SDKROOT" \
     -Ddriver_tab="$DRIVER_TAB_IOS" \
-    -Denif_keepalive="$BUILD_DIR/enif_keepalive.c"
+    -Denif_keepalive="$BUILD_DIR/enif_keepalive.c" \
+    -Dproject_ios_dir="$(pwd)/ios" \
+    -Dswift_header_dir="$BUILD_DIR"
 cp ios/zig-out/driver_tab_ios.o  "$BUILD_DIR/driver_tab_ios.o"
 cp ios/zig-out/enif_keepalive.o  "$BUILD_DIR/enif_keepalive.o"
+cp ios/zig-out/MobNode.o         "$BUILD_DIR/MobNode.o"
+cp ios/zig-out/mob_nif.o         "$BUILD_DIR/mob_nif.o"
+cp ios/zig-out/mob_beam.o        "$BUILD_DIR/mob_beam.o"
+cp ios/zig-out/AppDelegate.o     "$BUILD_DIR/AppDelegate.o"
+cp ios/zig-out/beam_main.o       "$BUILD_DIR/beam_main.o"
 
 # ── Link ───────────────────────────────────────────────────────────────────────
 echo "=== Linking <%= display_name %> binary ==="

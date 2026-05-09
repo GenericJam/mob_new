@@ -785,7 +785,11 @@ defmodule MobNew.LiveViewPatcher do
 
     BEAMS_DIR="$OTP_ROOT/#{app_name}"
     SDKROOT=$(xcrun -sdk iphonesimulator --show-sdk-path)
+    # See ios/build.sh.eex for rationale: ObjC stays on Apple's xcrun cc (needs
+    # -fmodules to find Apple frameworks); plain C uses zig cc as Phase 1 of
+    # the build-system migration.
     CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=17.0 -isysroot $SDKROOT"
+    ZIG_CC="zig cc -target aarch64-ios-simulator -mios-simulator-version-min=17.0 -isysroot $SDKROOT -iframework $SDKROOT/System/Library/Frameworks -isystem $SDKROOT/usr/include"
 
     IFLAGS="-I$OTP_ROOT/$ERTS_VSN/include \\
             -I$OTP_ROOT/$ERTS_VSN/include/aarch64-apple-iossimulator \\
@@ -1058,7 +1062,7 @@ defmodule MobNew.LiveViewPatcher do
     if [ ! -f "$DRIVER_TAB_IOS" ]; then
         DRIVER_TAB_IOS="$MOB_DIR/ios/driver_tab_ios.c"
     fi
-    $CC $IFLAGS \\
+    $ZIG_CC $IFLAGS \\
         -c "$DRIVER_TAB_IOS" -o "$BUILD_DIR/driver_tab_ios.o"
 
     $CC -fobjc-arc -fmodules $IFLAGS \\

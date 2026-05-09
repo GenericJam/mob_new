@@ -36,7 +36,14 @@ SDKROOT=$(xcrun -sdk iphonesimulator --show-sdk-path)
 # Combined with -Wl,-dead_strip on the final link, the linker drops every
 # function and data object that no live symbol references. Per the GRiSP nano
 # 2025-06-11 writeup, this is the single biggest C-side win on bundle size.
+#
+# Two compilers: ObjC via Apple's xcrun cc (needed for -fmodules to find Apple
+# frameworks like Foundation, WebKit, AVFoundation — zig's bundled clang can't
+# build Apple's framework module maps). Plain C via zig cc — Phase 1 of the
+# build-system migration, validates the Zig toolchain on the simplest sources
+# (driver_tab_ios.c, enif_keepalive.c) before tackling Apple modules.
 CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=17.0 -isysroot $SDKROOT -Os -ffunction-sections -fdata-sections"
+ZIG_CC="zig cc -target aarch64-ios-simulator -mios-simulator-version-min=17.0 -isysroot $SDKROOT -iframework $SDKROOT/System/Library/Frameworks -isystem $SDKROOT/usr/include -Os -ffunction-sections -fdata-sections"
 
 IFLAGS="-I$OTP_ROOT/$ERTS_VSN/include \
         -I$OTP_ROOT/$ERTS_VSN/include/aarch64-apple-iossimulator \
@@ -302,7 +309,7 @@ DRIVER_TAB_IOS="priv/generated/driver_tab_ios.c"
 if [ ! -f "$DRIVER_TAB_IOS" ]; then
     DRIVER_TAB_IOS="$MOB_DIR/ios/driver_tab_ios.c"
 fi
-$CC $IFLAGS \
+$ZIG_CC $IFLAGS \
     -c "$DRIVER_TAB_IOS" -o "$BUILD_DIR/driver_tab_ios.o"
 
 $CC -fobjc-arc -fmodules $IFLAGS \
@@ -332,7 +339,7 @@ $(xcrun -find ar) x "$OTP_ROOT/$ERTS_VSN/lib/libbeam.a" --output="$NIF_O_TMP" er
 rm -rf "$NIF_O_TMP"
 KEEP_COUNT=$(grep -c '^extern void enif_' "$BUILD_DIR/enif_keepalive.c" || true)
 echo "  $KEEP_COUNT enif_* symbols pinned"
-$CC -c "$BUILD_DIR/enif_keepalive.c" -o "$BUILD_DIR/enif_keepalive.o"
+$ZIG_CC -c "$BUILD_DIR/enif_keepalive.c" -o "$BUILD_DIR/enif_keepalive.o"
 
 # ── Link ───────────────────────────────────────────────────────────────────────
 echo "=== Linking <%= display_name %> binary ==="

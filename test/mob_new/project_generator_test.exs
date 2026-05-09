@@ -550,12 +550,16 @@ defmodule MobNew.ProjectGeneratorTest do
       refute content =~ "--console"
     end
 
-    test "build.sh merges actool partial plist into Info.plist", %{tmp: tmp} do
+    test "build.sh ends after `zig build binary` — bundle/install live in Mix", %{tmp: tmp} do
+      # Phase 2 iter 6 moved actool + PlistBuddy + simctl install out of build.sh
+      # into MobDev.NativeBuild. build.sh's last echo confirms the handoff.
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "ios/build.sh"))
-      assert content =~ "PlistBuddy"
-      assert content =~ "Merge"
-      assert content =~ "output-partial-info-plist"
+      assert content =~ "zig build binary"
+      assert content =~ "Native build complete"
+      # No actual install invocations (substring-in-comment is OK).
+      refute content =~ ~r/^[^#\n]*xcrun simctl install/m
+      refute content =~ ~r/^[^#\n]*PlistBuddy/m
     end
 
     test "build.sh BEAMS_DIR uses app_name not a hardcoded value", %{tmp: tmp} do

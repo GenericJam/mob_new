@@ -32,34 +32,10 @@ fi
 
 BEAMS_DIR="$OTP_ROOT/<%= app_name %>"
 SDKROOT=$(xcrun -sdk iphonesimulator --show-sdk-path)
-# -Os + per-function/data sections (the C-side analog of beam_lib:strip_release/1).
-# Combined with -Wl,-dead_strip on the final link, the linker drops every
-# function and data object that no live symbol references. Per the GRiSP nano
-# 2025-06-11 writeup, this is the single biggest C-side win on bundle size.
-#
-# Two compilers: ObjC via Apple's xcrun cc (needed for -fmodules to find Apple
-# frameworks like Foundation, WebKit, AVFoundation — zig's bundled clang can't
-# build Apple's framework module maps). Plain C via zig cc — Phase 1 of the
-# build-system migration, validates the Zig toolchain on the simplest sources
-# (driver_tab_ios.c, enif_keepalive.c) before tackling Apple modules.
+# CC stays defined here only for the exqlite NIF cross-compile below
+# (a one-off -dynamiclib build outside the build.zig graph). All other
+# C/ObjC/Swift compiles + the link have moved into build.zig as of Phase 2.
 CC="xcrun -sdk iphonesimulator cc -arch arm64 -mios-simulator-version-min=17.0 -isysroot $SDKROOT -Os -ffunction-sections -fdata-sections"
-ZIG_CC="zig cc -target aarch64-ios-simulator -mios-simulator-version-min=17.0 -isysroot $SDKROOT -iframework $SDKROOT/System/Library/Frameworks -isystem $SDKROOT/usr/include -Os -ffunction-sections -fdata-sections"
-
-IFLAGS="-I$OTP_ROOT/$ERTS_VSN/include \
-        -I$OTP_ROOT/$ERTS_VSN/include/aarch64-apple-iossimulator \
-        -I$MOB_DIR/ios"
-
-LIBS="
-  $OTP_ROOT/$ERTS_VSN/lib/libbeam.a
-  $OTP_ROOT/$ERTS_VSN/lib/internal/liberts_internal_r.a
-  $OTP_ROOT/$ERTS_VSN/lib/internal/libethread.a
-  $OTP_ROOT/$ERTS_VSN/lib/libzstd.a
-  $OTP_ROOT/$ERTS_VSN/lib/libepcre.a
-  $OTP_ROOT/$ERTS_VSN/lib/libryu.a
-  $OTP_ROOT/$ERTS_VSN/lib/asn1rt_nif.a
-  $OTP_ROOT/$ERTS_VSN/lib/crypto.a
-  $OTP_ROOT/$ERTS_VSN/lib/libcrypto.a
-"
 
 # ── Find booted simulator ──────────────────────────────────────────────────────
 if [ -n "$1" ]; then
@@ -307,14 +283,12 @@ rm -rf "$NIF_O_TMP"
 KEEP_COUNT=$(grep -c '^extern void enif_' "$BUILD_DIR/enif_keepalive.c" || true)
 echo "  $KEEP_COUNT enif_* symbols pinned"
 
-# Phase 2 of the build-system migration: build.zig owns the C, ObjC, and
-# Swift compiles. ObjC steps shell out to `xcrun cc` because Apple's clang
-# is the only one that builds Apple framework module maps under -fmodules;
-# Swift goes through `xcrun swiftc`. Plain-C uses zig cc directly. The
-# build-graph dependency between Swift (which emits MobApp-Swift.h) and
-# ObjC steps that consume the header is wired in build.zig itself, so
-# the header dir no longer needs to be passed via -D.
-zig build objects --build-file ios/build.zig \
+# Phase 2 of the build-system migration: build.zig owns the entire native
+# compile + link pipeline. Plain C uses zig cc; ObjC and Swift go through
+# xcrun-wrapped system command steps because Apple's clang is the only
+# one that handles -fmodules for Apple framework module maps; the link
+# uses xcrun swiftc to bring in the Swift runtime.
+zig build binary --build-file ios/build.zig \
     -Dmob_dir="$MOB_DIR" \
     -Dotp_root="$OTP_ROOT" \
     -Derts_vsn="$ERTS_VSN" \
@@ -323,36 +297,7 @@ zig build objects --build-file ios/build.zig \
     -Denif_keepalive="$BUILD_DIR/enif_keepalive.c" \
     -Dproject_ios_dir="$(pwd)/ios" \
     -Dmodule_name="<%= display_name %>"
-cp ios/zig-out/driver_tab_ios.o  "$BUILD_DIR/driver_tab_ios.o"
-cp ios/zig-out/enif_keepalive.o  "$BUILD_DIR/enif_keepalive.o"
-cp ios/zig-out/MobNode.o         "$BUILD_DIR/MobNode.o"
-cp ios/zig-out/mob_nif.o         "$BUILD_DIR/mob_nif.o"
-cp ios/zig-out/mob_beam.o        "$BUILD_DIR/mob_beam.o"
-cp ios/zig-out/AppDelegate.o     "$BUILD_DIR/AppDelegate.o"
-cp ios/zig-out/beam_main.o       "$BUILD_DIR/beam_main.o"
-cp ios/zig-out/swift_mob.o       "$BUILD_DIR/swift_mob.o"
-
-# ── Link ───────────────────────────────────────────────────────────────────────
-echo "=== Linking <%= display_name %> binary ==="
-xcrun -sdk iphonesimulator swiftc \
-    -target arm64-apple-ios17.0-simulator \
-    "$BUILD_DIR/driver_tab_ios.o" \
-    "$BUILD_DIR/MobNode.o" \
-    "$BUILD_DIR/swift_mob.o" \
-    "$BUILD_DIR/mob_nif.o" \
-    "$BUILD_DIR/mob_beam.o" \
-    "$BUILD_DIR/AppDelegate.o" \
-    "$BUILD_DIR/beam_main.o" \
-    "$BUILD_DIR/enif_keepalive.o" \
-    $LIBS \
-    -lz -lc++ -lpthread \
-    -Xlinker -dead_strip \
-    -Xlinker -framework -Xlinker UIKit \
-    -Xlinker -framework -Xlinker Foundation \
-    -Xlinker -framework -Xlinker CoreGraphics \
-    -Xlinker -framework -Xlinker QuartzCore \
-    -Xlinker -framework -Xlinker SwiftUI \
-    -o "$BUILD_DIR/<%= display_name %>"
+cp "ios/zig-out/<%= display_name %>" "$BUILD_DIR/<%= display_name %>"
 
 # ── Bundle + install ───────────────────────────────────────────────────────────
 echo "=== Building .app bundle ==="

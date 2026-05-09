@@ -1,7 +1,7 @@
 // build.zig — Native build orchestration for <%= display_name %> (iOS sim).
 //
-// Phase 2 of the build-system migration. Owns the C, ObjC, and Swift compile
-// of the iOS sim native build:
+// Phase 2 of the build-system migration. Owns the full native compile + link
+// of the iOS sim binary:
 //
 //   Plain C (zig cc):
 //     - driver_tab_ios.c     — the static-NIF table (per-app generated)
@@ -21,15 +21,20 @@
 //   Swift (xcrun swiftc via system command):
 //     - $MOB_DIR/ios/MobViewModel.swift
 //     - $MOB_DIR/ios/MobRootView.swift
-//     produces swift_mob.o + MobApp-Swift.h. The .h is consumed by the
-//     ObjC steps via a build-graph dependency, so the swift compile must
-//     run before mob_nif.m and AppDelegate.m.
+//     produces swift_mob.o + MobApp-Swift.h.
 //
-// Subsequent Phase 2 commits will absorb the final link, then move the
-// bundle/install glue out of build.sh into a Mix task.
+//   Link (xcrun swiftc via system command):
+//     all 8 .o files + OTP/crypto static libs + UIKit/Foundation/CoreGraphics
+//     /QuartzCore/SwiftUI frameworks + -dead_strip → final binary.
 //
-// Inputs are passed via -D options. build.sh sets them from the same env
-// vars it already uses.
+// Build steps:
+//
+//   `zig build objects` — compile only, leave outputs in zig-out/
+//   `zig build binary`  — full pipeline through the link, binary at
+//                         zig-out/<%= display_name %>
+//
+// Subsequent Phase 2 commits will move the bundle/install glue out of
+// build.sh into a Mix task.
 
 const std = @import("std");
 
@@ -52,13 +57,22 @@ pub fn build(b: *std.Build) void {
 
     const objects_step = b.step(
         "objects",
-        "Compile C, ObjC, and Swift objects for the iOS sim native build (Phase 2)",
+        "Compile C, ObjC, and Swift objects (no link)",
     );
+    const binary_step = b.step(
+        "binary",
+        "Compile + link the iOS sim binary (default)",
+    );
+    b.default_step = binary_step;
+
+    // Collect every produced .o LazyPath so the link step can consume them.
+    var objs = std.ArrayList(std.Build.LazyPath).empty;
+    defer objs.deinit(b.allocator);
 
     // --- Swift via xcrun swiftc ------------------------------------------------
     // Produces swift_mob.o + MobApp-Swift.h. The .h is read by the ObjC steps
-    // for mob_nif.m and AppDelegate.m, so they declare a step dependency on
-    // this run + use swift_h.dirname() as their -I include path.
+    // for mob_nif.m and AppDelegate.m, so they declare a build-graph dependency
+    // on this run + use swift_h.dirname() as their -I include path.
     const swift_run = b.addSystemCommand(&.{
         "xcrun",
         "-sdk",
@@ -83,8 +97,7 @@ pub fn build(b: *std.Build) void {
     swift_run.addArg("-o");
     const swift_obj = swift_run.addOutputFileArg("swift_mob.o");
 
-    const swift_install = b.addInstallFile(swift_obj, "swift_mob.o");
-    objects_step.dependOn(&swift_install.step);
+    installAndCollect(b, objects_step, &objs, swift_obj, "swift_mob.o");
 
     // --- Plain C via zig cc ----------------------------------------------------
     const c_flags = &[_][]const u8{
@@ -94,7 +107,7 @@ pub fn build(b: *std.Build) void {
         "-mios-simulator-version-min=17.0",
     };
 
-    addCObject(b, objects_step, .{
+    const driver_tab_lp = addCObject(b, .{
         .name = "driver_tab_ios",
         .source = driver_tab,
         .target = target,
@@ -105,8 +118,9 @@ pub fn build(b: *std.Build) void {
         .erts_vsn = erts_vsn,
         .sdkroot = sdkroot,
     });
+    installAndCollect(b, objects_step, &objs, driver_tab_lp, "driver_tab_ios.o");
 
-    addCObject(b, objects_step, .{
+    const enif_lp = addCObject(b, .{
         .name = "enif_keepalive",
         .source = enif_keepalive,
         .target = target,
@@ -117,60 +131,57 @@ pub fn build(b: *std.Build) void {
         .erts_vsn = erts_vsn,
         .sdkroot = sdkroot,
     });
+    installAndCollect(b, objects_step, &objs, enif_lp, "enif_keepalive.o");
 
     // --- ObjC via xcrun cc -----------------------------------------------------
-    addObjcObject(b, objects_step, .{
-        .name = "MobNode",
-        .source = b.fmt("{s}/ios/MobNode.m", .{mob_dir}),
-        .mob_dir = mob_dir,
-        .otp_root = otp_root,
-        .erts_vsn = erts_vsn,
-        .sdkroot = sdkroot,
-    });
+    const objc_specs = [_]ObjcSpec{
+        .{ .name = "MobNode", .source = b.fmt("{s}/ios/MobNode.m", .{mob_dir}) },
+        .{
+            .name = "mob_nif",
+            .source = b.fmt("{s}/ios/mob_nif.m", .{mob_dir}),
+            // -DSTATIC_ERLANG_NIF prevents fall-through to dlopen (which iOS
+            // rejects). swift_header dependency makes Swift run first so
+            // MobApp-Swift.h is available on the include path.
+            .extra_flags = &.{"-DSTATIC_ERLANG_NIF"},
+            .swift_header = swift_header,
+        },
+        .{ .name = "mob_beam", .source = b.fmt("{s}/ios/mob_beam.m", .{mob_dir}) },
+        .{
+            .name = "AppDelegate",
+            .source = b.fmt("{s}/AppDelegate.m", .{project_ios_dir}),
+            .swift_header = swift_header,
+        },
+        .{ .name = "beam_main", .source = b.fmt("{s}/beam_main.m", .{project_ios_dir}) },
+    };
+    for (objc_specs) |spec| {
+        const obj_lp = addObjcObject(b, .{
+            .name = spec.name,
+            .source = spec.source,
+            .extra_flags = spec.extra_flags,
+            .swift_header = spec.swift_header,
+            .mob_dir = mob_dir,
+            .otp_root = otp_root,
+            .erts_vsn = erts_vsn,
+            .sdkroot = sdkroot,
+        });
+        installAndCollect(b, objects_step, &objs, obj_lp, b.fmt("{s}.o", .{spec.name}));
+    }
 
-    addObjcObject(b, objects_step, .{
-        .name = "mob_nif",
-        .source = b.fmt("{s}/ios/mob_nif.m", .{mob_dir}),
-        // mob_nif.m's ERL_NIF_INIT generates the static-linkage stub; without
-        // -DSTATIC_ERLANG_NIF the BEAM falls through to dlopen (which iOS
-        // rejects). The swift_header dependency makes the swift compile run
-        // first so MobApp-Swift.h is available on the include path.
-        .extra_flags = &.{"-DSTATIC_ERLANG_NIF"},
-        .swift_header = swift_header,
-        .mob_dir = mob_dir,
+    // --- Link via xcrun swiftc -------------------------------------------------
+    addLink(b, binary_step, .{
+        .module_name = module_name,
         .otp_root = otp_root,
         .erts_vsn = erts_vsn,
-        .sdkroot = sdkroot,
-    });
-
-    addObjcObject(b, objects_step, .{
-        .name = "mob_beam",
-        .source = b.fmt("{s}/ios/mob_beam.m", .{mob_dir}),
-        .mob_dir = mob_dir,
-        .otp_root = otp_root,
-        .erts_vsn = erts_vsn,
-        .sdkroot = sdkroot,
-    });
-
-    addObjcObject(b, objects_step, .{
-        .name = "AppDelegate",
-        .source = b.fmt("{s}/AppDelegate.m", .{project_ios_dir}),
-        .swift_header = swift_header,
-        .mob_dir = mob_dir,
-        .otp_root = otp_root,
-        .erts_vsn = erts_vsn,
-        .sdkroot = sdkroot,
-    });
-
-    addObjcObject(b, objects_step, .{
-        .name = "beam_main",
-        .source = b.fmt("{s}/beam_main.m", .{project_ios_dir}),
-        .mob_dir = mob_dir,
-        .otp_root = otp_root,
-        .erts_vsn = erts_vsn,
-        .sdkroot = sdkroot,
+        .objects = objs.items,
     });
 }
+
+const ObjcSpec = struct {
+    name: []const u8,
+    source: []const u8,
+    extra_flags: []const []const u8 = &.{},
+    swift_header: ?std.Build.LazyPath = null,
+};
 
 const CObjectOptions = struct {
     name: []const u8,
@@ -184,7 +195,7 @@ const CObjectOptions = struct {
     sdkroot: []const u8,
 };
 
-fn addCObject(b: *std.Build, step: *std.Build.Step, opts: CObjectOptions) void {
+fn addCObject(b: *std.Build, opts: CObjectOptions) std.Build.LazyPath {
     const mod = b.createModule(.{
         .target = opts.target,
         .optimize = opts.optimize,
@@ -213,12 +224,7 @@ fn addCObject(b: *std.Build, step: *std.Build.Step, opts: CObjectOptions) void {
         .name = opts.name,
         .root_module = mod,
     });
-
-    const install = b.addInstallFile(
-        obj.getEmittedBin(),
-        b.fmt("{s}.o", .{opts.name}),
-    );
-    step.dependOn(&install.step);
+    return obj.getEmittedBin();
 }
 
 const ObjcObjectOptions = struct {
@@ -232,7 +238,7 @@ const ObjcObjectOptions = struct {
     sdkroot: []const u8,
 };
 
-fn addObjcObject(b: *std.Build, step: *std.Build.Step, opts: ObjcObjectOptions) void {
+fn addObjcObject(b: *std.Build, opts: ObjcObjectOptions) std.Build.LazyPath {
     const run = b.addSystemCommand(&.{
         "xcrun",
         "-sdk",
@@ -253,9 +259,9 @@ fn addObjcObject(b: *std.Build, step: *std.Build.Step, opts: ObjcObjectOptions) 
     run.addArg(b.fmt("-isysroot{s}", .{opts.sdkroot}));
 
     if (opts.swift_header) |sh| {
-        // dirname() pulls the parent dir of MobApp-Swift.h. addPrefixedDirectoryArg
-        // both passes -I<dir> as one arg AND wires the build-graph dependency
-        // so the swift step runs before this objc step.
+        // addPrefixedDirectoryArg both passes -I<dir> as one arg AND wires
+        // the build-graph dependency so the swift step runs before this objc
+        // step.
         run.addPrefixedDirectoryArg("-I", sh.dirname());
     }
 
@@ -263,9 +269,83 @@ fn addObjcObject(b: *std.Build, step: *std.Build.Step, opts: ObjcObjectOptions) 
     run.addArg("-c");
     run.addFileArg(.{ .cwd_relative = opts.source });
     run.addArg("-o");
-    const out = run.addOutputFileArg(b.fmt("{s}.o", .{opts.name}));
+    return run.addOutputFileArg(b.fmt("{s}.o", .{opts.name}));
+}
 
-    const install = b.addInstallFile(out, b.fmt("{s}.o", .{opts.name}));
+fn installAndCollect(
+    b: *std.Build,
+    step: *std.Build.Step,
+    objs: *std.ArrayList(std.Build.LazyPath),
+    lp: std.Build.LazyPath,
+    install_name: []const u8,
+) void {
+    const install = b.addInstallFile(lp, install_name);
+    step.dependOn(&install.step);
+    objs.append(b.allocator, lp) catch @panic("OOM");
+}
+
+const LinkOptions = struct {
+    module_name: []const u8,
+    otp_root: []const u8,
+    erts_vsn: []const u8,
+    objects: []const std.Build.LazyPath,
+};
+
+fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
+    const run = b.addSystemCommand(&.{
+        "xcrun",
+        "-sdk",
+        "iphonesimulator",
+        "swiftc",
+        "-target",
+        "arm64-apple-ios17.0-simulator",
+    });
+
+    // All compiled object files. addFileArg propagates the dependency so
+    // each .o's compile step is implicitly required by the link step.
+    for (opts.objects) |obj| run.addFileArg(obj);
+
+    // OTP + crypto static libs. Order matters — libbeam.a first so its
+    // erts_static_nif_tab[] override resolves against driver_tab_ios.o
+    // before the BEAM's own empty default. liberts_internal_r and libethread
+    // satisfy BEAM internals; libcrypto.a ships OpenSSL; libzstd / libepcre /
+    // libryu / asn1rt_nif / crypto.a are statically-linked NIF dependencies.
+    const lib_names = [_][]const u8{
+        "lib/libbeam.a",
+        "lib/internal/liberts_internal_r.a",
+        "lib/internal/libethread.a",
+        "lib/libzstd.a",
+        "lib/libepcre.a",
+        "lib/libryu.a",
+        "lib/asn1rt_nif.a",
+        "lib/crypto.a",
+        "lib/libcrypto.a",
+    };
+    for (lib_names) |name| {
+        run.addArg(b.fmt("{s}/{s}/{s}", .{ opts.otp_root, opts.erts_vsn, name }));
+    }
+
+    run.addArgs(&.{ "-lz", "-lc++", "-lpthread" });
+    // -dead_strip + the per-function/data sections compile flags drop every
+    // function and data object that no live symbol references — the C-side
+    // analog of beam_lib:strip_release/1. Single biggest C-side win on
+    // bundle size per the GRiSP nano writeup.
+    run.addArgs(&.{ "-Xlinker", "-dead_strip" });
+    const frameworks = [_][]const u8{
+        "UIKit",
+        "Foundation",
+        "CoreGraphics",
+        "QuartzCore",
+        "SwiftUI",
+    };
+    for (frameworks) |fw| {
+        run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", fw });
+    }
+
+    run.addArg("-o");
+    const binary = run.addOutputFileArg(opts.module_name);
+
+    const install = b.addInstallFile(binary, opts.module_name);
     step.dependOn(&install.step);
 }
 

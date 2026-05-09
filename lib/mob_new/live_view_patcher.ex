@@ -1051,8 +1051,15 @@ defmodule MobNew.LiveViewPatcher do
     $CC -fobjc-arc -fmodules $IFLAGS \\
         -c "$MOB_DIR/ios/mob_beam.m"  -o "$BUILD_DIR/mob_beam.o"
 
+    # Phase 0 of the build-system migration: prefer the per-app generated
+    # driver_tab so each app's :static_nifs declaration is the source of truth.
+    # Falls back to mob's reference copy until the project runs `mix mob.regen_driver_tab`.
+    DRIVER_TAB_IOS="priv/generated/driver_tab_ios.c"
+    if [ ! -f "$DRIVER_TAB_IOS" ]; then
+        DRIVER_TAB_IOS="$MOB_DIR/ios/driver_tab_ios.c"
+    fi
     $CC $IFLAGS \\
-        -c "$MOB_DIR/ios/driver_tab_ios.c" -o "$BUILD_DIR/driver_tab_ios.o"
+        -c "$DRIVER_TAB_IOS" -o "$BUILD_DIR/driver_tab_ios.o"
 
     $CC -fobjc-arc -fmodules $IFLAGS \\
         -I "$BUILD_DIR" \\

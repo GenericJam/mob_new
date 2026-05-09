@@ -310,18 +310,6 @@ if [ ! -f "$DRIVER_TAB_IOS" ]; then
     DRIVER_TAB_IOS="$MOB_DIR/ios/driver_tab_ios.c"
 fi
 
-# Phase 2 of the build-system migration: native compile lives in build.zig
-# rather than as a direct $ZIG_CC invocation. Today this owns just the C
-# portion of the build (driver_tab_ios.c); subsequent commits extend it to
-# enif_keepalive.c, then ObjC files, then Swift + link.
-zig build c-objects --build-file ios/build.zig \
-    -Dmob_dir="$MOB_DIR" \
-    -Dotp_root="$OTP_ROOT" \
-    -Derts_vsn="$ERTS_VSN" \
-    -Dsdkroot="$SDKROOT" \
-    -Ddriver_tab="$DRIVER_TAB_IOS"
-cp ios/zig-out/driver_tab_ios.o "$BUILD_DIR/driver_tab_ios.o"
-
 $CC -fobjc-arc -fmodules $IFLAGS \
     -I "$BUILD_DIR" \
     -c ios/AppDelegate.m  -o "$BUILD_DIR/AppDelegate.o"
@@ -349,7 +337,19 @@ $(xcrun -find ar) x "$OTP_ROOT/$ERTS_VSN/lib/libbeam.a" --output="$NIF_O_TMP" er
 rm -rf "$NIF_O_TMP"
 KEEP_COUNT=$(grep -c '^extern void enif_' "$BUILD_DIR/enif_keepalive.c" || true)
 echo "  $KEEP_COUNT enif_* symbols pinned"
-$ZIG_CC -c "$BUILD_DIR/enif_keepalive.c" -o "$BUILD_DIR/enif_keepalive.o"
+
+# Phase 2 of the build-system migration: build.zig owns the plain-C compile.
+# Both driver_tab_ios.c (from :static_nifs) and enif_keepalive.c (just
+# generated above from libbeam.a's symbols) flow through the Zig build graph.
+zig build c-objects --build-file ios/build.zig \
+    -Dmob_dir="$MOB_DIR" \
+    -Dotp_root="$OTP_ROOT" \
+    -Derts_vsn="$ERTS_VSN" \
+    -Dsdkroot="$SDKROOT" \
+    -Ddriver_tab="$DRIVER_TAB_IOS" \
+    -Denif_keepalive="$BUILD_DIR/enif_keepalive.c"
+cp ios/zig-out/driver_tab_ios.o  "$BUILD_DIR/driver_tab_ios.o"
+cp ios/zig-out/enif_keepalive.o  "$BUILD_DIR/enif_keepalive.o"
 
 # ── Link ───────────────────────────────────────────────────────────────────────
 echo "=== Linking <%= display_name %> binary ==="

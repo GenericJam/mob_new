@@ -10,6 +10,13 @@
 set -e
 cd "$(dirname "$0")/.."     # project root (contains mix.exs)
 
+# Tell `mix compile` we're building for iOS so any `unless
+# System.get_env("MOB_TARGET") == "ios" do …` compile-time gates in the
+# user's config.exs short-circuit. The python feature uses this gate to
+# skip Pythonx's desktop `:uv_init` (which can't run in the simulator —
+# no uv at compile time). Harmless for non-Python apps.
+export MOB_TARGET=ios
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 MOB_DIR="${MOB_DIR:?MOB_DIR not set — configure mob.exs}"
 ELIXIR_LIB="${MOB_ELIXIR_LIB:?MOB_ELIXIR_LIB not set — configure mob.exs}"
@@ -111,6 +118,14 @@ mkdir -p "$EXQLITE_LIB_DIR/ebin" "$EXQLITE_LIB_DIR/priv"
 cp _build/dev/lib/exqlite/ebin/*.beam "$EXQLITE_LIB_DIR/ebin/"
 cp _build/dev/lib/exqlite/ebin/exqlite.app "$EXQLITE_LIB_DIR/ebin/"
 
+echo "=== Forcing erl_nif.o into the binary for dlopen'd NIFs (Pythonx, others) ==="
+# `-dead_strip` on the final link drops unused enif_* symbols. Dynamic NIFs
+# loaded via dlopen at runtime (libpythonx.so, etc.) need them. A single
+# reference pulls all of erl_nif.o (which defines them) from libbeam.a.
+# The earlier crypto.a + libcrypto.a in LIBS already keep enif_* alive for
+# the static crypto NIF, but pulling them transitively via dead-strip is
+# unreliable — make the reference explicit.
+
 echo "=== Cross-compiling sqlite3_nif.so for iOS simulator ==="
 # The macOS-compiled NIF from mix deps.compile is incompatible with the iOS
 # simulator (wrong platform tag). Recompile using the iphonesimulator SDK so
@@ -127,6 +142,69 @@ $CC -dynamiclib \
     "$EXQLITE_SRC/sqlite3.c" \
     -o "$EXQLITE_LIB_DIR/priv/sqlite3_nif.so" \
     || echo "WARNING: exqlite NIF cross-compile failed"
+
+# ── Pythonx + bundled CPython (BeeWare Python-Apple-support) ───────────────
+# Mirrors the exqlite block above. When `_build/dev/lib/pythonx` is present
+# (i.e. the project was created with `mob.new --python` or had `mix mob.enable
+# python` run in it), install the OTP lib, cross-compile the NIF, and bundle
+# the matching Python.framework + stdlib + lib-dynload (sim slice) into
+# `<otp_root>/python/`. Codesigning isn't needed here — `simctl install`
+# accepts unsigned dylibs. See guides/python_embedding.md for scope.
+if [ -d "_build/dev/lib/pythonx" ]; then
+    echo "=== Installing pythonx as OTP library ==="
+    PYTHONX_VSN=$(grep '"pythonx"' mix.lock \
+        | grep -o '"[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"' | head -1 | tr -d '"')
+    [ -z "$PYTHONX_VSN" ] && PYTHONX_VSN=$(grep -o '{vsn,"[^"]*"}' \
+        _build/dev/lib/pythonx/ebin/pythonx.app | grep -o '"[^"]*"' | tr -d '"')
+    PYTHONX_LIB_DIR="$OTP_ROOT/lib/pythonx-${PYTHONX_VSN}"
+    rm -rf "$OTP_ROOT/lib/pythonx-"*
+    mkdir -p "$PYTHONX_LIB_DIR/ebin" "$PYTHONX_LIB_DIR/priv"
+    cp _build/dev/lib/pythonx/ebin/*.beam "$PYTHONX_LIB_DIR/ebin/"
+    cp _build/dev/lib/pythonx/ebin/pythonx.app "$PYTHONX_LIB_DIR/ebin/"
+    cp _build/dev/lib/pythonx/ebin/* "$BEAMS_DIR/"
+    [ -d "_build/dev/lib/fine" ] && cp _build/dev/lib/fine/ebin/* "$BEAMS_DIR/"
+
+    : "${PYTHON_APPLE_SUPPORT:?pythonx in deps but PYTHON_APPLE_SUPPORT not set — re-run mix mob.deploy (which downloads the BeeWare bundle) instead of running this script directly}"
+    PYTHON_FRAMEWORK="$PYTHON_APPLE_SUPPORT/Python.xcframework/ios-arm64_x86_64-simulator/Python.framework"
+    PYTHON_STDLIB="$PYTHON_APPLE_SUPPORT/Python.xcframework/lib/python3.13"
+    PYTHON_LIB_DYNLOAD="$PYTHON_APPLE_SUPPORT/Python.xcframework/ios-arm64_x86_64-simulator/lib-arm64/python3.13/lib-dynload"
+
+    [ ! -d "$PYTHON_FRAMEWORK" ]   && echo "ERROR: Python.framework missing at $PYTHON_FRAMEWORK" && exit 1
+    [ ! -d "$PYTHON_STDLIB" ]      && echo "ERROR: Python stdlib missing at $PYTHON_STDLIB" && exit 1
+    [ ! -d "$PYTHON_LIB_DYNLOAD" ] && echo "ERROR: lib-dynload missing at $PYTHON_LIB_DYNLOAD" && exit 1
+
+    echo "=== Cross-compiling libpythonx.so for iOS simulator ==="
+    PYTHONX_SRC="deps/pythonx/c_src"
+    FINE_INC="deps/fine/c_include"
+    xcrun -sdk iphonesimulator clang++ \
+        -arch arm64 \
+        -dynamiclib \
+        -undefined dynamic_lookup \
+        -fPIC -fvisibility=hidden -std=c++17 \
+        -isysroot "$SDKROOT" \
+        -mios-simulator-version-min=17.0 \
+        -install_name "@rpath/libpythonx.so" \
+        -Os -ffunction-sections -fdata-sections \
+        -I "$OTP_ROOT/$ERTS_VSN/include" \
+        -I "$OTP_ROOT/$ERTS_VSN/include/aarch64-apple-iossimulator" \
+        -I "$FINE_INC" \
+        -Wno-unused-parameter -Wno-comment \
+        "$PYTHONX_SRC/pythonx.cpp" \
+        "$PYTHONX_SRC/python.cpp" \
+        -o "$PYTHONX_LIB_DIR/priv/libpythonx.so" \
+        || { echo "ERROR: pythonx NIF cross-compile failed"; exit 1; }
+
+    echo "=== Bundling Python.framework + stdlib + lib-dynload (sim slice) ==="
+    mkdir -p "$OTP_ROOT/python/lib"
+    chmod -R u+w "$OTP_ROOT/python" 2>/dev/null || true
+    rm -rf "$OTP_ROOT/python/Python.framework" "$OTP_ROOT/python/lib/python3.13"
+    cp -R "$PYTHON_FRAMEWORK"   "$OTP_ROOT/python/Python.framework"
+    cp -R "$PYTHON_STDLIB"      "$OTP_ROOT/python/lib/python3.13"
+    cp -R "$PYTHON_LIB_DYNLOAD" "$OTP_ROOT/python/lib/python3.13/lib-dynload"
+    echo "  framework:    $(ls -la "$OTP_ROOT/python/Python.framework/Python" | awk '{print $5, "bytes"}')"
+    echo "  stdlib:       $(du -sh "$OTP_ROOT/python/lib/python3.13" | awk '{print $1}')"
+    echo "  lib-dynload:  $(ls "$OTP_ROOT/python/lib/python3.13/lib-dynload" | wc -l) extensions"
+fi
 
 # crypto: provided by the OTP runtime tarball (real OpenSSL, statically
 # linked into the app's main native lib via crypto.a + libcrypto.a in
@@ -226,6 +304,28 @@ $CC -fobjc-arc -fmodules $IFLAGS \
 $CC -fobjc-arc -fmodules $IFLAGS \
     -c ios/beam_main.m    -o "$BUILD_DIR/beam_main.o"
 
+# Generate enif_* keep-alive table so -dead_strip doesn't remove enif_*
+# symbols that dlopen'd dynamic NIFs (libpythonx.so, others) need at
+# runtime. Each enif_* exported by erl_nif.o gets one __attribute__((used))
+# reference — `used` only protects the listed symbol (not siblings in the
+# same .o), so we need one reference per symbol. See README in mob_dev for
+# the dead_strip + flat namespace background.
+echo "=== Generating enif_* keep-alive table ==="
+NIF_O_TMP=$(mktemp -d)
+$(xcrun -find ar) x "$OTP_ROOT/$ERTS_VSN/lib/libbeam.a" --output="$NIF_O_TMP" erl_nif.o 2>/dev/null \
+    || $(xcrun -find ar) x "$OTP_ROOT/$ERTS_VSN/lib/libbeam.a" erl_nif.o
+[ ! -f erl_nif.o ] || mv erl_nif.o "$NIF_O_TMP/erl_nif.o"
+
+{
+    echo "/* Auto-generated. References every enif_* in erl_nif.o so dead_strip keeps them. */"
+    xcrun nm -arch arm64 "$NIF_O_TMP/erl_nif.o" 2>/dev/null \
+        | awk '/ T _enif_/ { sym = substr($3, 2); printf "extern void %s(void); __attribute__((used)) static void *_keep_%s = (void *)&%s;\n", sym, sym, sym }'
+} > "$BUILD_DIR/enif_keepalive.c"
+rm -rf "$NIF_O_TMP"
+KEEP_COUNT=$(grep -c '^extern void enif_' "$BUILD_DIR/enif_keepalive.c" || true)
+echo "  $KEEP_COUNT enif_* symbols pinned"
+$CC -c "$BUILD_DIR/enif_keepalive.c" -o "$BUILD_DIR/enif_keepalive.o"
+
 # ── Link ───────────────────────────────────────────────────────────────────────
 echo "=== Linking <%= display_name %> binary ==="
 xcrun -sdk iphonesimulator swiftc \
@@ -237,6 +337,7 @@ xcrun -sdk iphonesimulator swiftc \
     "$BUILD_DIR/mob_beam.o" \
     "$BUILD_DIR/AppDelegate.o" \
     "$BUILD_DIR/beam_main.o" \
+    "$BUILD_DIR/enif_keepalive.o" \
     $LIBS \
     -lz -lc++ -lpthread \
     -Xlinker -dead_strip \

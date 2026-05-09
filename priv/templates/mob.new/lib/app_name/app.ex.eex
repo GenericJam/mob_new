@@ -15,10 +15,47 @@ defmodule <%= module_name %>.App do
     Ecto.Migrator.with_repo(<%= module_name %>.Repo, fn repo ->
       Ecto.Migrator.run(repo, migrations_dir(), :up, all: true)
     end)
+<%= if python do %>
+    init_pythonx()
+<% end %>
     Mob.Screen.start_root(<%= module_name %>.HomeScreen)
     Mob.Dist.ensure_started(node: :"<%= app_name %>_android@127.0.0.1", cookie: :mob_secret)
   end
+<%= if python do %>
+  # `Application.ensure_all_started(:pythonx)` brings up `Pythonx.Janitor`
+  # without auto-running uv (we deliberately keep `:pythonx, :uv_init`
+  # out of compile-time config — uv doesn't exist on device and would
+  # crash the app at boot). On desktop we drive uv manually below; on
+  # iOS/Android we point Pythonx.init/4 at the bundled framework that
+  # `mix mob.deploy --native` packaged.
+  defp init_pythonx do
+    {:ok, _} = Application.ensure_all_started(:pythonx)
 
+    case <%= module_name %>.PythonPaths.detect(to_string(:code.root_dir())) do
+      :desktop ->
+        toml = """
+        [project]
+        name = "<%= app_name %>"
+        version = "0.1.0"
+        requires-python = "==3.13.*"
+        dependencies = []
+        """
+
+        Pythonx.Uv.fetch(toml, false)
+        Pythonx.Uv.init(toml, false)
+
+      {:ios, %{dl_path: dl, home_path: home}} ->
+        Pythonx.init(dl, home, dl, sys_paths: [])
+
+      {:android, %{dl_path: dl, home_path: home}} ->
+        Pythonx.init(dl, home, dl, sys_paths: [Path.join([home, "lib", "python3.13"])])
+
+      {:partial, missing} ->
+        require Logger
+        Logger.error("Python bundle incomplete; missing: #{inspect(missing)}")
+    end
+  end
+<% end %>
   # Returns the path to the migrations directory for the current environment.
   #
   # WHY NOT Application.app_dir/2?

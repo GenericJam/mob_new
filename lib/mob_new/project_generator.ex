@@ -85,7 +85,8 @@ defmodule MobNew.ProjectGenerator do
       mob_dev_dep: mob_dev_dep,
       mob_exs_mob_dir: mob_exs_mob_dir,
       mob_exs_elixir_lib: mob_exs_elixir_lib,
-      ndk_version: MobNew.NdkVersion.recommended()
+      ndk_version: MobNew.NdkVersion.recommended(),
+      python: Keyword.get(opts, :python, false)
     }
   end
 
@@ -112,15 +113,22 @@ defmodule MobNew.ProjectGenerator do
   end
 
   @doc """
-  Patches a generated project to enable Pythonx (embedded CPython, iOS only).
+  Patches a generated project to enable Pythonx (embedded CPython,
+  iOS + Android).
 
-  Three patches:
+  Two patches:
     * `mix.exs` — adds `{:pythonx, "~> 0.4"}` to deps.
     * `lib/<app>/python_paths.ex` — pure detection module that reads
-      `:code.root_dir/0` and reports `:desktop` / `{:ios, paths}` /
-      `{:partial, missing}` for the bundled CPython.
-    * `config/config.exs` — appends a `MOB_TARGET=ios`-gated
-      `:pythonx, :uv_init` block so desktop dev still uses uv.
+      `:code.root_dir/0` for iOS and `MOB_PYTHON_HOME` / `MOB_PYTHON_DL`
+      env vars (set by Android's `MainActivity`) for Android. Returns
+      `:desktop` / `{:ios, paths}` / `{:android, paths}` /
+      `{:partial, missing}`.
+
+  Note: deliberately does NOT patch `config/config.exs` — `:pythonx,
+  :uv_init` in compile-time config makes `Pythonx.Application.start/2`
+  auto-run uv at boot, which fails on device. The generated `app.ex`
+  (when --python is set) inlines the pyproject_toml and calls
+  `Pythonx.Uv.fetch + init` only on the `:desktop` branch.
 
   Mirrors `mix mob.enable python` (in `mob_dev`). Idempotent — safe to
   run twice. Public for testing.
@@ -129,7 +137,6 @@ defmodule MobNew.ProjectGenerator do
   def apply_python_patches(project_dir, app_name) do
     add_pythonx_dep(project_dir)
     write_python_paths_module(project_dir, app_name)
-    patch_config_exs_for_pythonx(project_dir, app_name)
     :ok
   end
 
@@ -169,108 +176,121 @@ defmodule MobNew.ProjectGenerator do
     path = Path.join(dir, "python_paths.ex")
 
     unless File.exists?(path) do
-      File.write!(path, """
-      defmodule #{module_name}.PythonPaths do
-        @moduledoc \"\"\"
-        Detects bundled CPython on iOS and reports the paths needed for
-        `Pythonx.init/4` (dl_path, home_path, stdlib_path).
+      File.write!(path, python_paths_module_source(module_name))
+    end
+  end
 
-        Pure detection logic — see your app's `App` module for how the
-        result is fed into `Pythonx.init/4` at boot.
+  defp python_paths_module_source(module_name) do
+    """
+    defmodule #{module_name}.PythonPaths do
+      @moduledoc \"\"\"
+      Detects bundled CPython at runtime and reports the paths needed
+      for `Pythonx.init/4` (dl_path, home_path, stdlib_path).
 
-        ## Returns
+      Pure detection logic — see your app's `App` module for how the
+      result is fed into `Pythonx.init/4` at boot.
 
-          * `:desktop` — no `<otp_root>/python/` present; Pythonx's
-            `Application.start/2` handles desktop init via `:uv_init`.
-          * `{:ios, paths}` — full bundle present; pass paths into
-            `Pythonx.init/4`.
-          * `{:partial, missing}` — directory exists but artifacts are
-            missing; surface the list to the user.
-        \"\"\"
+      ## Per-platform layout
 
-        @type python_paths :: %{
-                dl_path: String.t(),
-                home_path: String.t(),
-                stdlib_path: String.t()
-              }
+        * **iOS**: `mix mob.deploy --native` bundles `Python.framework`,
+          stdlib, and lib-dynload at `<App>.app/otp/python/`. Detection
+          reads `:code.root_dir/0` and inspects that subtree.
 
-        @type detection ::
-                :desktop
-                | {:ios, python_paths()}
-                | {:partial, [atom()]}
+        * **Android**: `mix mob.deploy --native` bundles libpython.so
+          into the APK's `jniLibs/<abi>/` (auto-extracted by the
+          installer to `applicationInfo.nativeLibraryDir`) and stdlib
+          + lib-dynload into `assets/python/` (extracted to
+          `filesDir/python/` by `MainActivity.onCreate` on first
+          launch). MainActivity exports the resolved paths via
+          `MOB_PYTHON_DL` and `MOB_PYTHON_HOME` env vars before
+          starting the BEAM.
 
-        @python_version "python3.13"
+      ## Returns
 
-        @spec detect(String.t()) :: detection()
-        def detect(otp_root) when is_binary(otp_root) do
-          paths = build_paths(otp_root)
+        * `:desktop` — no platform bundle found; the caller should
+          drive `Pythonx.Uv.fetch + init` manually.
+        * `{:ios, paths}` / `{:android, paths}` — bundle present; pass
+          into `Pythonx.init/4`.
+        * `{:partial, missing}` — bundle is incomplete; surface to
+          the user.
+      \"\"\"
 
-          if File.dir?(Path.join(otp_root, "python")) do
+      @type python_paths :: %{
+              dl_path: String.t(),
+              home_path: String.t(),
+              stdlib_path: String.t()
+            }
+
+      @type detection ::
+              :desktop
+              | {:ios, python_paths()}
+              | {:android, python_paths()}
+              | {:partial, [atom()]}
+
+      @python_version "python3.13"
+
+      @spec detect(String.t()) :: detection()
+      def detect(otp_root) when is_binary(otp_root) do
+        cond do
+          android_paths() != nil ->
+            paths = android_paths()
+
+            case missing(paths) do
+              [] -> {:android, paths}
+              missing -> {:partial, missing}
+            end
+
+          File.dir?(Path.join(otp_root, "python")) ->
+            paths = build_ios_paths(otp_root)
+
             case missing(paths) do
               [] -> {:ios, paths}
               missing -> {:partial, missing}
             end
-          else
+
+          true ->
             :desktop
-          end
-        end
-
-        @spec build_paths(String.t()) :: python_paths()
-        def build_paths(otp_root) when is_binary(otp_root) do
-          python_dir = Path.join(otp_root, "python")
-
-          %{
-            dl_path: Path.join([python_dir, "Python.framework", "Python"]),
-            home_path: python_dir,
-            stdlib_path: Path.join([python_dir, "lib", @python_version])
-          }
-        end
-
-        @spec missing(python_paths()) :: [atom()]
-        def missing(%{dl_path: dl, home_path: home, stdlib_path: stdlib}) do
-          [
-            {:dl_path, File.exists?(dl)},
-            {:home_path, File.dir?(home)},
-            {:stdlib_path, File.dir?(stdlib)}
-          ]
-          |> Enum.reject(fn {_, present?} -> present? end)
-          |> Enum.map(&elem(&1, 0))
         end
       end
-      """)
-    end
-  end
 
-  defp patch_config_exs_for_pythonx(project_dir, app_name) do
-    config_dir = Path.join(project_dir, "config")
-    File.mkdir_p!(config_dir)
-    path = Path.join(config_dir, "config.exs")
+      @spec build_ios_paths(String.t()) :: python_paths()
+      def build_ios_paths(otp_root) when is_binary(otp_root) do
+        python_dir = Path.join(otp_root, "python")
 
-    content =
-      if File.exists?(path), do: File.read!(path), else: "import Config\n"
+        %{
+          dl_path: Path.join([python_dir, "Python.framework", "Python"]),
+          home_path: python_dir,
+          stdlib_path: Path.join([python_dir, "lib", @python_version])
+        }
+      end
 
-    cond do
-      String.contains?(content, "MOB_TARGET") -> :ok
-      String.contains?(content, ":pythonx") -> :ok
-      true -> File.write!(path, content <> pythonx_uv_init_block(app_name))
-    end
-  end
+      @spec build_android_paths() :: python_paths() | nil
+      def build_android_paths do
+        case {System.get_env("MOB_PYTHON_DL"), System.get_env("MOB_PYTHON_HOME")} do
+          {dl, home} when is_binary(dl) and is_binary(home) ->
+            %{
+              dl_path: dl,
+              home_path: home,
+              stdlib_path: Path.join([home, "lib", @python_version])
+            }
 
-  defp pythonx_uv_init_block(app_name) do
-    """
+          _ ->
+            nil
+        end
+      end
 
-    # Pythonx desktop venv setup. On iOS the build script sets MOB_TARGET=ios
-    # which short-circuits this block — Pythonx is initialized at runtime
-    # against the bundled framework instead.
-    unless System.get_env("MOB_TARGET") == "ios" do
-      config :pythonx, :uv_init,
-        pyproject_toml: \"\"\"
-        [project]
-        name = "#{app_name}"
-        version = "0.1.0"
-        requires-python = "==3.13.*"
-        dependencies = []
-        \"\"\"
+      defp android_paths, do: build_android_paths()
+
+      @spec missing(python_paths()) :: [atom()]
+      def missing(%{dl_path: dl, home_path: home, stdlib_path: stdlib}) do
+        [
+          {:dl_path, File.exists?(dl)},
+          {:home_path, File.dir?(home)},
+          {:stdlib_path, File.dir?(stdlib)}
+        ]
+        |> Enum.reject(fn {_, present?} -> present? end)
+        |> Enum.map(&elem(&1, 0))
+      end
     end
     """
   end

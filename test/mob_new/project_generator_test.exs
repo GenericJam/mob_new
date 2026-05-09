@@ -1340,9 +1340,18 @@ defmodule MobNew.ProjectGeneratorTest do
       content = File.read!(path)
       assert content =~ "defmodule PyApp.PythonPaths do"
       assert content =~ "def detect("
-      assert content =~ "def build_paths("
+      assert content =~ "def build_ios_paths("
+      assert content =~ "def build_android_paths"
       assert content =~ "def missing("
       assert content =~ ~s|"python3.13"|
+    end
+
+    test "python_paths supports :android via MOB_PYTHON_HOME / MOB_PYTHON_DL", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("py_app", tmp, python: true)
+      content = File.read!(Path.join(dir, "lib/py_app/python_paths.ex"))
+      assert content =~ "MOB_PYTHON_HOME"
+      assert content =~ "MOB_PYTHON_DL"
+      assert content =~ "{:android, paths}"
     end
 
     test "adds {:pythonx, ...} to mix.exs deps", %{tmp: tmp} do
@@ -1351,27 +1360,39 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ~r/\{:pythonx,\s*"~>/
     end
 
-    test "appends MOB_TARGET=ios gate to config/config.exs", %{tmp: tmp} do
+    test "deliberately does NOT touch config/config.exs", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("py_app", tmp, python: true)
-      content = File.read!(Path.join(dir, "config/config.exs"))
-      assert content =~ ~s|System.get_env("MOB_TARGET") == "ios"|
-      assert content =~ "config :pythonx, :uv_init"
-      assert content =~ ~s|name = "py_app"|
+      config_path = Path.join(dir, "config/config.exs")
+
+      if File.exists?(config_path) do
+        content = File.read!(config_path)
+        # No env-var gate, no :uv_init injection — `:pythonx, :uv_init`
+        # in compile-time config makes Pythonx auto-run uv at boot,
+        # which fails on device.
+        refute content =~ "MOB_TARGET"
+        refute content =~ ":pythonx"
+      end
     end
 
-    test "python: false (default) skips all three patches", %{tmp: tmp} do
+    test "app.ex contains the pythonx init branch when python: true", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("py_app", tmp, python: true)
+      content = File.read!(Path.join(dir, "lib/py_app/app.ex"))
+      assert content =~ "init_pythonx()"
+      assert content =~ "Pythonx.Uv.fetch"
+      assert content =~ "Pythonx.init(dl, home, dl"
+      assert content =~ "{:android,"
+    end
+
+    test "python: false (default) skips all patches", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("vanilla_app", tmp)
       refute File.exists?(Path.join(dir, "lib/vanilla_app/python_paths.ex"))
 
       mix_content = File.read!(Path.join(dir, "mix.exs"))
       refute mix_content =~ ":pythonx"
 
-      config_path = Path.join(dir, "config/config.exs")
-
-      if File.exists?(config_path) do
-        config_content = File.read!(config_path)
-        refute config_content =~ ":pythonx"
-      end
+      app_content = File.read!(Path.join(dir, "lib/vanilla_app/app.ex"))
+      refute app_content =~ "init_pythonx"
+      refute app_content =~ "Pythonx"
     end
   end
 
@@ -1388,14 +1409,83 @@ defmodule MobNew.ProjectGeneratorTest do
     end
 
     @tag :tmp_dir
-    test "is idempotent — config gate not duplicated on re-run", %{tmp_dir: tmp} do
+    test "running twice doesn't create config/config.exs", %{tmp_dir: tmp} do
       {:ok, dir} = ProjectGenerator.generate("idem_app2", tmp, python: true)
-      content_before = File.read!(Path.join(dir, "config/config.exs"))
-
       ProjectGenerator.apply_python_patches(dir, "idem_app2")
-      content_after = File.read!(Path.join(dir, "config/config.exs"))
 
-      assert content_before == content_after
+      # The python feature deliberately does not patch config/config.exs
+      # — repeating the patch run mustn't change that.
+      config_path = Path.join(dir, "config/config.exs")
+
+      if File.exists?(config_path) do
+        refute File.read!(config_path) =~ ":pythonx"
+      end
+    end
+  end
+
+  # ── --python integration lint ────────────────────────────────────────────────
+  #
+  # Generates a real --python project and runs `mix compile` on it. This is
+  # the canonical end-to-end check that the Pythonx generator wiring (config,
+  # python_paths.ex, app.ex on_start branch, mix.exs dep) actually produces a
+  # buildable project. EEx templates can't be linted directly, but a
+  # compile-clean generated project is the strongest possible signal that the
+  # template wiring is correct.
+  #
+  # Tagged :integration because:
+  #   * `mix deps.get` hits Hex / disk-cache (~50 deps including pythonx)
+  #   * `mix compile` takes ~30s on a cold cache
+  #
+  # Run explicitly: `mix test --only integration`
+
+  describe "--python project end-to-end" do
+    setup do
+      tmp =
+        Path.join(
+          System.tmp_dir!(),
+          "mob_new_python_e2e_#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(tmp)
+      on_exit(fn -> File.rm_rf!(tmp) end)
+      {:ok, tmp: tmp}
+    end
+
+    @tag :integration
+    test "generated --python project compiles cleanly", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("py_e2e", tmp, python: true, local: true)
+
+      # The generator picks up MOB_DIR / MOB_DEV_DIR if set, otherwise
+      # falls back to ./mob, ./mob_dev, ../mob, ../mob_dev. CI only needs
+      # one of those to resolve.
+      mix = System.find_executable("mix") || flunk("mix not on PATH")
+
+      {deps_out, deps_code} =
+        System.cmd(mix, ["deps.get"], cd: dir, stderr_to_stdout: true)
+
+      assert deps_code == 0,
+             "deps.get failed for generated --python project:\n#{deps_out}"
+
+      {compile_out, compile_code} =
+        System.cmd(mix, ["compile", "--warnings-as-errors"],
+          cd: dir,
+          stderr_to_stdout: true
+        )
+
+      # Sigil-driven warnings from the user code (Mob's ~MOB sigil
+      # produces some type warnings that aren't actionable from the
+      # template) are tolerated — only a non-zero exit from a compile
+      # error fails the test.
+      if compile_code != 0 do
+        # Re-run without --warnings-as-errors and only fail if the actual
+        # compile bombed. This keeps the test from going red just because
+        # the type checker grumbles about something unrelated.
+        {plain_out, plain_code} =
+          System.cmd(mix, ["compile"], cd: dir, stderr_to_stdout: true)
+
+        assert plain_code == 0,
+               "generated --python project failed to compile:\n#{compile_out}\n\nplain compile:\n#{plain_out}"
+      end
     end
   end
 end

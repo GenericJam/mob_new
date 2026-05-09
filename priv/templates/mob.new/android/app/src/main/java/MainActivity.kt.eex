@@ -209,9 +209,29 @@ class MainActivity : ComponentActivity() {
 
         Log.i(TAG, "extractPythonAssets: extracting assets/python → ${pythonRoot.absolutePath}")
         copyAssetTree("python", pythonRoot)
+        flattenLibDynload(pythonRoot)
         marker.createNewFile()
         android.system.Os.setenv("MOB_PYTHON_HOME", pythonRoot.absolutePath, true)
         Log.i(TAG, "extractPythonAssets: done")
+    }
+
+    // Chaquopy ships lib-dynload/<abi>/*.so per architecture; CPython expects
+    // them flat in lib-dynload/. Move the device's primary-abi `.so` files
+    // up one level and discard the rest.
+    private fun flattenLibDynload(pythonRoot: File) {
+        val libDynload = File(pythonRoot, "lib/python3.13/lib-dynload")
+        if (!libDynload.isDirectory) return
+
+        val deviceAbi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: return
+        val abiDir = File(libDynload, deviceAbi)
+        if (!abiDir.isDirectory) return
+
+        abiDir.listFiles()?.forEach { src ->
+            val dst = File(libDynload, src.name)
+            if (!dst.exists()) src.renameTo(dst)
+        }
+        // Drop the other-abi dirs to free space.
+        libDynload.listFiles { f -> f.isDirectory }?.forEach { it.deleteRecursively() }
     }
 
     private fun copyAssetTree(srcPath: String, destDir: File) {

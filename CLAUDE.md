@@ -10,6 +10,34 @@ archive-build mechanics.
 > to the LV blocklist, or hit a generator gotcha. Same commit, not a
 > follow-up.
 
+For the in-flight build-system refactor (Mix → Igniter → Zig build),
+see [`~/code/mob/build_system_migration.md`](../mob/build_system_migration.md) —
+multi-month sequenced plan; phase ownership lives there. mob_new owns the
+heaviest absolute change (build templates + LV patcher).
+
+## Worktrees
+
+**Default assumption: work happens in a git worktree.** The user runs
+multiple agents in parallel; each task in its own worktree prevents conflicts
+between agents and keeps `master` clean while work is in flight.
+
+If you're assigned a task and worktree usage **isn't mentioned**, ask:
+
+> "Should I use a worktree for this?"
+
+The user will answer:
+
+- **yes** — long task, or other agents may be working in parallel; create a
+  worktree (use `EnterWorktree` or spawn the work via Agent with
+  `isolation: "worktree"`)
+- **no** — quick change with no parallel agent work; work in-place on the
+  current branch
+
+If the user explicitly says "use worktrees" up front, do so without asking.
+If the task is trivially small (single-file doc edit, one-line config change)
+and clearly won't conflict with anything, working in-place is acceptable —
+but if in doubt, ask.
+
 `mob_new` is a Mix archive — a self-contained `.ez` file that installs a global
 Mix task (`mix mob.new`). It is **not** a regular dependency; it ships as a
 `mix archive.install` package.

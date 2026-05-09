@@ -276,21 +276,6 @@ ls "$BEAMS_DIR/Elixir.<%= module_name %>.HomeScreen.beam"
 # ── Compile native sources ────────────────────────────────────────────────────
 echo "=== Compiling native sources ==="
 BUILD_DIR=$(mktemp -d)
-SWIFT_BRIDGING="$MOB_DIR/ios/MobDemo-Bridging-Header.h"
-
-# Swift compile + Swift→ObjC header emit. Stays in build.sh for now; a later
-# Phase 2 commit will move it into build.zig as a system command step.
-xcrun -sdk iphonesimulator swiftc \
-    -target arm64-apple-ios17.0-simulator \
-    -module-name <%= display_name %> \
-    -emit-objc-header -emit-objc-header-path "$BUILD_DIR/MobApp-Swift.h" \
-    -import-objc-header "$SWIFT_BRIDGING" \
-    -I "$MOB_DIR/ios" \
-    -parse-as-library \
-    -wmo \
-    "$MOB_DIR/ios/MobViewModel.swift" \
-    "$MOB_DIR/ios/MobRootView.swift" \
-    -c -o "$BUILD_DIR/swift_mob.o"
 
 # Phase 0 of the build-system migration: prefer the per-app generated driver_tab
 # (priv/generated/driver_tab_ios.c) so each app's :static_nifs declaration is the
@@ -322,10 +307,13 @@ rm -rf "$NIF_O_TMP"
 KEEP_COUNT=$(grep -c '^extern void enif_' "$BUILD_DIR/enif_keepalive.c" || true)
 echo "  $KEEP_COUNT enif_* symbols pinned"
 
-# Phase 2 of the build-system migration: build.zig owns the plain-C and ObjC
-# compiles. ObjC steps shell out to `xcrun cc` because Apple's clang is the
-# only one that builds Apple framework module maps under -fmodules. Plain-C
-# steps use zig cc directly.
+# Phase 2 of the build-system migration: build.zig owns the C, ObjC, and
+# Swift compiles. ObjC steps shell out to `xcrun cc` because Apple's clang
+# is the only one that builds Apple framework module maps under -fmodules;
+# Swift goes through `xcrun swiftc`. Plain-C uses zig cc directly. The
+# build-graph dependency between Swift (which emits MobApp-Swift.h) and
+# ObjC steps that consume the header is wired in build.zig itself, so
+# the header dir no longer needs to be passed via -D.
 zig build objects --build-file ios/build.zig \
     -Dmob_dir="$MOB_DIR" \
     -Dotp_root="$OTP_ROOT" \
@@ -334,7 +322,7 @@ zig build objects --build-file ios/build.zig \
     -Ddriver_tab="$DRIVER_TAB_IOS" \
     -Denif_keepalive="$BUILD_DIR/enif_keepalive.c" \
     -Dproject_ios_dir="$(pwd)/ios" \
-    -Dswift_header_dir="$BUILD_DIR"
+    -Dmodule_name="<%= display_name %>"
 cp ios/zig-out/driver_tab_ios.o  "$BUILD_DIR/driver_tab_ios.o"
 cp ios/zig-out/enif_keepalive.o  "$BUILD_DIR/enif_keepalive.o"
 cp ios/zig-out/MobNode.o         "$BUILD_DIR/MobNode.o"
@@ -342,6 +330,7 @@ cp ios/zig-out/mob_nif.o         "$BUILD_DIR/mob_nif.o"
 cp ios/zig-out/mob_beam.o        "$BUILD_DIR/mob_beam.o"
 cp ios/zig-out/AppDelegate.o     "$BUILD_DIR/AppDelegate.o"
 cp ios/zig-out/beam_main.o       "$BUILD_DIR/beam_main.o"
+cp ios/zig-out/swift_mob.o       "$BUILD_DIR/swift_mob.o"
 
 # ── Link ───────────────────────────────────────────────────────────────────────
 echo "=== Linking <%= display_name %> binary ==="

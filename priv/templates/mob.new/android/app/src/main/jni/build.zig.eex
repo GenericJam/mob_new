@@ -1,21 +1,33 @@
 // build.zig — Android native build for <%= app_name %>.
 //
-// Phase 2 of the build-system migration. Today this owns just the plain-C
-// compile of driver_tab_android.c — same scope as iOS iter 1. Subsequent
-// commits will absorb mob_nif.c, mob_beam.c, beam_jni.c, then the link
-// step (currently CMake's add_library + target_link_libraries).
+// Phase 2 of the build-system migration. Owns all four C compiles for the
+// Android shared library:
 //
-// Per-ABI invocation: build.gradle / CMake compile each ABI separately,
-// so this build.zig is invoked once per ABI by Mix's NativeBuild, BEFORE
-// Gradle runs. CMake then picks up the produced .o files as add_library
-// sources via the per-ABI path zig-out/<abi>/.
+//   - driver_tab_android.c  — the static-NIF table (per-app generated, with
+//                              fallback to mob's reference copy)
+//   - $MOB_DIR/android/jni/mob_nif.c
+//   - $MOB_DIR/android/jni/mob_beam.c
+//   - android/app/src/main/jni/beam_jni.c (in-project)
+//
+// Per-ABI invocation: build.gradle / CMake compile each ABI separately, so
+// this build.zig is invoked once per ABI by Mix's NativeBuild BEFORE Gradle
+// runs. CMake then picks up the produced .o files via add_library /
+// target_sources at android/app/build/zig-out/<abi>/.
+//
+// All sources get -DSTATIC_ERLANG_NIF (matches CMake's prior
+// target_compile_definitions on the main library target).
 //
 //   zig build c-objects \
 //       -Dabi=arm64-v8a \
 //       -Dotp_dir=$OTP_RELEASE \
 //       -Derts_vsn=$ERTS_VSN \
 //       -Dmob_dir=$MOB_DIR \
-//       -Ddriver_tab=$DRIVER_TAB_ANDROID
+//       -Ddriver_tab=$DRIVER_TAB_ANDROID \
+//       -Dproject_jni_dir=$(pwd)/android/app/src/main/jni
+//
+// Subsequent Phase 2 commits will absorb the link step (currently CMake's
+// add_library + target_link_libraries against libbeam.a / libcrypto.a /
+// liblog / libandroid / libc++_static / libc++abi).
 
 const std = @import("std");
 
@@ -25,6 +37,8 @@ pub fn build(b: *std.Build) void {
     const erts_vsn = required(b, "erts_vsn", "ERTS version dir name (e.g. erts-17.0)");
     const mob_dir = required(b, "mob_dir", "Path to mob library");
     const driver_tab = required(b, "driver_tab", "Absolute path to driver_tab_android.c");
+    const project_jni_dir = required(b, "project_jni_dir", "Absolute path to the project's android/app/src/main/jni dir");
+    const ndk_sysroot = required(b, "ndk_sysroot", "Path to NDK sysroot (toolchains/llvm/prebuilt/<host>/sysroot)");
 
     const target_query = abi_to_target(abi) orelse {
         std.debug.print(
@@ -36,10 +50,26 @@ pub fn build(b: *std.Build) void {
     const target = b.resolveTargetQuery(target_query);
     const optimize: std.builtin.OptimizeMode = .ReleaseSmall;
 
+    // NDK header search needs three things: --sysroot for libraries +
+    // base headers, -isystem <sysroot>/usr/include for jni.h / android/*,
+    // and -isystem <sysroot>/usr/include/<arch-triple> for the
+    // arch-specific headers (sys/types.h → linux/types.h chain). Without
+    // all three, zig's bundled clang collides with NDK's libc.
+    const arch_triple = ndk_arch_triple(abi);
     const c_flags = &[_][]const u8{
         "-Os",
         "-ffunction-sections",
         "-fdata-sections",
+        // Required for the resulting .o to link into a SHARED library
+        // (Android always builds shared). NDK clang's default toolchain
+        // already passes -fPIC; zig cc doesn't.
+        "-fPIC",
+        "-DSTATIC_ERLANG_NIF",
+        b.fmt("--sysroot={s}", .{ndk_sysroot}),
+        "-isystem",
+        b.fmt("{s}/usr/include", .{ndk_sysroot}),
+        "-isystem",
+        b.fmt("{s}/usr/include/{s}", .{ ndk_sysroot, arch_triple }),
     };
 
     const c_objects_step = b.step(
@@ -47,35 +77,64 @@ pub fn build(b: *std.Build) void {
         "Compile C objects driving the Android native build (Phase 2)",
     );
 
-    const driver_tab_obj = addCObject(b, .{
-        .name = "driver_tab_android",
-        .source = driver_tab,
-        .target = target,
-        .optimize = optimize,
-        .c_flags = c_flags,
-        .otp_dir = otp_dir,
-        .erts_vsn = erts_vsn,
-        .mob_dir = mob_dir,
-    });
+    const sources = [_]CObjectSpec{
+        .{ .name = "driver_tab_android", .source = driver_tab },
+        .{ .name = "mob_nif", .source = b.fmt("{s}/android/jni/mob_nif.c", .{mob_dir}) },
+        .{ .name = "mob_beam", .source = b.fmt("{s}/android/jni/mob_beam.c", .{mob_dir}) },
+        .{ .name = "beam_jni", .source = b.fmt("{s}/beam_jni.c", .{project_jni_dir}) },
+    };
 
-    // Per-ABI install path so CMake can pick up the right .o for the ABI it's
-    // currently compiling. Lives under android/app/build/ so .gitignore (which
-    // already ignores build/) doesn't need a new entry.
-    const install = b.addInstallFile(
-        driver_tab_obj,
-        b.fmt("{s}/driver_tab_android.o", .{abi}),
-    );
-    c_objects_step.dependOn(&install.step);
+    for (sources) |spec| {
+        const obj = addCObject(b, .{
+            .name = spec.name,
+            .source = spec.source,
+            .target = target,
+            .optimize = optimize,
+            .c_flags = c_flags,
+            .otp_dir = otp_dir,
+            .erts_vsn = erts_vsn,
+            .mob_dir = mob_dir,
+            .ndk_sysroot = ndk_sysroot,
+        });
+        const install = b.addInstallFile(obj, b.fmt("{s}/{s}.o", .{ abi, spec.name }));
+        c_objects_step.dependOn(&install.step);
+    }
 }
 
+const CObjectSpec = struct {
+    name: []const u8,
+    source: []const u8,
+};
+
 fn abi_to_target(abi: []const u8) ?std.Target.Query {
+    // android.24 pins NDK API level 24 (Android 7.0) — matches the existing
+    // CMakeLists.txt minSdkVersion. Without an explicit API level zig cc
+    // can't reconcile NDK's API-versioned headers (sys/types.h →
+    // linux/types.h chain) with its own bundled libc.
+    const ver = std.SemanticVersion{ .major = 24, .minor = 0, .patch = 0 };
     if (std.mem.eql(u8, abi, "arm64-v8a")) {
-        return .{ .cpu_arch = .aarch64, .os_tag = .linux, .abi = .android };
+        return .{
+            .cpu_arch = .aarch64,
+            .os_tag = .linux,
+            .os_version_min = .{ .semver = ver },
+            .abi = .android,
+        };
     }
     if (std.mem.eql(u8, abi, "armeabi-v7a")) {
-        return .{ .cpu_arch = .arm, .os_tag = .linux, .abi = .androideabi };
+        return .{
+            .cpu_arch = .arm,
+            .os_tag = .linux,
+            .os_version_min = .{ .semver = ver },
+            .abi = .androideabi,
+        };
     }
     return null;
+}
+
+fn ndk_arch_triple(abi: []const u8) []const u8 {
+    if (std.mem.eql(u8, abi, "arm64-v8a")) return "aarch64-linux-android";
+    if (std.mem.eql(u8, abi, "armeabi-v7a")) return "arm-linux-androideabi";
+    return "";
 }
 
 const CObjectOptions = struct {
@@ -87,6 +146,7 @@ const CObjectOptions = struct {
     otp_dir: []const u8,
     erts_vsn: []const u8,
     mob_dir: []const u8,
+    ndk_sysroot: []const u8,
 };
 
 fn addCObject(b: *std.Build, opts: CObjectOptions) std.Build.LazyPath {

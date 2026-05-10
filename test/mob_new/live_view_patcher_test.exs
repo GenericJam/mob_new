@@ -322,86 +322,10 @@ defmodule MobNew.LiveViewPatcherTest do
     end
   end
 
-  # ── liveview_build_sh_content/2 ───────────────────────────────────────────────
-
-  describe "liveview_build_sh_content/2" do
-    defp build_sh, do: LiveViewPatcher.liveview_build_sh_content("MyApp", "my_app")
-
-    test "is a bash script" do
-      assert String.starts_with?(build_sh(), "#!/bin/bash")
-    end
-
-    test "copies all compiled deps with a glob loop" do
-      assert build_sh() =~ "for lib_dir in _build/dev/lib/*/ebin"
-    end
-
-    test "crypto shim exports pbkdf2_hmac/5" do
-      assert build_sh() =~ "pbkdf2_hmac/5"
-    end
-
-    test "crypto shim exports exor/2" do
-      assert build_sh() =~ "exor/2"
-    end
-
-    test "crypto shim implements hmac_md5 using erlang:md5" do
-      assert build_sh() =~ "hmac_md5"
-      assert build_sh() =~ "erlang:md5"
-    end
-
-    test "xor_bytes uses recursive zip pattern" do
-      assert build_sh() =~ "xor_bytes(A, B) -> xor_bytes(A, B, [])."
-    end
-
-    test "copies ssl from host OTP" do
-      assert build_sh() =~ "Copying ssl from host OTP"
-      assert build_sh() =~ "ssl.app"
-    end
-
-    test "builds and deploys Phoenix static assets" do
-      content = build_sh()
-      assert content =~ "mix assets.build"
-      assert content =~ "priv/static"
-    end
-
-    test "spot-check verifies MobApp and MobScreen beams" do
-      content = build_sh()
-      assert content =~ "Elixir.MyApp.MobApp.beam"
-      assert content =~ "Elixir.MyApp.MobScreen.beam"
-    end
-
-    test "uses app_name in BEAMS_DIR" do
-      assert build_sh() =~ "OTP_ROOT/my_app"
-    end
-
-    test "passes module_name through to build.zig (was a swiftc flag pre-Phase 2)" do
-      # Phase 2 iter 7: swiftc moved into build.zig. The LV build.sh now
-      # only references the module name when invoking `zig build binary`.
-      assert build_sh() =~ ~s(-Dmodule_name="MyApp")
-    end
-
-    test "honors MOB_SIM_RUNTIME_DIR env var (regression: must not hardcode /tmp)" do
-      # Native template at priv/templates/mob.new/ios/build.sh.eex respects
-      # MOB_SIM_RUNTIME_DIR with ~/.mob/runtime/ios-sim default; the LV path
-      # used to hardcode /tmp/otp-ios-sim, so `mix mob.deploy --native` synced
-      # OTP into ~/.mob/runtime/ios-sim while build.sh wrote /tmp/otp-ios-sim
-      # — the two halves disagreed and the simulator never saw fresh BEAMs.
-      content = build_sh()
-      assert content =~ ~s(RUNTIME_DIR="${MOB_SIM_RUNTIME_DIR:-$HOME/.mob/runtime/ios-sim}")
-
-      refute content =~ "/tmp/otp-ios-sim",
-             "build.sh hardcodes /tmp/otp-ios-sim — should use $RUNTIME_DIR"
-    end
-
-    test "all runtime-dir uses go through $RUNTIME_DIR" do
-      # Pins the rsync sync target, the logo-copy targets, and the priv/static
-      # rsync target — every spot that previously used /tmp/otp-ios-sim.
-      content = build_sh()
-      assert content =~ ~s(rsync -a --delete --no-perms "$OTP_ROOT/" "$RUNTIME_DIR/")
-      assert content =~ ~s($RUNTIME_DIR/mob_logo_dark.png)
-      assert content =~ ~s($RUNTIME_DIR/mob_logo_light.png)
-      assert content =~ ~s($RUNTIME_DIR/my_app/priv/)
-    end
-  end
+  # liveview_build_sh_content/2 was removed in Phase 2 iter 13b — the
+  # crypto shim, ssl beam copy, Phoenix asset build, and BEAM glob copy
+  # all moved into mob_dev's NativeBuild. Coverage for the new code path
+  # lives in mob_dev's test suite.
 
   # ── mob_exs_content/2 ─────────────────────────────────────────────────────────
 

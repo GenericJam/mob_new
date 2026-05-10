@@ -458,7 +458,10 @@ defmodule MobNew.ProjectGenerator do
     no_ios = Keyword.get(opts, :no_ios, false)
     no_android = Keyword.get(opts, :no_android, false)
 
-    executable_templates = ["ios/build.sh"]
+    # iOS sim build.sh.eex was eliminated in Phase 2 iter 13b — Mix is now
+    # the sole orchestrator for iOS sim builds. LiveView still emits a
+    # build.sh dynamically (iter 13c will eliminate that too).
+    executable_templates = []
     executable_static = ["android/gradlew"]
 
     templates_root()
@@ -592,9 +595,14 @@ defmodule MobNew.ProjectGenerator do
     patch_config_for_ecto(project_dir, app_name, module_name)
     generate_notes_app(project_dir, app_name, module_name)
 
-    # 10. Overwrite ios/build.sh with the LiveView-specific version
-    #     (different deps copy strategy, crypto shim, ssl copy, priv/static deploy)
-    overwrite_liveview_build_sh(project_dir, app_name, module_name)
+    # 10. (Phase 2 iter 13b) LiveView's ios/build.sh used to be overwritten
+    #     here with crypto-shim/ssl-copy/Phoenix-asset glue. All of that
+    #     now lives in mob_dev's NativeBuild as `maybe_install_crypto_shim`,
+    #     `maybe_copy_ssl_beams`, `maybe_build_phoenix_assets` — gated on
+    #     `liveview_project?/0` (presence of phoenix_live_view dep). No
+    #     ios/build.sh emission needed; the iOS sim build.zig handles
+    #     native compile + link the same way for vanilla and LV.
+    _ = {project_dir, app_name, module_name}
 
     :ok
   end
@@ -885,14 +893,6 @@ defmodule MobNew.ProjectGenerator do
     end
   end
 
-  defp overwrite_liveview_build_sh(project_dir, app_name, module_name) do
-    path = Path.join([project_dir, "ios", "build.sh"])
-    File.mkdir_p!(Path.dirname(path))
-    File.write!(path, MobNew.LiveViewPatcher.liveview_build_sh_content(module_name, app_name))
-    File.chmod!(path, 0o755)
-    Mix.shell().info([:green, "* create ", :reset, path, " (LiveView build.sh)"])
-  end
-
   defp extract_secret_key_base(project_dir) do
     dev_exs = Path.join([project_dir, "config", "dev.exs"])
 
@@ -1018,7 +1018,9 @@ defmodule MobNew.ProjectGenerator do
 
   # ── private ──────────────────────────────────────────────────────────────────
 
-  @executable_files ["ios/build.sh"]
+  # iOS sim build.sh.eex eliminated in Phase 2 iter 13b. LV still has its
+  # inline build.sh emitted dynamically — iter 13c will close that out.
+  @executable_files []
 
   defp render_templates(assigns, project_dir, opts) do
     no_ios = Keyword.get(opts, :no_ios, false)

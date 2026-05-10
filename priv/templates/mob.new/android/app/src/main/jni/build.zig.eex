@@ -47,6 +47,7 @@ pub fn build(b: *std.Build) void {
     const ndk_sysroot = required(b, "ndk_sysroot", "Path to NDK sysroot (toolchains/llvm/prebuilt/<host>/sysroot)");
     const app_name = required(b, "app_name", "Project's app_name (used as the library basename)");
     const project_root = required(b, "project_root", "Absolute project root (jniLibs install destination is computed from here)");
+    const exqlite_src = required(b, "exqlite_src", "Absolute path to deps/exqlite/c_src");
 
     const target_query = abi_to_target(abi) orelse {
         std.debug.print(
@@ -114,6 +115,56 @@ pub fn build(b: *std.Build) void {
         .ndk_sysroot = ndk_sysroot,
         .app_name = app_name,
         .project_root = project_root,
+    });
+
+    // --- exqlite / SQLite NIF ─────────────────────────────────────────────
+    // Compile sqlite3_nif.c + sqlite3.c (the SQLite amalgamation) and link
+    // them into libsqlite3_nif.so. NDK clang for the link as before; zig cc
+    // for compile. -DSQLITE_THREADSAFE=1 matches CMake.
+    const sqlite_flags = &[_][]const u8{
+        "-Os",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fPIC",
+        "-DSQLITE_THREADSAFE=1",
+        b.fmt("--sysroot={s}", .{ndk_sysroot}),
+        "-isystem",
+        b.fmt("{s}/usr/include", .{ndk_sysroot}),
+        "-isystem",
+        b.fmt("{s}/usr/include/{s}", .{ ndk_sysroot, arch_triple }),
+        "-I",
+        exqlite_src,
+    };
+
+    const sqlite_sources = [_]CObjectSpec{
+        .{ .name = "sqlite3_nif", .source = b.fmt("{s}/sqlite3_nif.c", .{exqlite_src}) },
+        .{ .name = "sqlite3", .source = b.fmt("{s}/sqlite3.c", .{exqlite_src}) },
+    };
+
+    var sqlite_objs = std.ArrayList(std.Build.LazyPath).empty;
+    defer sqlite_objs.deinit(b.allocator);
+
+    for (sqlite_sources) |spec| {
+        const obj = addCObject(b, .{
+            .name = spec.name,
+            .source = spec.source,
+            .target = target,
+            .optimize = optimize,
+            .c_flags = sqlite_flags,
+            .otp_dir = otp_dir,
+            .erts_vsn = erts_vsn,
+            .mob_dir = mob_dir,
+        });
+        sqlite_objs.append(b.allocator, obj) catch @panic("OOM");
+    }
+
+    addExqliteLink(b, native_lib_step, .{
+        .objects = sqlite_objs.items,
+        .abi = abi,
+        .arch_triple = arch_triple,
+        .ndk_sysroot = ndk_sysroot,
+        .project_root = project_root,
+        .app_name = app_name,
     });
 }
 
@@ -262,6 +313,51 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
 
     // Install the .so to jniLibs/<abi>/ where Gradle's default scan picks
     // it up. Bypasses --prefix because we want jniLibs/, not zig-out/.
+    const install_path = b.fmt(
+        "{s}/android/app/src/main/jniLibs/{s}/{s}",
+        .{ opts.project_root, opts.abi, so_name },
+    );
+    const cp = b.addSystemCommand(&.{"cp"});
+    cp.addFileArg(so_lp);
+    cp.addArg(install_path);
+    cp.step.dependOn(&run.step);
+    step.dependOn(&cp.step);
+}
+
+const ExqliteLinkOptions = struct {
+    objects: []const std.Build.LazyPath,
+    abi: []const u8,
+    arch_triple: []const u8,
+    ndk_sysroot: []const u8,
+    project_root: []const u8,
+    app_name: []const u8,
+};
+
+fn addExqliteLink(b: *std.Build, step: *std.Build.Step, opts: ExqliteLinkOptions) void {
+    // sqlite3_nif's NIF entry points (enif_*) come from lib<app>.so at
+    // runtime. We link against it here so the produced .so has a
+    // DT_NEEDED entry pointing at lib<app>.so's SONAME — Android's
+    // loader then ensures lib<app>.so is mapped first and the enif_*
+    // symbols resolve.
+    const ndk_clang = b.fmt("{s}/../bin/clang", .{opts.ndk_sysroot});
+    const target_arg = b.fmt("--target={s}24", .{opts.arch_triple});
+    const so_name = "libsqlite3_nif.so";
+    const app_so = b.fmt(
+        "{s}/android/app/src/main/jniLibs/{s}/lib{s}.so",
+        .{ opts.project_root, opts.abi, opts.app_name },
+    );
+
+    const run = b.addSystemCommand(&.{ ndk_clang, target_arg, "-shared" });
+    run.addArg(b.fmt("--sysroot={s}", .{opts.ndk_sysroot}));
+    run.addArg(b.fmt("-Wl,-soname,{s}", .{so_name}));
+    for (opts.objects) |obj| run.addFileArg(obj);
+    // The main .so provides enif_* (and Android system libs cover the rest).
+    run.addArg(app_so);
+    run.addArgs(&.{ "-landroid", "-llog", "-lm" });
+
+    run.addArg("-o");
+    const so_lp = run.addOutputFileArg(so_name);
+
     const install_path = b.fmt(
         "{s}/android/app/src/main/jniLibs/{s}/{s}",
         .{ opts.project_root, opts.abi, so_name },

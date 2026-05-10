@@ -400,47 +400,10 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ~s(#import "MobApp-Swift.h")
     end
 
-    test "generates ios/build.sh", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      assert File.exists?(Path.join(dir, "ios/build.sh"))
-    end
-
-    test "build.sh is executable", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      {:ok, %{mode: mode}} = File.stat(Path.join(dir, "ios/build.sh"))
-      assert Bitwise.band(mode, 0o100) != 0
-    end
-
-    test "build.sh references correct app name", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "ios/build.sh"))
-      assert content =~ "test_app/ebin"
-    end
-
-    test "build.sh uses env vars for paths", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "ios/build.sh"))
-      assert content =~ "MOB_DIR"
-      assert content =~ "MOB_ELIXIR_LIB"
-      assert content =~ "MOB_IOS_OTP_ROOT"
-      refute content =~ "MOB_OTP_SRC"
-    end
-
-    test "build.sh ships Pythonx detection block (gated on _build/dev/lib/pythonx)",
+    test "does NOT generate ios/build.sh — iOS sim build glue lives in mob_dev's NativeBuild as of iter 13b",
          %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "ios/build.sh"))
-      assert content =~ ~s|if [ -d "_build/dev/lib/pythonx" ]|
-      assert content =~ "Cross-compiling libpythonx.so"
-      assert content =~ "ios-arm64_x86_64-simulator"
-      assert content =~ "PYTHON_APPLE_SUPPORT"
-    end
-
-    test "build.sh exports MOB_TARGET=ios so config.exs gates fire at compile time",
-         %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "ios/build.sh"))
-      assert content =~ "export MOB_TARGET=ios"
+      refute File.exists?(Path.join(dir, "ios/build.sh"))
     end
 
     test "generates mob.exs config template", %{tmp: tmp} do
@@ -542,37 +505,6 @@ defmodule MobNew.ProjectGeneratorTest do
       content = File.read!(Path.join(dir, "ios/Info.plist"))
       assert content =~ "CFBundleIconName"
       assert content =~ "AppIcon"
-    end
-
-    test "build.sh does not use xcrun simctl launch --console", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "ios/build.sh"))
-      refute content =~ "--console"
-    end
-
-    test "build.sh ends after `zig build binary` — bundle/install live in Mix", %{tmp: tmp} do
-      # Phase 2 iter 6 moved actool + PlistBuddy + simctl install out of build.sh
-      # into MobDev.NativeBuild. build.sh's last echo confirms the handoff.
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "ios/build.sh"))
-      assert content =~ "zig build binary"
-      assert content =~ "Native build complete"
-      # No actual install invocations (substring-in-comment is OK).
-      refute content =~ ~r/^[^#\n]*xcrun simctl install/m
-      refute content =~ ~r/^[^#\n]*PlistBuddy/m
-    end
-
-    test "build.sh BEAMS_DIR uses app_name not a hardcoded value", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "ios/build.sh"))
-      assert content =~ ~s(BEAMS_DIR="$OTP_ROOT/test_app")
-      refute content =~ "beamhello"
-    end
-
-    test "build.sh spot-check references Elixir module beam not app_name.beam", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "ios/build.sh"))
-      assert content =~ "Elixir.TestApp.App.beam"
     end
 
     # ── State persistence ─────────────────────────────────────────────────────
@@ -782,7 +714,7 @@ defmodule MobNew.ProjectGeneratorTest do
          %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/CMakeLists.txt"))
-      assert content =~ "target_link_libraries(test_app\n    PRIVATE"
+      assert content =~ "target_link_libraries(test_app\n        PRIVATE"
     end
 
     # ── MOB_BEAMS_DIR migration path — Ecto on flat -pa directories ──────────────
@@ -806,20 +738,6 @@ defmodule MobNew.ProjectGeneratorTest do
       content = File.read!(Path.join(dir, "lib/test_app/app.ex"))
       # Uses run/4 with explicit path, not run/3 which calls :code.priv_dir internally
       assert content =~ "Ecto.Migrator.run(repo, migrations_dir()"
-    end
-
-    test "build.sh copies exqlite NIF to BEAMS_DIR priv", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "ios/build.sh"))
-      assert content =~ "exqlite"
-      assert content =~ "sqlite3_nif.so"
-      assert content =~ "BEAMS_DIR/priv"
-    end
-
-    test "build.sh copies priv/repo migrations", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, "ios/build.sh"))
-      assert content =~ "priv/repo/migrations"
     end
 
     # ── Keyboard dismissal fix ─────────────────────────────────────────────────

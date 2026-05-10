@@ -49,9 +49,15 @@ pub fn build(b: *std.Build) void {
     const sqlite_static = b.option(bool, "sqlite_static", "exqlite NIF is statically linked (-DMOB_STATIC_SQLITE_NIF on driver_tab)") orelse false;
     const epmd_build_src = required(b, "epmd_build_src", "OTP tree exposing erts/epmd/src + erts/include (the iOS-device OTP cache by default)");
     const errno_compat = required(b, "errno_compat", "Absolute path to the generated erl_errno_id_compat.c shim");
+    const sqlite_static_lib = b.option([]const u8, "sqlite_static_lib", "Absolute path to sqlite3_nif.a (when exqlite is statically linked)") orelse "";
 
     const objects_step = b.step("objects", "Compile C, ObjC, and Swift objects for iOS device");
-    b.default_step = objects_step;
+    const binary_step = b.step("binary", "Compile + link the iOS device binary (default)");
+    b.default_step = binary_step;
+
+    // Collect every produced .o LazyPath so the link step can consume them.
+    var objs = std.ArrayList(std.Build.LazyPath).empty;
+    defer objs.deinit(b.allocator);
 
     // --- Swift via xcrun swiftc ------------------------------------------------
     const swift_run = b.addSystemCommand(&.{
@@ -77,7 +83,7 @@ pub fn build(b: *std.Build) void {
     const swift_header = swift_run.addOutputFileArg("MobApp-Swift.h");
     swift_run.addArg("-o");
     const swift_obj = swift_run.addOutputFileArg("swift_mob.o");
-    installStep(b, objects_step, swift_obj, "swift_mob.o");
+    installAndCollect(b, objects_step, &objs, swift_obj, "swift_mob.o");
 
     // --- Plain C via zig cc ----------------------------------------------------
     const c_flags_base = &[_][]const u8{
@@ -92,7 +98,7 @@ pub fn build(b: *std.Build) void {
     else
         c_flags_base;
 
-    installStep(b, objects_step, addCObject(b, .{
+    installAndCollect(b, objects_step, &objs, addCObject(b, .{
         .name = "driver_tab_ios",
         .source = driver_tab,
         .target = target,
@@ -104,7 +110,7 @@ pub fn build(b: *std.Build) void {
         .sdkroot = sdkroot,
     }), "driver_tab_ios.o");
 
-    installStep(b, objects_step, addCObject(b, .{
+    installAndCollect(b, objects_step, &objs, addCObject(b, .{
         .name = "enif_keepalive",
         .source = enif_keepalive,
         .target = target,
@@ -145,7 +151,7 @@ pub fn build(b: *std.Build) void {
     };
 
     for (objc_specs) |spec| {
-        installStep(b, objects_step, addObjcObject(b, .{
+        installAndCollect(b, objects_step, &objs, addObjcObject(b, .{
             .name = spec.name,
             .source = spec.source,
             .extra_flags = spec.extra_flags,
@@ -183,7 +189,7 @@ pub fn build(b: *std.Build) void {
     };
 
     for (epmd_specs) |spec| {
-        installStep(b, objects_step, addEpmdObject(b, .{
+        installAndCollect(b, objects_step, &objs, addEpmdObject(b, .{
             .name = spec.name,
             .source = spec.source,
             .target = target,
@@ -200,7 +206,7 @@ pub fn build(b: *std.Build) void {
     // (the function was split into a separate compilation unit but the
     // pre-built tarball omits it). build_device.sh writes the .c file as a
     // heredoc; we just compile it here.
-    installStep(b, objects_step, addCObject(b, .{
+    installAndCollect(b, objects_step, &objs, addCObject(b, .{
         .name = "erl_errno_id_compat",
         .source = errno_compat,
         .target = target,
@@ -211,6 +217,15 @@ pub fn build(b: *std.Build) void {
         .erts_vsn = erts_vsn,
         .sdkroot = sdkroot,
     }), "erl_errno_id_compat.o");
+
+    // --- Link via xcrun swiftc -------------------------------------------------
+    addLink(b, binary_step, .{
+        .module_name = module_name,
+        .otp_root = otp_root,
+        .erts_vsn = erts_vsn,
+        .sqlite_static_lib = sqlite_static_lib,
+        .objects = objs.items,
+    });
 }
 
 const CObjectSpec = struct {
@@ -357,8 +372,82 @@ fn addEpmdObject(b: *std.Build, opts: EpmdObjectOptions) std.Build.LazyPath {
     return obj.getEmittedBin();
 }
 
-fn installStep(b: *std.Build, step: *std.Build.Step, lp: std.Build.LazyPath, name: []const u8) void {
-    const install = b.addInstallFile(lp, name);
+fn installAndCollect(
+    b: *std.Build,
+    step: *std.Build.Step,
+    objs: *std.ArrayList(std.Build.LazyPath),
+    lp: std.Build.LazyPath,
+    install_name: []const u8,
+) void {
+    const install = b.addInstallFile(lp, install_name);
+    step.dependOn(&install.step);
+    objs.append(b.allocator, lp) catch @panic("OOM");
+}
+
+const LinkOptions = struct {
+    module_name: []const u8,
+    otp_root: []const u8,
+    erts_vsn: []const u8,
+    sqlite_static_lib: []const u8,
+    objects: []const std.Build.LazyPath,
+};
+
+fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
+    const run = b.addSystemCommand(&.{
+        "xcrun",
+        "-sdk",
+        "iphoneos",
+        "swiftc",
+        "-target",
+        "arm64-apple-ios17.0",
+    });
+
+    // All compiled object files. addFileArg propagates the dependency so
+    // each .o's compile step is implicitly required by the link step.
+    for (opts.objects) |obj| run.addFileArg(obj);
+
+    // OTP + crypto static libs. Same order as the iOS sim link (and the
+    // prior CMake-based device link). Order matters — libbeam.a first so
+    // its erts_static_nif_tab[] override resolves against driver_tab_ios.o
+    // before the BEAM's own empty default.
+    const lib_names = [_][]const u8{
+        "lib/libbeam.a",
+        "lib/internal/liberts_internal_r.a",
+        "lib/internal/libethread.a",
+        "lib/libzstd.a",
+        "lib/libepcre.a",
+        "lib/libryu.a",
+        "lib/asn1rt_nif.a",
+        "lib/crypto.a",
+        "lib/libcrypto.a",
+    };
+    for (lib_names) |name| {
+        run.addArg(b.fmt("{s}/{s}/{s}", .{ opts.otp_root, opts.erts_vsn, name }));
+    }
+
+    // Optional static-link of the exqlite NIF (passed by build_device.sh
+    // when the project depends on exqlite).
+    if (opts.sqlite_static_lib.len > 0) {
+        run.addArg(opts.sqlite_static_lib);
+    }
+
+    run.addArgs(&.{ "-lz", "-lc++", "-lpthread" });
+    run.addArgs(&.{ "-Xlinker", "-dead_strip" });
+    const frameworks = [_][]const u8{
+        "UIKit",
+        "Foundation",
+        "CoreGraphics",
+        "QuartzCore",
+        "SwiftUI",
+    };
+    for (frameworks) |fw| {
+        run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", fw });
+    }
+
+    run.addArg("-o");
+    const binary = run.addOutputFileArg(opts.module_name);
+
+    const install = b.addInstallFile(binary, opts.module_name);
     step.dependOn(&install.step);
 }
 

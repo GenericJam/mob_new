@@ -1,33 +1,39 @@
 // build.zig — Android native build for <%= app_name %>.
 //
-// Phase 2 of the build-system migration. Owns all four C compiles for the
-// Android shared library:
+// Phase 2 of the build-system migration. Owns the full native build:
 //
-//   - driver_tab_android.c  — the static-NIF table (per-app generated, with
-//                              fallback to mob's reference copy)
-//   - $MOB_DIR/android/jni/mob_nif.c
-//   - $MOB_DIR/android/jni/mob_beam.c
-//   - android/app/src/main/jni/beam_jni.c (in-project)
+//   Compile (zig cc, per-ABI):
+//     - driver_tab_android.c    — static-NIF table (per-app generated)
+//     - $MOB_DIR/android/jni/mob_nif.c
+//     - $MOB_DIR/android/jni/mob_beam.c
+//     - android/app/src/main/jni/beam_jni.c (in-project)
 //
-// Per-ABI invocation: build.gradle / CMake compile each ABI separately, so
-// this build.zig is invoked once per ABI by Mix's NativeBuild BEFORE Gradle
-// runs. CMake then picks up the produced .o files via add_library /
-// target_sources at android/app/build/zig-out/<abi>/.
+//   Link (zig cc -shared):
+//     all 4 .o files + OTP/crypto static libs + Android system libs
+//     (libandroid, liblog, libz, libc++_static, libc++abi).
+//     Output: lib<%= app_name %>.so installed to
+//     android/app/src/main/jniLibs/<abi>/lib<%= app_name %>.so so
+//     Gradle picks it up via the default jniLibs.srcDirs scan.
 //
-// All sources get -DSTATIC_ERLANG_NIF (matches CMake's prior
-// target_compile_definitions on the main library target).
+// Per-ABI invocation by Mix's NativeBuild before gradle_assemble:
 //
-//   zig build c-objects \
+//   zig build native-lib \
 //       -Dabi=arm64-v8a \
 //       -Dotp_dir=$OTP_RELEASE \
 //       -Derts_vsn=$ERTS_VSN \
 //       -Dmob_dir=$MOB_DIR \
 //       -Ddriver_tab=$DRIVER_TAB_ANDROID \
-//       -Dproject_jni_dir=$(pwd)/android/app/src/main/jni
+//       -Dproject_jni_dir=$(pwd)/android/app/src/main/jni \
+//       -Dndk_sysroot=$NDK_SYSROOT \
+//       -Dapp_name=<%= app_name %> \
+//       -Dproject_root=$(pwd)
 //
-// Subsequent Phase 2 commits will absorb the link step (currently CMake's
-// add_library + target_link_libraries against libbeam.a / libcrypto.a /
-// liblog / libandroid / libc++_static / libc++abi).
+// Steps:
+//   `zig build c-objects`  — compile only, .o files in zig-out/<abi>/
+//   `zig build native-lib` — compile + link, lib<app>.so in jniLibs/<abi>/
+//
+// CMakeLists.txt sees the lib<app>.so already in jniLibs/ and skips
+// building its own add_library target (still does sqlite3_nif).
 
 const std = @import("std");
 
@@ -39,6 +45,8 @@ pub fn build(b: *std.Build) void {
     const driver_tab = required(b, "driver_tab", "Absolute path to driver_tab_android.c");
     const project_jni_dir = required(b, "project_jni_dir", "Absolute path to the project's android/app/src/main/jni dir");
     const ndk_sysroot = required(b, "ndk_sysroot", "Path to NDK sysroot (toolchains/llvm/prebuilt/<host>/sysroot)");
+    const app_name = required(b, "app_name", "Project's app_name (used as the library basename)");
+    const project_root = required(b, "project_root", "Absolute project root (jniLibs install destination is computed from here)");
 
     const target_query = abi_to_target(abi) orelse {
         std.debug.print(
@@ -50,19 +58,11 @@ pub fn build(b: *std.Build) void {
     const target = b.resolveTargetQuery(target_query);
     const optimize: std.builtin.OptimizeMode = .ReleaseSmall;
 
-    // NDK header search needs three things: --sysroot for libraries +
-    // base headers, -isystem <sysroot>/usr/include for jni.h / android/*,
-    // and -isystem <sysroot>/usr/include/<arch-triple> for the
-    // arch-specific headers (sys/types.h → linux/types.h chain). Without
-    // all three, zig's bundled clang collides with NDK's libc.
     const arch_triple = ndk_arch_triple(abi);
     const c_flags = &[_][]const u8{
         "-Os",
         "-ffunction-sections",
         "-fdata-sections",
-        // Required for the resulting .o to link into a SHARED library
-        // (Android always builds shared). NDK clang's default toolchain
-        // already passes -fPIC; zig cc doesn't.
         "-fPIC",
         "-DSTATIC_ERLANG_NIF",
         b.fmt("--sysroot={s}", .{ndk_sysroot}),
@@ -72,10 +72,9 @@ pub fn build(b: *std.Build) void {
         b.fmt("{s}/usr/include/{s}", .{ ndk_sysroot, arch_triple }),
     };
 
-    const c_objects_step = b.step(
-        "c-objects",
-        "Compile C objects driving the Android native build (Phase 2)",
-    );
+    const c_objects_step = b.step("c-objects", "Compile C objects (no link)");
+    const native_lib_step = b.step("native-lib", "Compile + link the per-ABI shared library (default)");
+    b.default_step = native_lib_step;
 
     const sources = [_]CObjectSpec{
         .{ .name = "driver_tab_android", .source = driver_tab },
@@ -83,6 +82,9 @@ pub fn build(b: *std.Build) void {
         .{ .name = "mob_beam", .source = b.fmt("{s}/android/jni/mob_beam.c", .{mob_dir}) },
         .{ .name = "beam_jni", .source = b.fmt("{s}/beam_jni.c", .{project_jni_dir}) },
     };
+
+    var obj_paths = std.ArrayList(std.Build.LazyPath).empty;
+    defer obj_paths.deinit(b.allocator);
 
     for (sources) |spec| {
         const obj = addCObject(b, .{
@@ -94,11 +96,25 @@ pub fn build(b: *std.Build) void {
             .otp_dir = otp_dir,
             .erts_vsn = erts_vsn,
             .mob_dir = mob_dir,
-            .ndk_sysroot = ndk_sysroot,
         });
         const install = b.addInstallFile(obj, b.fmt("{s}/{s}.o", .{ abi, spec.name }));
         c_objects_step.dependOn(&install.step);
+        obj_paths.append(b.allocator, obj) catch @panic("OOM");
     }
+
+    // Link: zig cc -shared, mirroring CMake's prior target_link_libraries
+    // (--gc-sections + --whole-archive bracket around the OTP/crypto static
+    // libs + plain libcrypto.a + Android system libs).
+    addLink(b, native_lib_step, .{
+        .objects = obj_paths.items,
+        .abi = abi,
+        .arch_triple = arch_triple,
+        .otp_dir = otp_dir,
+        .erts_vsn = erts_vsn,
+        .ndk_sysroot = ndk_sysroot,
+        .app_name = app_name,
+        .project_root = project_root,
+    });
 }
 
 const CObjectSpec = struct {
@@ -107,10 +123,6 @@ const CObjectSpec = struct {
 };
 
 fn abi_to_target(abi: []const u8) ?std.Target.Query {
-    // android.24 pins NDK API level 24 (Android 7.0) — matches the existing
-    // CMakeLists.txt minSdkVersion. Without an explicit API level zig cc
-    // can't reconcile NDK's API-versioned headers (sys/types.h →
-    // linux/types.h chain) with its own bundled libc.
     const ver = std.SemanticVersion{ .major = 24, .minor = 0, .patch = 0 };
     if (std.mem.eql(u8, abi, "arm64-v8a")) {
         return .{
@@ -146,7 +158,6 @@ const CObjectOptions = struct {
     otp_dir: []const u8,
     erts_vsn: []const u8,
     mob_dir: []const u8,
-    ndk_sysroot: []const u8,
 };
 
 fn addCObject(b: *std.Build, opts: CObjectOptions) std.Build.LazyPath {
@@ -170,6 +181,96 @@ fn addCObject(b: *std.Build, opts: CObjectOptions) std.Build.LazyPath {
         .root_module = mod,
     });
     return obj.getEmittedBin();
+}
+
+const LinkOptions = struct {
+    objects: []const std.Build.LazyPath,
+    abi: []const u8,
+    arch_triple: []const u8,
+    otp_dir: []const u8,
+    erts_vsn: []const u8,
+    ndk_sysroot: []const u8,
+    app_name: []const u8,
+    project_root: []const u8,
+};
+
+fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
+    const so_name = b.fmt("lib{s}.so", .{opts.app_name});
+
+    // Use NDK's clang as the linker driver rather than zig cc — zig's
+    // libc-provisioning code rejects Android targets at link time with
+    // "unable to provide libc for target". NDK clang knows about the
+    // Android ABI / libc / sysroot and just works. zig cc still handles
+    // the .o compilation steps above, where it doesn't try to link libc.
+    const ndk_clang = b.fmt("{s}/../bin/clang", .{opts.ndk_sysroot});
+    const target_arg = b.fmt("--target={s}24", .{opts.arch_triple});
+
+    const run = b.addSystemCommand(&.{ ndk_clang, target_arg, "-shared" });
+    run.addArg(b.fmt("--sysroot={s}", .{opts.ndk_sysroot}));
+    // -Wl,-soname pins the DT_SONAME of the produced .so. Other libs that
+    // link against this one (sqlite3_nif via CMake) put the SONAME in their
+    // DT_NEEDED list, which is what Android's dlopen looks for at runtime.
+    // Without this, sqlite3_nif.so's DT_NEEDED would carry the host build
+    // path and dlopen would fail with "library not found".
+    run.addArg(b.fmt("-Wl,-soname,{s}", .{so_name}));
+
+    // Object files (compiled in the c-objects step). addFileArg propagates
+    // the dependency so each .o is built before this link runs.
+    for (opts.objects) |obj| run.addFileArg(obj);
+
+    // Linker flags + OTP static libs in --whole-archive — matches the prior
+    // CMake target_link_libraries shape.
+    run.addArgs(&.{
+        "-Wl,--gc-sections",
+        "-Wl,--allow-multiple-definition",
+        "-Wl,--whole-archive",
+    });
+
+    const whole_archive_libs = [_][]const u8{
+        "lib/libbeam.a",
+        "lib/internal/liberts_internal_r.a",
+        "lib/internal/libethread.a",
+        "lib/libzstd.a",
+        "lib/libepcre.a",
+        "lib/libryu.a",
+        "lib/asn1rt_nif.a",
+        "lib/crypto.a",
+    };
+    for (whole_archive_libs) |path| {
+        run.addArg(b.fmt("{s}/{s}/{s}", .{ opts.otp_dir, opts.erts_vsn, path }));
+    }
+
+    run.addArgs(&.{ "-Wl,--no-whole-archive" });
+    run.addArg(b.fmt("{s}/{s}/lib/libcrypto.a", .{ opts.otp_dir, opts.erts_vsn }));
+
+    // Android system libs. -lc++_static + -lc++abi mirrors CMake's prior
+    // setup (NDK 27 split __cxa_* / RTTI ABI symbols out of libc++_static
+    // into libc++abi). -static-libstdc++ alone leaves typeinfo symbols
+    // unresolved at runtime — `dlopen` fails with "cannot locate symbol
+    // '_ZTISt12length_error'".
+    run.addArgs(&.{
+        "-landroid",
+        "-llog",
+        "-lz",
+        "-lc++_static",
+        "-lc++abi",
+        "-lm",
+    });
+
+    run.addArg("-o");
+    const so_lp = run.addOutputFileArg(so_name);
+
+    // Install the .so to jniLibs/<abi>/ where Gradle's default scan picks
+    // it up. Bypasses --prefix because we want jniLibs/, not zig-out/.
+    const install_path = b.fmt(
+        "{s}/android/app/src/main/jniLibs/{s}/{s}",
+        .{ opts.project_root, opts.abi, so_name },
+    );
+    const cp = b.addSystemCommand(&.{"cp"});
+    cp.addFileArg(so_lp);
+    cp.addArg(install_path);
+    cp.step.dependOn(&run.step);
+    step.dependOn(&cp.step);
 }
 
 fn required(b: *std.Build, name: []const u8, desc: []const u8) []const u8 {

@@ -47,6 +47,8 @@ pub fn build(b: *std.Build) void {
     const project_ios_dir = required(b, "project_ios_dir", "Absolute path to project's ios/ dir");
     const module_name = required(b, "module_name", "Swift module name (display_name)");
     const sqlite_static = b.option(bool, "sqlite_static", "exqlite NIF is statically linked (-DMOB_STATIC_SQLITE_NIF on driver_tab)") orelse false;
+    const epmd_build_src = required(b, "epmd_build_src", "OTP tree exposing erts/epmd/src + erts/include (the iOS-device OTP cache by default)");
+    const errno_compat = required(b, "errno_compat", "Absolute path to the generated erl_errno_id_compat.c shim");
 
     const objects_step = b.step("objects", "Compile C, ObjC, and Swift objects for iOS device");
     b.default_step = objects_step;
@@ -154,7 +156,67 @@ pub fn build(b: *std.Build) void {
             .sdkroot = sdkroot,
         }), b.fmt("{s}.o", .{spec.name}));
     }
+
+    // --- EPMD (in-process, NO_DAEMON) ──────────────────────────────────────────
+    // EPMD's main() is renamed to epmd_ios_main() and run on a background
+    // thread inside the BEAM. -DNO_DAEMON elides the run_daemon() body so
+    // fork() never gets pulled into the link (iOS sandbox would deny it).
+    // The epmd.c source is patched separately (idempotent inline edit in
+    // build_device.sh) to wrap the run_daemon call site in #ifndef NO_DAEMON
+    // — pre-Phase-2 OTP tarballs ship without that guard.
+    const epmd_src = b.fmt("{s}/erts/epmd/src", .{epmd_build_src});
+    const epmd_flags = &[_][]const u8{
+        "-DHAVE_CONFIG_H",
+        "-DEPMD_PORT_NO=4369",
+        "-Dmain=epmd_ios_main",
+        "-DNO_DAEMON",
+        "-Os",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-miphoneos-version-min=17.0",
+    };
+
+    const epmd_specs = [_]CObjectSpec{
+        .{ .name = "epmd_main", .source = b.fmt("{s}/epmd.c", .{epmd_src}) },
+        .{ .name = "epmd_srv", .source = b.fmt("{s}/epmd_srv.c", .{epmd_src}) },
+        .{ .name = "epmd_cli", .source = b.fmt("{s}/epmd_cli.c", .{epmd_src}) },
+    };
+
+    for (epmd_specs) |spec| {
+        installStep(b, objects_step, addEpmdObject(b, .{
+            .name = spec.name,
+            .source = spec.source,
+            .target = target,
+            .optimize = optimize,
+            .c_flags = epmd_flags,
+            .epmd_build_src = epmd_build_src,
+            .epmd_src = epmd_src,
+            .sdkroot = sdkroot,
+        }), b.fmt("{s}.o", .{spec.name}));
+    }
+
+    // --- erl_errno_id_compat ──────────────────────────────────────────────────
+    // Weak shim for erl_errno_id_unknown — missing from libbeam.a in OTP 17.0
+    // (the function was split into a separate compilation unit but the
+    // pre-built tarball omits it). build_device.sh writes the .c file as a
+    // heredoc; we just compile it here.
+    installStep(b, objects_step, addCObject(b, .{
+        .name = "erl_errno_id_compat",
+        .source = errno_compat,
+        .target = target,
+        .optimize = optimize,
+        .c_flags = c_flags_base,
+        .mob_dir = mob_dir,
+        .otp_root = otp_root,
+        .erts_vsn = erts_vsn,
+        .sdkroot = sdkroot,
+    }), "erl_errno_id_compat.o");
 }
+
+const CObjectSpec = struct {
+    name: []const u8,
+    source: []const u8,
+};
 
 const ObjcSpec = struct {
     name: []const u8,
@@ -247,6 +309,52 @@ fn addObjcObject(b: *std.Build, opts: ObjcObjectOptions) std.Build.LazyPath {
     run.addFileArg(.{ .cwd_relative = opts.source });
     run.addArg("-o");
     return run.addOutputFileArg(b.fmt("{s}.o", .{opts.name}));
+}
+
+const EpmdObjectOptions = struct {
+    name: []const u8,
+    source: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    c_flags: []const []const u8,
+    epmd_build_src: []const u8,
+    epmd_src: []const u8,
+    sdkroot: []const u8,
+};
+
+fn addEpmdObject(b: *std.Build, opts: EpmdObjectOptions) std.Build.LazyPath {
+    const mod = b.createModule(.{
+        .target = opts.target,
+        .optimize = opts.optimize,
+    });
+    mod.addCSourceFile(.{
+        .file = .{ .cwd_relative = opts.source },
+        .flags = opts.c_flags,
+    });
+    // EPMD's includes are scattered across the OTP tree:
+    //   erts/aarch64-apple-ios/   architecture-specific config.h etc.
+    //   erts/epmd/src/             epmd's own headers
+    //   erts/include/              public BEAM headers
+    //   erts/include/internal/     internal BEAM headers
+    mod.addIncludePath(.{
+        .cwd_relative = b.fmt("{s}/erts/aarch64-apple-ios", .{opts.epmd_build_src}),
+    });
+    mod.addIncludePath(.{ .cwd_relative = opts.epmd_src });
+    mod.addIncludePath(.{
+        .cwd_relative = b.fmt("{s}/erts/include", .{opts.epmd_build_src}),
+    });
+    mod.addIncludePath(.{
+        .cwd_relative = b.fmt("{s}/erts/include/internal", .{opts.epmd_build_src}),
+    });
+    mod.addSystemIncludePath(.{
+        .cwd_relative = b.fmt("{s}/usr/include", .{opts.sdkroot}),
+    });
+
+    const obj = b.addObject(.{
+        .name = opts.name,
+        .root_module = mod,
+    });
+    return obj.getEmittedBin();
 }
 
 fn installStep(b: *std.Build, step: *std.Build.Step, lp: std.Build.LazyPath, name: []const u8) void {

@@ -1,0 +1,265 @@
+// build_device.zig — Native build orchestration for <%= display_name %> (iOS device).
+//
+// Phase 2 iter 12 of the build-system migration. Sister to ios/build.zig
+// (which targets iOS sim). Handles the seven standard native sources for
+// the iphoneos build:
+//
+//   Plain C (zig cc):
+//     - driver_tab_ios.c
+//     - enif_keepalive.c
+//
+//   ObjC (xcrun cc via system command — Apple's clang for -fmodules):
+//     - $MOB_DIR/ios/MobNode.m
+//     - $MOB_DIR/ios/mob_nif.m       (-DSTATIC_ERLANG_NIF + swift hdr)
+//     - $MOB_DIR/ios/mob_beam.m      (-DMOB_BUNDLE_OTP, -DERTS_VSN, -DOTP_RELEASE)
+//     - ios/AppDelegate.m            (in-project, swift hdr)
+//     - ios/beam_main.m              (in-project)
+//
+//   Swift (xcrun swiftc via system command):
+//     - $MOB_DIR/ios/MobViewModel.swift
+//     - $MOB_DIR/ios/MobRootView.swift
+//
+// Differences vs build.zig (iOS sim):
+//   - SDK: iphoneos vs iphonesimulator
+//   - Target: arm64-apple-ios17.0 vs aarch64-ios-simulator
+//   - mob_beam.m needs -DMOB_BUNDLE_OTP + ERTS_VSN/OTP_RELEASE strings
+//
+// EPMD compile, erl_errno_id_compat stub, the link, bundle, codesign,
+// and devicectl install all stay in build_device.sh for this iter — they
+// move into Mix as iter 12b/c.
+
+const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const target = b.resolveTargetQuery(.{
+        .cpu_arch = .aarch64,
+        .os_tag = .ios,
+    });
+    const optimize: std.builtin.OptimizeMode = .ReleaseSmall;
+
+    const mob_dir = required(b, "mob_dir", "Path to mob library");
+    const otp_root = required(b, "otp_root", "Path to iOS OTP runtime");
+    const erts_vsn = required(b, "erts_vsn", "ERTS version dir name (e.g. erts-17.0)");
+    const otp_release = required(b, "otp_release", "OTP release number (e.g. 29)");
+    const sdkroot = required(b, "sdkroot", "iOS device SDK path");
+    const driver_tab = required(b, "driver_tab", "Absolute path to driver_tab_ios.c");
+    const enif_keepalive = required(b, "enif_keepalive", "Absolute path to generated enif_keepalive.c");
+    const project_ios_dir = required(b, "project_ios_dir", "Absolute path to project's ios/ dir");
+    const module_name = required(b, "module_name", "Swift module name (display_name)");
+    const sqlite_static = b.option(bool, "sqlite_static", "exqlite NIF is statically linked (-DMOB_STATIC_SQLITE_NIF on driver_tab)") orelse false;
+
+    const objects_step = b.step("objects", "Compile C, ObjC, and Swift objects for iOS device");
+    b.default_step = objects_step;
+
+    // --- Swift via xcrun swiftc ------------------------------------------------
+    const swift_run = b.addSystemCommand(&.{
+        "xcrun",
+        "-sdk",
+        "iphoneos",
+        "swiftc",
+        "-target",
+        "arm64-apple-ios17.0",
+        "-module-name",
+        module_name,
+        "-import-objc-header",
+    });
+    swift_run.addArg(b.fmt("{s}/ios/MobDemo-Bridging-Header.h", .{mob_dir}));
+    swift_run.addArg("-I");
+    swift_run.addArg(b.fmt("{s}/ios", .{mob_dir}));
+    swift_run.addArgs(&.{ "-parse-as-library", "-wmo" });
+    swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobViewModel.swift", .{mob_dir}) });
+    swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobRootView.swift", .{mob_dir}) });
+    swift_run.addArg("-c");
+    swift_run.addArg("-emit-objc-header");
+    swift_run.addArg("-emit-objc-header-path");
+    const swift_header = swift_run.addOutputFileArg("MobApp-Swift.h");
+    swift_run.addArg("-o");
+    const swift_obj = swift_run.addOutputFileArg("swift_mob.o");
+    installStep(b, objects_step, swift_obj, "swift_mob.o");
+
+    // --- Plain C via zig cc ----------------------------------------------------
+    const c_flags_base = &[_][]const u8{
+        "-Os",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-miphoneos-version-min=17.0",
+    };
+
+    const driver_tab_flags: []const []const u8 = if (sqlite_static)
+        c_flags_base ++ &[_][]const u8{"-DMOB_STATIC_SQLITE_NIF"}
+    else
+        c_flags_base;
+
+    installStep(b, objects_step, addCObject(b, .{
+        .name = "driver_tab_ios",
+        .source = driver_tab,
+        .target = target,
+        .optimize = optimize,
+        .c_flags = driver_tab_flags,
+        .mob_dir = mob_dir,
+        .otp_root = otp_root,
+        .erts_vsn = erts_vsn,
+        .sdkroot = sdkroot,
+    }), "driver_tab_ios.o");
+
+    installStep(b, objects_step, addCObject(b, .{
+        .name = "enif_keepalive",
+        .source = enif_keepalive,
+        .target = target,
+        .optimize = optimize,
+        .c_flags = c_flags_base,
+        .mob_dir = mob_dir,
+        .otp_root = otp_root,
+        .erts_vsn = erts_vsn,
+        .sdkroot = sdkroot,
+    }), "enif_keepalive.o");
+
+    // --- ObjC via xcrun cc -----------------------------------------------------
+    const mob_beam_flags = &[_][]const u8{
+        "-DMOB_BUNDLE_OTP",
+        b.fmt("-DERTS_VSN=\"{s}\"", .{erts_vsn}),
+        b.fmt("-DOTP_RELEASE=\"{s}\"", .{otp_release}),
+    };
+
+    const objc_specs = [_]ObjcSpec{
+        .{ .name = "MobNode", .source = b.fmt("{s}/ios/MobNode.m", .{mob_dir}) },
+        .{
+            .name = "mob_nif",
+            .source = b.fmt("{s}/ios/mob_nif.m", .{mob_dir}),
+            .extra_flags = &.{"-DSTATIC_ERLANG_NIF"},
+            .swift_header = swift_header,
+        },
+        .{
+            .name = "mob_beam",
+            .source = b.fmt("{s}/ios/mob_beam.m", .{mob_dir}),
+            .extra_flags = mob_beam_flags,
+        },
+        .{
+            .name = "AppDelegate",
+            .source = b.fmt("{s}/AppDelegate.m", .{project_ios_dir}),
+            .swift_header = swift_header,
+        },
+        .{ .name = "beam_main", .source = b.fmt("{s}/beam_main.m", .{project_ios_dir}) },
+    };
+
+    for (objc_specs) |spec| {
+        installStep(b, objects_step, addObjcObject(b, .{
+            .name = spec.name,
+            .source = spec.source,
+            .extra_flags = spec.extra_flags,
+            .swift_header = spec.swift_header,
+            .mob_dir = mob_dir,
+            .otp_root = otp_root,
+            .erts_vsn = erts_vsn,
+            .sdkroot = sdkroot,
+        }), b.fmt("{s}.o", .{spec.name}));
+    }
+}
+
+const ObjcSpec = struct {
+    name: []const u8,
+    source: []const u8,
+    extra_flags: []const []const u8 = &.{},
+    swift_header: ?std.Build.LazyPath = null,
+};
+
+const CObjectOptions = struct {
+    name: []const u8,
+    source: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    c_flags: []const []const u8,
+    mob_dir: []const u8,
+    otp_root: []const u8,
+    erts_vsn: []const u8,
+    sdkroot: []const u8,
+};
+
+fn addCObject(b: *std.Build, opts: CObjectOptions) std.Build.LazyPath {
+    const mod = b.createModule(.{
+        .target = opts.target,
+        .optimize = opts.optimize,
+    });
+    mod.addCSourceFile(.{
+        .file = .{ .cwd_relative = opts.source },
+        .flags = opts.c_flags,
+    });
+    mod.addIncludePath(.{
+        .cwd_relative = b.fmt("{s}/{s}/include", .{ opts.otp_root, opts.erts_vsn }),
+    });
+    mod.addIncludePath(.{
+        .cwd_relative = b.fmt("{s}/{s}/include/internal", .{ opts.otp_root, opts.erts_vsn }),
+    });
+    mod.addIncludePath(.{
+        .cwd_relative = b.fmt("{s}/ios", .{opts.mob_dir}),
+    });
+    mod.addSystemIncludePath(.{
+        .cwd_relative = b.fmt("{s}/usr/include", .{opts.sdkroot}),
+    });
+    mod.addFrameworkPath(.{
+        .cwd_relative = b.fmt("{s}/System/Library/Frameworks", .{opts.sdkroot}),
+    });
+
+    const obj = b.addObject(.{
+        .name = opts.name,
+        .root_module = mod,
+    });
+    return obj.getEmittedBin();
+}
+
+const ObjcObjectOptions = struct {
+    name: []const u8,
+    source: []const u8,
+    extra_flags: []const []const u8 = &.{},
+    swift_header: ?std.Build.LazyPath = null,
+    mob_dir: []const u8,
+    otp_root: []const u8,
+    erts_vsn: []const u8,
+    sdkroot: []const u8,
+};
+
+fn addObjcObject(b: *std.Build, opts: ObjcObjectOptions) std.Build.LazyPath {
+    const run = b.addSystemCommand(&.{
+        "xcrun",
+        "-sdk",
+        "iphoneos",
+        "cc",
+        "-arch",
+        "arm64",
+        "-miphoneos-version-min=17.0",
+        "-Os",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-fobjc-arc",
+        "-fmodules",
+    });
+    run.addArg(b.fmt("-I{s}/{s}/include", .{ opts.otp_root, opts.erts_vsn }));
+    run.addArg(b.fmt("-I{s}/{s}/include/internal", .{ opts.otp_root, opts.erts_vsn }));
+    run.addArg(b.fmt("-I{s}/ios", .{opts.mob_dir}));
+    run.addArg(b.fmt("-isysroot{s}", .{opts.sdkroot}));
+
+    if (opts.swift_header) |sh| {
+        run.addPrefixedDirectoryArg("-I", sh.dirname());
+    }
+
+    for (opts.extra_flags) |flag| run.addArg(flag);
+    run.addArg("-c");
+    run.addFileArg(.{ .cwd_relative = opts.source });
+    run.addArg("-o");
+    return run.addOutputFileArg(b.fmt("{s}.o", .{opts.name}));
+}
+
+fn installStep(b: *std.Build, step: *std.Build.Step, lp: std.Build.LazyPath, name: []const u8) void {
+    const install = b.addInstallFile(lp, name);
+    step.dependOn(&install.step);
+}
+
+fn required(b: *std.Build, name: []const u8, desc: []const u8) []const u8 {
+    return b.option([]const u8, name, desc) orelse {
+        std.debug.print(
+            "ERROR: -D{s}=... is required ({s})\n",
+            .{ name, desc },
+        );
+        std.process.exit(1);
+    };
+}

@@ -15,14 +15,21 @@ endif()
 # (android/app/src/main/jni → ../../../../../). Used to locate deps/.
 set(MOB_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../deps")
 
-# Phase 0 of the build-system migration: prefer the per-app generated driver_tab
-# (priv/generated/driver_tab_android.c) so each app's :static_nifs declaration is
-# the source of truth. Falls back to mob's reference copy for projects that haven't
-# run `mix mob.regen_driver_tab` yet.
 set(_PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../")
-if(EXISTS "${_PROJECT_ROOT}/priv/generated/driver_tab_android.c")
+
+# Phase 2 of the build-system migration: driver_tab_android.c is compiled by
+# build.zig (invoked per-ABI by Mix's NativeBuild before this CMake runs) and
+# we consume the produced .o file directly. Falls back to compiling the .c
+# source via NDK clang if the .o isn't present — protects developers running
+# CMake outside the Mix orchestrator (e.g. via Android Studio "Sync Project").
+set(ZIG_DRIVER_TAB_O "${_PROJECT_ROOT}/android/app/build/zig-out/${ANDROID_ABI}/driver_tab_android.o")
+if(EXISTS "${ZIG_DRIVER_TAB_O}")
+    set(DRIVER_TAB_ANDROID "${ZIG_DRIVER_TAB_O}")
+elseif(EXISTS "${_PROJECT_ROOT}/priv/generated/driver_tab_android.c")
+    # Phase 0 fallback: per-app generated source compiled by NDK clang.
     set(DRIVER_TAB_ANDROID "${_PROJECT_ROOT}/priv/generated/driver_tab_android.c")
 else()
+    # Pre-Phase-0 fallback: mob's reference copy.
     set(DRIVER_TAB_ANDROID "${MOB_DIR}/android/jni/driver_tab_android.c")
 endif()
 

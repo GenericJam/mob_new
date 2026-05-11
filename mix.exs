@@ -21,6 +21,12 @@ defmodule MobNew.MixProject do
   defp deps do
     [
       {:jason, "~> 1.4"},
+      # Sourceror provides AST-aware Elixir source manipulation. Used by
+      # `MobNew.LiveViewPatcher.inject_deps/3` to append `:mob` + `:mob_dev`
+      # to the user's mix.exs deps list. Phase 5 of the build-system
+      # migration replaced the regex-on-Elixir-source approach that had
+      # been the main fragility in the LV generator.
+      {:sourceror, "~> 1.0"},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]

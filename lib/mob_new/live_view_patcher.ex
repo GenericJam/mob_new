@@ -91,22 +91,113 @@ defmodule MobNew.LiveViewPatcher do
   @doc """
   Injects mob / mob_dev dependencies into the `deps/0` function in `mix.exs` content.
 
-  `mob_dep` and `mob_dev_dep` are the dependency tuple strings (already formatted).
-  Idempotent: no-op if `:mob` is already present.
+  `mob_dep` and `mob_dev_dep` are dependency tuple strings (already formatted —
+  e.g. `~s({:mob, "~> 0.5"})` or `~s({:mob, path: "/path"})`). They are parsed
+  back to AST and inserted at the end of the user's deps list.
+
+  Idempotent: no-op if `:mob` is already declared in the user's deps list,
+  regardless of indentation or trailing-comma shape.
+
+  ## Implementation note
+
+  Phase 5 iter 1 replaced the regex-on-Elixir-source approach with Sourceror
+  AST manipulation. The old version matched `defp deps do\\s*\\[` and inserted
+  the dep tuples right after the opening bracket — fragile when phx.new's
+  generated mix.exs varied (different Phoenix versions, different formatter
+  configs). The AST walk is robust against all of these.
   """
   def inject_deps(content, mob_dep, mob_dev_dep) do
-    if String.contains?(content, ":mob,") or String.contains?(content, ":mob ") do
-      content
-    else
-      # Insert before the closing bracket of the deps list
-      String.replace(
-        content,
-        Regex.compile!("(defp deps do\\s*\\[)"),
-        "\\1\n      #{mob_dep},\n      #{mob_dev_dep},",
-        global: false
-      )
+    case inject_deps_via_ast(content, mob_dep, mob_dev_dep) do
+      {:ok, patched} -> patched
+      :unchanged -> content
     end
   end
+
+  defp inject_deps_via_ast(content, mob_dep, mob_dev_dep) do
+    with {:ok, ast} <- Sourceror.parse_string(content),
+         false <- mob_already_present?(ast),
+         {:ok, mob_quoted} <- parse_dep_tuple(mob_dep),
+         {:ok, mob_dev_quoted} <- parse_dep_tuple(mob_dev_dep),
+         {:ok, patched_ast} <- append_to_deps(ast, [mob_quoted, mob_dev_quoted]) do
+      {:ok, Sourceror.to_string(patched_ast) <> "\n"}
+    else
+      # mob already declared — no-op for idempotency
+      true ->
+        :unchanged
+
+      # Any AST step failed — bail out without mangling the file. Callers see
+      # `content` unchanged and can surface a clearer error elsewhere.
+      _ ->
+        :unchanged
+    end
+  end
+
+  defp parse_dep_tuple(tuple_str), do: Sourceror.parse_string(tuple_str)
+
+  defp mob_already_present?(ast) do
+    {_, found?} =
+      Macro.prewalk(ast, false, fn
+        # Match any AST node that's a tuple literal whose first element is :mob
+        {:{}, _, [:mob | _]}, _ ->
+          {nil, true}
+
+        # Two-element tuples render as plain Elixir tuples in AST, not {:{}, ...}.
+        {:mob, _}, _ ->
+          {nil, true}
+
+        # `{:mob, "~> 0.5"}` and similar render as quoted form
+        # `{:__block__, _, [{{:__block__, _, [:mob]}, ...}]}` after Sourceror
+        # parses them. Stringify the node and look for `:mob,`.
+        node, false ->
+          stringified = Sourceror.to_string(node, [])
+
+          if String.contains?(stringified, ":mob,") or
+               String.contains?(stringified, ":mob ") do
+            {node, true}
+          else
+            {node, false}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    found?
+  end
+
+  defp append_to_deps(ast, new_dep_asts) do
+    {patched, found?} =
+      Macro.prewalk(ast, false, fn
+        # Find `defp deps do <body> end` and append to the list in <body>.
+        {defp_or_def, meta,
+         [
+           {fn_name, _, args} = head,
+           [{{:__block__, _, [:do]}, body}]
+         ]} = node,
+        found?
+        when defp_or_def in [:def, :defp] and fn_name in [:deps] and
+               (is_nil(args) or args == []) ->
+          new_body = append_to_list_node(body, new_dep_asts)
+
+          {{defp_or_def, meta, [head, [{{:__block__, [], [:do]}, new_body}]]},
+           found? or new_body != body}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    if found?, do: {:ok, patched}, else: {:error, :no_deps_function}
+  end
+
+  defp append_to_list_node({:__block__, meta, [list]}, new_items) when is_list(list) do
+    {:__block__, meta, [list ++ new_items]}
+  end
+
+  defp append_to_list_node(list, new_items) when is_list(list) do
+    list ++ new_items
+  end
+
+  defp append_to_list_node(other, _new_items), do: other
 
   @doc """
   Generates the MobScreen source file content for the given module name.

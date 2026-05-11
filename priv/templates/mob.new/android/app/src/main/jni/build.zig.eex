@@ -5,12 +5,11 @@
 //   Compile (zig cc / zig, per-ABI):
 //     - driver_tab_android.zig  — static-NIF table (per-app generated;
 //       legacy .c also supported — extension auto-detected)
-//     - $MOB_DIR/android/jni/mob_nif.c   (Phase 6b iter 3a — shrinking;
-//       a parallel mob_nif.zig now holds the ported NIFs)
-//     - $MOB_DIR/android/jni/mob_nif.zig (Phase 6b iter 3 — ported NIFs;
-//       table moves here in iter 3d when the C file is removed)
+//     - $MOB_DIR/android/jni/mob_nif.zig  (Phase 6b iter 3d — full
+//       NIF surface in Zig; mob_nif.c deleted)
 //     - $MOB_DIR/android/jni/mob_beam.zig (Phase 6b iter 2 — Zig)
-//     - android/app/src/main/jni/beam_jni.c (in-project)
+//     - android/app/src/main/jni/beam_jni.c (in-project, still C —
+//       just the JNI entrypoints + g_jvm/g_activity globals)
 //
 //   Link (zig cc -shared):
 //     all 4 .o files + OTP/crypto static libs + Android system libs
@@ -83,14 +82,10 @@ pub fn build(b: *std.Build) void {
 
     const sources = [_]CObjectSpec{
         .{ .name = "driver_tab_android", .source = driver_tab },
-        .{ .name = "mob_nif", .source = b.fmt("{s}/android/jni/mob_nif.c", .{mob_dir}) },
-        // Iter 3a: mob_nif_zig.o holds the ported NIFs (initially platform/0,
-        // log/1, log/2). mob_nif.c keeps the static nif_funcs[] table and
-        // extern-declares the Zig exports near the top. Later sub-iters
-        // (3b–3d) drain the C file; eventually it disappears and the table
-        // moves here too. Names differ because both .o files install side
-        // by side under <abi>/.
-        .{ .name = "mob_nif_zig", .source = b.fmt("{s}/android/jni/mob_nif.zig", .{mob_dir}) },
+        // Phase 6b iter 3d (the finale) deleted mob_nif.c — the NIF
+        // table, the load callback, and the `mob_nif_nif_init` symbol
+        // the driver_tab references all live in mob_nif.zig now.
+        .{ .name = "mob_nif", .source = b.fmt("{s}/android/jni/mob_nif.zig", .{mob_dir}) },
         .{ .name = "mob_beam", .source = b.fmt("{s}/android/jni/mob_beam.zig", .{mob_dir}) },
         .{ .name = "beam_jni", .source = b.fmt("{s}/beam_jni.c", .{project_jni_dir}) },
     };

@@ -107,17 +107,30 @@ pub fn build(b: *std.Build) void {
         "-mios-simulator-version-min=17.0",
     };
 
-    const driver_tab_lp = addCObject(b, .{
-        .name = "driver_tab_ios",
-        .source = driver_tab,
-        .target = target,
-        .optimize = optimize,
-        .c_flags = c_flags,
-        .mob_dir = mob_dir,
-        .otp_root = otp_root,
-        .erts_vsn = erts_vsn,
-        .sdkroot = sdkroot,
-    });
+    // driver_tab can be driver_tab_ios.c (legacy, default) or
+    // driver_tab_ios.zig (Phase 6a). The Zig path declares the C-ABI
+    // types it needs directly via `extern struct`, so it doesn't need
+    // any of the iOS SDK include paths the C path requires. Auto-detect
+    // by extension so existing projects with .c files keep working.
+    const driver_tab_lp = if (std.mem.endsWith(u8, driver_tab, ".zig"))
+        addZigObject(b, .{
+            .name = "driver_tab_ios",
+            .source = driver_tab,
+            .target = target,
+            .optimize = optimize,
+        })
+    else
+        addCObject(b, .{
+            .name = "driver_tab_ios",
+            .source = driver_tab,
+            .target = target,
+            .optimize = optimize,
+            .c_flags = c_flags,
+            .mob_dir = mob_dir,
+            .otp_root = otp_root,
+            .erts_vsn = erts_vsn,
+            .sdkroot = sdkroot,
+        });
     installAndCollect(b, objects_step, &objs, driver_tab_lp, "driver_tab_ios.o");
 
     const enif_lp = addCObject(b, .{
@@ -194,6 +207,31 @@ const CObjectOptions = struct {
     erts_vsn: []const u8,
     sdkroot: []const u8,
 };
+
+const ZigObjectOptions = struct {
+    name: []const u8,
+    source: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+};
+
+// addZigObject compiles a single .zig source file into a relocatable
+// object whose exports use the C ABI. Used by Phase 6a's driver_tab.zig
+// path; matches addCObject's interface so the call site can pick one or
+// the other based on the source file's extension.
+fn addZigObject(b: *std.Build, opts: ZigObjectOptions) std.Build.LazyPath {
+    const mod = b.createModule(.{
+        .root_source_file = .{ .cwd_relative = opts.source },
+        .target = opts.target,
+        .optimize = opts.optimize,
+    });
+
+    const obj = b.addObject(.{
+        .name = opts.name,
+        .root_module = mod,
+    });
+    return obj.getEmittedBin();
+}
 
 fn addCObject(b: *std.Build, opts: CObjectOptions) std.Build.LazyPath {
     const mod = b.createModule(.{

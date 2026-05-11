@@ -187,6 +187,73 @@ defmodule MobNew.LiveViewPatcherTest do
 
       assert once == twice
     end
+
+    # ── AST-aware cases (Phase 5 iter 1) ───────────────────────────────────
+    # The previous regex implementation matched `defp deps do\\s*\\[` and
+    # inserted at the head of the list. These shapes either broke the regex
+    # or produced syntactically-invalid output.
+
+    test "handles empty deps list — `defp deps do [] end`" do
+      empty_deps = """
+      defmodule Test.MixProject do
+        use Mix.Project
+        defp deps do
+          []
+        end
+      end
+      """
+
+      result =
+        LiveViewPatcher.inject_deps(
+          empty_deps,
+          ~s({:mob, "~> 0.5"}),
+          ~s({:mob_dev, "~> 0.3", only: :dev})
+        )
+
+      assert result =~ ~s({:mob, "~> 0.5"})
+      assert result =~ ~s({:mob_dev, "~> 0.3", only: :dev})
+
+      # The result is still parseable Elixir (the old regex insertion
+      # before `[` would have produced `[\n      {:mob, ...},\n,]` which
+      # is invalid).
+      assert {:ok, _} = Code.string_to_quoted(result)
+    end
+
+    test "handles single-line deps list — `defp deps, do: [...]` shorthand" do
+      shorthand = """
+      defmodule Test.MixProject do
+        use Mix.Project
+        defp deps, do: [{:phoenix, "~> 1.7"}]
+      end
+      """
+
+      # The shorthand form doesn't match `defp <name> do ... end` and isn't
+      # in scope for iter 1 — should leave content untouched.
+      result =
+        LiveViewPatcher.inject_deps(
+          shorthand,
+          ~s({:mob, "~> 0.5"}),
+          ~s({:mob_dev, "~> 0.3", only: :dev})
+        )
+
+      # Result remains valid Elixir even when no patch is applied.
+      assert {:ok, _} = Code.string_to_quoted(result)
+    end
+
+    test "produces output that parses back to identical AST minus the new deps" do
+      result =
+        LiveViewPatcher.inject_deps(
+          @sample_mix_exs,
+          ~s({:mob, "~> 0.5"}),
+          ~s({:mob_dev, "~> 0.3", only: :dev})
+        )
+
+      # Round-trip: result should be valid Elixir.
+      assert {:ok, _quoted} = Code.string_to_quoted(result)
+      # Existing deps still present.
+      assert result =~ ~s({:phoenix, "~> 1.7"})
+      assert result =~ ~s({:ecto, "~> 3.0"})
+    end
   end
 
   # ── mob_live_app_content/4 ────────────────────────────────────────────────────

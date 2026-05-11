@@ -98,7 +98,22 @@ pub fn build(b: *std.Build) void {
     else
         c_flags_base;
 
-    installAndCollect(b, objects_step, &objs, addCObject(b, .{
+    // Auto-detect .zig vs .c on driver_tab. The .zig path threads
+    // sqlite_static via b.addOptions() — a comptime `if (sqlite_static)`
+    // inside the .zig file replaces the C preprocessor `#ifdef
+    // MOB_STATIC_SQLITE_NIF`. The .c path keeps the legacy
+    // -DMOB_STATIC_SQLITE_NIF flag through driver_tab_flags.
+    const driver_tab_lp = if (std.mem.endsWith(u8, driver_tab, ".zig")) blk: {
+        const opts = b.addOptions();
+        opts.addOption(bool, "sqlite_static", sqlite_static);
+        break :blk addZigObject(b, .{
+            .name = "driver_tab_ios",
+            .source = driver_tab,
+            .target = target,
+            .optimize = optimize,
+            .build_options = opts,
+        });
+    } else addCObject(b, .{
         .name = "driver_tab_ios",
         .source = driver_tab,
         .target = target,
@@ -108,7 +123,8 @@ pub fn build(b: *std.Build) void {
         .otp_root = otp_root,
         .erts_vsn = erts_vsn,
         .sdkroot = sdkroot,
-    }), "driver_tab_ios.o");
+    });
+    installAndCollect(b, objects_step, &objs, driver_tab_lp, "driver_tab_ios.o");
 
     installAndCollect(b, objects_step, &objs, addCObject(b, .{
         .name = "enif_keepalive",
@@ -251,6 +267,40 @@ const CObjectOptions = struct {
     erts_vsn: []const u8,
     sdkroot: []const u8,
 };
+
+const ZigObjectOptions = struct {
+    name: []const u8,
+    source: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    // build_options is imported by the .zig module via
+    // `@import("build_options")`. driver_tab_ios.zig uses it to read
+    // `sqlite_static` so the comptime gate around the guarded NIF row
+    // fires correctly. nil means "no build_options module needed."
+    build_options: ?*std.Build.Step.Options = null,
+};
+
+// addZigObject compiles a single .zig source file into a relocatable
+// object whose exports use the C ABI. Used by Phase 6a's driver_tab.zig
+// path; matches addCObject's interface so the call site can pick one or
+// the other based on the source file's extension.
+fn addZigObject(b: *std.Build, opts: ZigObjectOptions) std.Build.LazyPath {
+    const mod = b.createModule(.{
+        .root_source_file = .{ .cwd_relative = opts.source },
+        .target = opts.target,
+        .optimize = opts.optimize,
+    });
+
+    if (opts.build_options) |build_opts| {
+        mod.addOptions("build_options", build_opts);
+    }
+
+    const obj = b.addObject(.{
+        .name = opts.name,
+        .root_module = mod,
+    });
+    return obj.getEmittedBin();
+}
 
 fn addCObject(b: *std.Build, opts: CObjectOptions) std.Build.LazyPath {
     const mod = b.createModule(.{

@@ -5,7 +5,7 @@
 // the iphoneos build:
 //
 //   Plain C (zig cc):
-//     - driver_tab_ios.c
+//     - driver_tab_ios.zig (or .c — extension auto-detected at compile)
 //     - enif_keepalive.c
 //
 //   ObjC (xcrun cc via system command — Apple's clang for -fmodules):
@@ -42,7 +42,7 @@ pub fn build(b: *std.Build) void {
     const erts_vsn = required(b, "erts_vsn", "ERTS version dir name (e.g. erts-17.0)");
     const otp_release = required(b, "otp_release", "OTP release number (e.g. 29)");
     const sdkroot = required(b, "sdkroot", "iOS device SDK path");
-    const driver_tab = required(b, "driver_tab", "Absolute path to driver_tab_ios.c");
+    const driver_tab = required(b, "driver_tab", "Absolute path to driver_tab_ios.{zig,c}");
     const enif_keepalive = required(b, "enif_keepalive", "Absolute path to generated enif_keepalive.c");
     const project_ios_dir = required(b, "project_ios_dir", "Absolute path to project's ios/ dir");
     const module_name = required(b, "module_name", "Swift module name (display_name)");

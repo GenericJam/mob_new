@@ -232,8 +232,14 @@ defmodule MobNew.LiveViewPatcherTest do
       assert live_app_content() =~ "port: liveview_port"
     end
 
-    test "endpoint config defaults to port 4200" do
-      assert live_app_content() =~ "Application.get_env(:mob, :liveview_port, 4200)"
+    test "endpoint port defaults to per-app hash (4200..4999) when mob.exs doesn't override" do
+      # iter 13d / issues.md #4: was a hardcoded `4200` default; replaced
+      # with `default_liveview_port/0` returning `4200 + phash2(app, 800)`
+      # so multiple Mob LV apps installed on the same device don't collide.
+      content = live_app_content()
+      assert content =~ "Application.get_env(:mob, :liveview_port, default_liveview_port())"
+      assert content =~ "defp default_liveview_port"
+      assert content =~ ":erlang.phash2(:my_app, 800)"
     end
 
     test "starts Mob.ComponentRegistry" do
@@ -340,9 +346,11 @@ defmodule MobNew.LiveViewPatcherTest do
       assert content =~ "elixir_lib:"
     end
 
-    test "contains liveview_port: 4200 (avoids conflict with host phx.server on 4000)" do
+    test "documents liveview_port (commented; runtime hashes per app — issues.md #4)" do
       content = LiveViewPatcher.mob_exs_content(~s("/path/to/mob"), ~s("/path/to/elixir/lib"))
-      assert content =~ "liveview_port: 4200"
+      # The line ships commented out so the runtime default kicks in
+      # (4200..4999 hashed from app name, no collision across apps).
+      assert content =~ "# config :mob, liveview_port: 4200"
     end
 
     test "starts with import Config" do

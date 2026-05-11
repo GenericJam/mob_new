@@ -14,7 +14,8 @@ defmodule MobNew.LiveViewPatcher do
   2. `lib/<app>_web/components/layouts/root.html.heex` — hidden
      `<div id="mob-bridge" phx-hook="MobHook">` inserted after `<body>`.
   3. `lib/<app>/mob_screen.ex` — generated (the `Mob.Screen` that opens the WebView).
-  4. `mob.exs` — `liveview_port: 4000` added.
+  4. `mob.exs` — placeholder `# config :mob, liveview_port: 4200` added (runtime
+     default hashes per app to avoid collisions across multiple installed apps).
   5. `mix.exs` — mob / mob_dev deps injected into the `deps/0` function.
   6. `lib/<app>/application.ex` — `Mob.App` child started in the supervision tree.
   """
@@ -163,7 +164,12 @@ defmodule MobNew.LiveViewPatcher do
       # Path to your Elixir lib dir (e.g. ~/.local/share/mise/installs/elixir/1.18.4-otp-28/lib).
       elixir_lib: #{mob_exs_elixir_lib}
 
-    config :mob, liveview_port: 4200
+    # The on-device LiveView endpoint port. Defaults to a deterministic
+    # value derived from the app name (4200..4999) so multiple Mob LV apps
+    # installed on the same device don't collide on a single hardcoded
+    # port. Uncomment + set this only if you need a fixed value (e.g.
+    # because your test harness pins one).
+    # config :mob, liveview_port: 4200
     """
   end
 
@@ -180,7 +186,8 @@ defmodule MobNew.LiveViewPatcher do
   `secret_key_base` and `signing_salt` are embedded directly because Mix config
   files (`config/*.exs`) are not loaded on-device — `Application.put_env/3` is
   the only way to configure the endpoint before `ensure_all_started/1` runs.
-  Port 4200 avoids conflicts with a host `mix phx.server` on 4000.
+  The on-device port defaults to a per-app hash (4200..4999) — see
+  `default_liveview_port/0` and issues.md #4 for the collision rationale.
   """
   def mob_live_app_content(module_name, app_name, secret_key_base, signing_salt) do
     """
@@ -206,9 +213,14 @@ defmodule MobNew.LiveViewPatcher do
         # its port, adapter, and secret key base. Watchers and code reload
         # are omitted (no dev tools on-device).
         #
-        # Port 4200 avoids conflicts with a host `mix phx.server` on 4000
-        # (iOS simulator shares the host loopback at 127.0.0.1).
-        liveview_port = Application.get_env(:mob, :liveview_port, 4200)
+        # Port default is hashed from the app name into 4200..4999 so two
+        # Mob LV apps installed on the same device don't fight over a
+        # single hardcoded port (Bandit returns :eaddrinuse, the endpoint
+        # supervisor crashes, BEAM dies). With 800 candidate ports and
+        # `phash2`'s good distribution, collision odds are p<0.5% even
+        # at five installed apps. Override in mob.exs by setting
+        # `config :mob, liveview_port: <port>` if you need a specific value.
+        liveview_port = Application.get_env(:mob, :liveview_port, default_liveview_port())
         Application.put_env(:mob, :liveview_port, liveview_port)
         Application.put_env(:#{app_name}, #{module_name}Web.Endpoint,
           adapter: Bandit.PhoenixAdapter,
@@ -218,8 +230,23 @@ defmodule MobNew.LiveViewPatcher do
           server: true,
           secret_key_base: "#{secret_key_base}",
           pubsub_server: #{module_name}.PubSub,
-          live_view: [signing_salt: "#{signing_salt}"]
+          live_view: [signing_salt: "#{signing_salt}"],
+          # Disable Phoenix LiveReload + code reloader on-device. The host
+          # `mac_listener` binary isn't bundled (and couldn't watch a host
+          # filesystem from inside an iOS sandbox anyway). Without these
+          # flags the boot log gets a warning per missing tool.
+          code_reloader: false,
+          watchers: [],
+          live_reload: false
         )
+
+        # esbuild + tailwind are dev-time asset compilers. They get pulled in
+        # as runtime apps but don't have access to their host config (which
+        # lives in `config/dev.exs`, not bundled). Set their versions here so
+        # the on-device boot log stays clean — they never actually run.
+        # Versions match Phoenix 1.7's defaults; bump alongside `mix phx.new`.
+        Application.put_env(:esbuild, :version, "0.25.0")
+        Application.put_env(:tailwind, :version, "3.4.6")
 
         # ecto_sqlite3 must be started before #{app_name} so its NIF is loaded
         # before the Repo supervisor tries to open the database.
@@ -253,6 +280,14 @@ defmodule MobNew.LiveViewPatcher do
           nil -> Application.app_dir(:#{app_name}, "priv/repo/migrations")
           beams_dir -> Path.join([beams_dir, "priv", "repo", "migrations"])
         end
+      end
+
+      # 4200..4999 inclusive — small enough to leave room above the standard
+      # dev range, large enough that birthday-paradox collisions are rare for
+      # any reasonable number of installed Mob LV apps. Deterministic, so the
+      # WebView URL stays stable across restarts.
+      defp default_liveview_port do
+        4200 + :erlang.phash2(:#{app_name}, 800)
       end
     end
     """
@@ -350,7 +385,7 @@ defmodule MobNew.LiveViewPatcher do
 
       @seeds [
         %{title: "Welcome to Mob", body: "LiveView is running on-device inside a WKWebView. The full Phoenix stack — Bandit, Plug, LiveView WebSocket — runs entirely on the device.\\n\\nTry editing this note!"},
-        %{title: "How it works", body: "The app boots the BEAM, starts the Phoenix endpoint on 127.0.0.1:4200, then loads http://127.0.0.1:4200/ in a native WebView.\\n\\nLiveView handles all UI updates over a WebSocket — no page reloads needed."},
+        %{title: "How it works", body: "The app boots the BEAM, starts the Phoenix endpoint on 127.0.0.1:<port>, then loads http://127.0.0.1:<port>/ in a native WebView.\\n\\nLiveView handles all UI updates over a WebSocket — no page reloads needed."},
         %{title: "Things to try", body: "• Create a new note with the + button\\n• Edit any note — changes persist to SQLite\\n• Delete notes by tapping the × button\\n• Check out the About tab"},
       ]
 

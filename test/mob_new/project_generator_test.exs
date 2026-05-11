@@ -960,11 +960,16 @@ defmodule MobNew.ProjectGeneratorTest do
     end
 
     @tag :integration
-    test "generates mob.exs with liveview_port", %{tmp: tmp} do
+    test "mob.exs documents liveview_port (commented; runtime hashes per app)", %{tmp: tmp} do
+      # iter 13d / issues.md #4: hardcoded `liveview_port: 4200` collided
+      # across multiple installed Mob LV apps. mob.exs now ships the line
+      # commented out — runtime hashes the app name into 4200..4999 by
+      # default. Users uncomment to pin a specific port.
       {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
       assert File.exists?(Path.join(dir, "mob.exs"))
       content = File.read!(Path.join(dir, "mob.exs"))
-      assert content =~ "liveview_port: 4200"
+      assert content =~ "liveview_port"
+      assert content =~ "# config :mob, liveview_port"
     end
 
     @tag :integration

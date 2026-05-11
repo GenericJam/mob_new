@@ -136,8 +136,11 @@ pub fn build(b: *std.Build) void {
 
     // Link: zig cc -shared, mirroring CMake's prior target_link_libraries
     // (--gc-sections + --whole-archive bracket around the OTP/crypto static
-    // libs + plain libcrypto.a + Android system libs).
-    addLink(b, native_lib_step, .{
+    // libs + plain libcrypto.a + Android system libs). Returns the cp
+    // step that installs the .so into jniLibs/ — exqlite's link depends
+    // on it (the file path is a literal arg there, not a LazyPath, so
+    // the dependency edge has to be added explicitly).
+    const main_link_cp = addLink(b, native_lib_step, .{
         .objects = obj_paths.items,
         .abi = abi,
         .arch_triple = arch_triple,
@@ -196,6 +199,7 @@ pub fn build(b: *std.Build) void {
         .ndk_sysroot = ndk_sysroot,
         .project_root = project_root,
         .app_name = app_name,
+        .depends_on = main_link_cp,
     });
 }
 
@@ -283,6 +287,13 @@ fn addZigObject(b: *std.Build, opts: ZigObjectOptions) std.Build.LazyPath {
         .root_source_file = .{ .cwd_relative = opts.source },
         .target = opts.target,
         .optimize = opts.optimize,
+        // PIC is required because the resulting object is linked into a
+        // shared library (lib<app>.so). Without it, .rodata references to
+        // local symbols (e.g. mob_beam.zig's `default_flags` array of
+        // pointers to string literals) emit R_AARCH64_ABS64 relocations
+        // that ld.lld refuses in a shared library. Caught by the Phase 6b
+        // iter 3d end-to-end smoke deploy.
+        .pic = true,
     });
 
     if (opts.build_options) |build_opts| {
@@ -307,7 +318,7 @@ const LinkOptions = struct {
     project_root: []const u8,
 };
 
-fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
+fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) *std.Build.Step {
     const so_name = b.fmt("lib{s}.so", .{opts.app_name});
 
     // Use NDK's clang as the linker driver rather than zig cc — zig's
@@ -384,6 +395,13 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
     cp.addArg(install_path);
     cp.step.dependOn(&run.step);
     step.dependOn(&cp.step);
+    // Return the cp step so addExqliteLink can `dependOn` it — exqlite's
+    // link references the installed main .so via a literal path arg, not
+    // a LazyPath, so without an explicit ordering edge the two link steps
+    // race in parallel and exqlite's clang errors out with "no such file"
+    // when the cp hasn't run yet. Caught by the Phase 6b iter 3d smoke
+    // deploy.
+    return &cp.step;
 }
 
 const ExqliteLinkOptions = struct {
@@ -393,6 +411,10 @@ const ExqliteLinkOptions = struct {
     ndk_sysroot: []const u8,
     project_root: []const u8,
     app_name: []const u8,
+    // Step that must complete before this link runs — typically the cp
+    // step returned by `addLink` (which installs lib<app>.so into
+    // jniLibs/, the path exqlite's link consumes by string).
+    depends_on: ?*std.Build.Step = null,
 };
 
 fn addExqliteLink(b: *std.Build, step: *std.Build.Step, opts: ExqliteLinkOptions) void {
@@ -410,6 +432,7 @@ fn addExqliteLink(b: *std.Build, step: *std.Build.Step, opts: ExqliteLinkOptions
     );
 
     const run = b.addSystemCommand(&.{ ndk_clang, target_arg, "-shared" });
+    if (opts.depends_on) |dep| run.step.dependOn(dep);
     run.addArg(b.fmt("--sysroot={s}", .{opts.ndk_sysroot}));
     run.addArg(b.fmt("-Wl,-soname,{s}", .{so_name}));
     for (opts.objects) |obj| run.addFileArg(obj);

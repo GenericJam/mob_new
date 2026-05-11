@@ -112,25 +112,31 @@ pub fn build(b: *std.Build) void {
     // types it needs directly via `extern struct`, so it doesn't need
     // any of the iOS SDK include paths the C path requires. Auto-detect
     // by extension so existing projects with .c files keep working.
-    const driver_tab_lp = if (std.mem.endsWith(u8, driver_tab, ".zig"))
-        addZigObject(b, .{
+    //
+    // The Zig file imports `build_options` for the sqlite_static
+    // comptime gate. Sim builds always set sqlite_static = false
+    // (exqlite loads dynamically as a .so on sim).
+    const driver_tab_lp = if (std.mem.endsWith(u8, driver_tab, ".zig")) blk: {
+        const opts = b.addOptions();
+        opts.addOption(bool, "sqlite_static", false);
+        break :blk addZigObject(b, .{
             .name = "driver_tab_ios",
             .source = driver_tab,
             .target = target,
             .optimize = optimize,
-        })
-    else
-        addCObject(b, .{
-            .name = "driver_tab_ios",
-            .source = driver_tab,
-            .target = target,
-            .optimize = optimize,
-            .c_flags = c_flags,
-            .mob_dir = mob_dir,
-            .otp_root = otp_root,
-            .erts_vsn = erts_vsn,
-            .sdkroot = sdkroot,
+            .build_options = opts,
         });
+    } else addCObject(b, .{
+        .name = "driver_tab_ios",
+        .source = driver_tab,
+        .target = target,
+        .optimize = optimize,
+        .c_flags = c_flags,
+        .mob_dir = mob_dir,
+        .otp_root = otp_root,
+        .erts_vsn = erts_vsn,
+        .sdkroot = sdkroot,
+    });
     installAndCollect(b, objects_step, &objs, driver_tab_lp, "driver_tab_ios.o");
 
     const enif_lp = addCObject(b, .{
@@ -213,6 +219,13 @@ const ZigObjectOptions = struct {
     source: []const u8,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    // build_options is imported by the .zig module via
+    // `@import("build_options")`. driver_tab_ios.zig uses it to read
+    // `sqlite_static`. nil means no module is registered (driver_tab.zig
+    // imports it unconditionally so callers should pass an Options step
+    // — sim builds set sqlite_static=false, device builds derive from
+    // the real flag).
+    build_options: ?*std.Build.Step.Options = null,
 };
 
 // addZigObject compiles a single .zig source file into a relocatable
@@ -225,6 +238,10 @@ fn addZigObject(b: *std.Build, opts: ZigObjectOptions) std.Build.LazyPath {
         .target = opts.target,
         .optimize = opts.optimize,
     });
+
+    if (opts.build_options) |build_opts| {
+        mod.addOptions("build_options", build_opts);
+    }
 
     const obj = b.addObject(.{
         .name = opts.name,

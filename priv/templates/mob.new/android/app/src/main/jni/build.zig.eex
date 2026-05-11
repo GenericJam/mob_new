@@ -5,8 +5,8 @@
 //   Compile (zig cc, per-ABI):
 //     - driver_tab_android.zig  — static-NIF table (per-app generated;
 //       legacy .c also supported — extension auto-detected)
-//     - $MOB_DIR/android/jni/mob_nif.c
-//     - $MOB_DIR/android/jni/mob_beam.c
+//     - $MOB_DIR/android/jni/mob_nif.c   (Zig port pending — multi-iter)
+//     - $MOB_DIR/android/jni/mob_beam.zig (Phase 6b iter 2 — Zig)
 //     - android/app/src/main/jni/beam_jni.c (in-project)
 //
 //   Link (zig cc -shared):
@@ -81,7 +81,7 @@ pub fn build(b: *std.Build) void {
     const sources = [_]CObjectSpec{
         .{ .name = "driver_tab_android", .source = driver_tab },
         .{ .name = "mob_nif", .source = b.fmt("{s}/android/jni/mob_nif.c", .{mob_dir}) },
-        .{ .name = "mob_beam", .source = b.fmt("{s}/android/jni/mob_beam.c", .{mob_dir}) },
+        .{ .name = "mob_beam", .source = b.fmt("{s}/android/jni/mob_beam.zig", .{mob_dir}) },
         .{ .name = "beam_jni", .source = b.fmt("{s}/beam_jni.c", .{project_jni_dir}) },
     };
 
@@ -93,25 +93,37 @@ pub fn build(b: *std.Build) void {
         // Zig source declares the C-ABI types it needs via `extern struct`,
         // so it doesn't need the SDK include paths the C path requires.
         // Phase 6b iter 1 wires this up for Android (the iOS templates
-        // got the same treatment in 6a iter 2).
-        const obj = if (std.mem.endsWith(u8, spec.source, ".zig"))
-            addZigObject(b, .{
+        // got the same treatment in 6a iter 2). Iter 2 flipped mob_beam
+        // from .c to .zig — the source above ends in .zig, and the helper
+        // below threads `build_options` for the comptime flag selection.
+        const obj = if (std.mem.endsWith(u8, spec.source, ".zig")) blk: {
+            // mob_beam.zig reads `no_beam` and `beam_flags_mode` from
+            // @import("build_options") for comptime path selection.
+            // Other .zig sources (driver_tab_android.zig today) don't
+            // need options; null is fine for them.
+            const build_opts = if (std.mem.eql(u8, spec.name, "mob_beam")) opts: {
+                const o = b.addOptions();
+                o.addOption(bool, "no_beam", false);
+                o.addOption([]const u8, "beam_flags_mode", "nerves_full");
+                break :opts o;
+            } else null;
+            break :blk addZigObject(b, .{
                 .name = spec.name,
                 .source = spec.source,
                 .target = target,
                 .optimize = optimize,
-            })
-        else
-            addCObject(b, .{
-                .name = spec.name,
-                .source = spec.source,
-                .target = target,
-                .optimize = optimize,
-                .c_flags = c_flags,
-                .otp_dir = otp_dir,
-                .erts_vsn = erts_vsn,
-                .mob_dir = mob_dir,
+                .build_options = build_opts,
             });
+        } else addCObject(b, .{
+            .name = spec.name,
+            .source = spec.source,
+            .target = target,
+            .optimize = optimize,
+            .c_flags = c_flags,
+            .otp_dir = otp_dir,
+            .erts_vsn = erts_vsn,
+            .mob_dir = mob_dir,
+        });
         const install = b.addInstallFile(obj, b.fmt("{s}/{s}.o", .{ abi, spec.name }));
         c_objects_step.dependOn(&install.step);
         obj_paths.append(b.allocator, obj) catch @panic("OOM");
@@ -258,9 +270,9 @@ const ZigObjectOptions = struct {
 
 // addZigObject compiles a single .zig source file into a relocatable
 // object whose exports use the C ABI. The iOS templates use the same
-// helper (Phase 6a iters 2-3); this is the Android version. Phase 6b
-// iter 1 added it; subsequent iters can migrate mob_beam.c and
-// mob_nif.c to Zig source.
+// helper (Phase 6a iters 2-3); this is the Android version. Iter 1
+// introduced the helper; iter 2 flipped mob_beam to Zig. mob_nif.c is
+// the next candidate (multi-iter — 2570 lines, 79 NIF functions).
 fn addZigObject(b: *std.Build, opts: ZigObjectOptions) std.Build.LazyPath {
     const mod = b.createModule(.{
         .root_source_file = .{ .cwd_relative = opts.source },

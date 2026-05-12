@@ -45,12 +45,22 @@ defmodule Mix.Tasks.Mob.New do
     * `--no-install`   — skip running `mix deps.get` after generation
     * `--dest DIR`     — create project in DIR (default: current directory)
     * `--local`        — use `path:` deps pointing to local mob/mob_dev repos
-                         instead of hex version constraints. **For Mob framework
-                         contributors only** — not intended for app developers.
-                         Paths resolved from `MOB_DIR` / `MOB_DEV_DIR` env vars,
-                         falling back to `./mob` / `./mob_dev`, then `../mob` /
-                         `../mob_dev`. Also pre-fills `mob.exs` with real paths
-                         so `mix mob.install` skips path configuration prompts.
+                         instead of hex version constraints, AND render from
+                         the local mob_new checkout's templates (not the
+                         installed archive's, which can be stale relative to
+                         master). **For Mob framework contributors only** —
+                         not intended for app developers.
+
+                         Mob paths resolved from `MOB_DIR` / `MOB_DEV_DIR`
+                         env vars, falling back to `./mob` / `./mob_dev`,
+                         then `../mob` / `../mob_dev`. mob_new template path
+                         resolved from `MOB_NEW_DIR`, falling back to
+                         `$HOME/code/mob_new`. Pre-fills `mob.exs` so
+                         `mix mob.install` skips path configuration prompts.
+
+                         If the local mob_new checkout can't be found, falls
+                         back to the installed archive's templates and notes
+                         it in the build output.
 
   ## What gets generated (native mode, default)
 
@@ -171,7 +181,11 @@ defmodule Mix.Tasks.Mob.New do
 
   defp log_flags(gen_opts, liveview) do
     if gen_opts[:local] do
-      Mix.shell().info([:yellow, "* local mode: using path: deps for mob and mob_dev", :reset])
+      Mix.shell().info([
+        :yellow,
+        "* local mode: path: deps for mob/mob_dev + templates from local mob_new checkout",
+        :reset
+      ])
     end
 
     if gen_opts[:no_ios] do

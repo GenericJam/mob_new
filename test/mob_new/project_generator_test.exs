@@ -1415,4 +1415,71 @@ defmodule MobNew.ProjectGeneratorTest do
       end
     end
   end
+
+  # `--local` was originally documented as "use path: deps for mob/mob_dev"
+  # only, but the mental model from users is "use everything local" —
+  # including templates. local_mob_new_priv/1 opts into local templates
+  # when (and only when) the caller asks AND a reachable mob_new
+  # checkout exists.
+  describe "local_mob_new_priv/1" do
+    setup do
+      tmp =
+        Path.join(System.tmp_dir!(), "mob_new_local_priv_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(Path.join(tmp, "priv/templates/mob.new"))
+      on_exit(fn -> File.rm_rf!(tmp) end)
+      {:ok, tmp: tmp}
+    end
+
+    test "returns nil when opts[:local] is not set", %{tmp: tmp} do
+      System.put_env("MOB_NEW_DIR", tmp)
+      on_exit(fn -> System.delete_env("MOB_NEW_DIR") end)
+
+      assert MobNew.ProjectGenerator.local_mob_new_priv([]) == nil
+      assert MobNew.ProjectGenerator.local_mob_new_priv(local: false) == nil
+    end
+
+    test "returns MOB_NEW_DIR's priv when --local is set and dir exists", %{tmp: tmp} do
+      System.put_env("MOB_NEW_DIR", tmp)
+      on_exit(fn -> System.delete_env("MOB_NEW_DIR") end)
+
+      assert MobNew.ProjectGenerator.local_mob_new_priv(local: true) ==
+               Path.join(tmp, "priv")
+    end
+
+    test "returns nil when MOB_NEW_DIR doesn't contain priv/templates/mob.new", %{tmp: tmp} do
+      # Empty subdir of tmp — no priv structure.
+      empty = Path.join(tmp, "empty")
+      File.mkdir_p!(empty)
+      System.put_env("MOB_NEW_DIR", empty)
+      on_exit(fn -> System.delete_env("MOB_NEW_DIR") end)
+
+      # The MOB_NEW_DIR is bogus, but ~/code/mob_new might exist on the
+      # host. local_mob_new_priv tries candidates in order; if the env
+      # entry fails, it falls through to ~/code/mob_new. So this asserts
+      # only "env entry didn't match", not the final return.
+      result = MobNew.ProjectGenerator.local_mob_new_priv(local: true)
+      assert result != Path.join(empty, "priv")
+    end
+
+    test "MOB_NEW_DIR takes precedence over the ~/code/mob_new fallback", %{tmp: tmp} do
+      System.put_env("MOB_NEW_DIR", tmp)
+      on_exit(fn -> System.delete_env("MOB_NEW_DIR") end)
+
+      assert MobNew.ProjectGenerator.local_mob_new_priv(local: true) ==
+               Path.join(tmp, "priv")
+    end
+
+    test "no MOB_NEW_DIR + no ~/code/mob_new → nil (no false positives)" do
+      System.delete_env("MOB_NEW_DIR")
+      # If the host happens to have ~/code/mob_new (this dev's machine
+      # almost certainly does), the function correctly finds it. Don't
+      # over-assert; just confirm shape.
+      if File.dir?(Path.expand("~/code/mob_new/priv/templates/mob.new")) do
+        assert is_binary(MobNew.ProjectGenerator.local_mob_new_priv(local: true))
+      else
+        assert MobNew.ProjectGenerator.local_mob_new_priv(local: true) == nil
+      end
+    end
+  end
 end

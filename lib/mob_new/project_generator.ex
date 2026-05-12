@@ -26,8 +26,52 @@ defmodule MobNew.ProjectGenerator do
   ships with `com.mob.*` would have to be renamed before reaching either store.
   """
 
-  defp templates_root, do: :mob_new |> :code.priv_dir() |> Path.join("templates/mob.new")
-  defp static_root, do: :mob_new |> :code.priv_dir() |> Path.join("static/mob.new")
+  # Template + static roots. Default to the installed archive's priv dir
+  # (the loaded mob_new code's :code.priv_dir/1). When the caller asks for
+  # local-override behaviour AND a usable mob_new checkout is reachable,
+  # use that checkout's priv instead — so `mix mob.new --local` picks up
+  # template fixes that haven't been republished to the archive yet.
+  #
+  # Mob_new's archive install pattern means the templates baked into the
+  # archive get stale the moment someone commits a template fix in the
+  # repo. `--local` was originally documented as "use path: deps for
+  # mob/mob_dev" only, but users (rightly) expected it to also pick up
+  # local template fixes — same mental model as `--local` everywhere
+  # else in the Mix ecosystem.
+  defp templates_root(opts), do: priv_root(opts) |> Path.join("templates/mob.new")
+  defp static_root(opts), do: priv_root(opts) |> Path.join("static/mob.new")
+
+  defp priv_root(opts) do
+    case local_mob_new_priv(opts) do
+      nil -> :code.priv_dir(:mob_new) |> to_string()
+      dir -> dir
+    end
+  end
+
+  # Returns the priv path of a local mob_new checkout when:
+  #   1. `opts[:local]` is truthy (user opted in), AND
+  #   2. an override path is reachable: `$MOB_NEW_DIR` env var or
+  #      `$HOME/code/mob_new` as the fallback location, AND
+  #   3. that path actually contains `priv/templates/mob.new/`.
+  # Otherwise returns nil (caller falls back to :code.priv_dir/1).
+  #
+  # Public for testing — same pattern as other "decide which fixture to
+  # use" helpers we expose so tests can stub the env independently of the
+  # filesystem.
+  @doc false
+  @spec local_mob_new_priv(keyword()) :: String.t() | nil
+  def local_mob_new_priv(opts) do
+    if Keyword.get(opts, :local, false) do
+      [System.get_env("MOB_NEW_DIR"), Path.expand("~/code/mob_new")]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.find_value(&priv_if_templates_exist/1)
+    end
+  end
+
+  defp priv_if_templates_exist(dir) do
+    priv = Path.join(dir, "priv")
+    if File.dir?(Path.join(priv, "templates/mob.new")), do: priv
+  end
 
   # Reverse-DNS prefix for the generated bundle id. Honors MOB_BUNDLE_PREFIX
   # (typical value: "com.acme" or "net.you"); defaults to "com.example", the
@@ -464,12 +508,16 @@ defmodule MobNew.ProjectGenerator do
     executable_templates = []
     executable_static = ["android/gradlew"]
 
-    templates_root()
+    t_root = templates_root(opts)
+    s_root = static_root(opts)
+    log_local_priv_once(opts, t_root)
+
+    t_root
     |> find_templates()
-    |> Enum.filter(&platform_included?(&1, templates_root(), no_ios, no_android))
-    |> Enum.reject(&liveview_phoenix_owned?(&1, templates_root(), opts))
+    |> Enum.filter(&platform_included?(&1, t_root, no_ios, no_android))
+    |> Enum.reject(&liveview_phoenix_owned?(&1, t_root, opts))
     |> Enum.each(fn template_path ->
-      rel = Path.relative_to(template_path, templates_root())
+      rel = Path.relative_to(template_path, t_root)
       dest_rel = expand_path(rel, a)
       dest = Path.join(project_dir, dest_rel)
       File.mkdir_p!(Path.dirname(dest))
@@ -481,14 +529,14 @@ defmodule MobNew.ProjectGenerator do
     end)
 
     # Copy static files (gradlew, wrapper jars, iOS assets, etc.)
-    static_root()
+    s_root
     |> Path.join("**/*")
     |> Path.wildcard(match_dot: true)
     |> Enum.reject(&File.dir?/1)
-    |> Enum.filter(&platform_included?(&1, static_root(), no_ios, no_android))
-    |> Enum.reject(&liveview_phoenix_owned?(&1, static_root(), opts))
+    |> Enum.filter(&platform_included?(&1, s_root, no_ios, no_android))
+    |> Enum.reject(&liveview_phoenix_owned?(&1, s_root, opts))
     |> Enum.each(fn src ->
-      rel = Path.relative_to(src, static_root())
+      rel = Path.relative_to(src, s_root)
       dest = Path.join(project_dir, rel)
       File.mkdir_p!(Path.dirname(dest))
       File.copy!(src, dest)
@@ -496,6 +544,19 @@ defmodule MobNew.ProjectGenerator do
     end)
 
     :ok
+  end
+
+  # One-time log so the user knows their --local is doing what they
+  # expect. The first time templates resolve from a local checkout
+  # (rather than the installed archive), say so.
+  defp log_local_priv_once(opts, t_root) do
+    if Keyword.get(opts, :local, false) do
+      archive_root = :code.priv_dir(:mob_new) |> to_string() |> Path.join("templates/mob.new")
+
+      if t_root != archive_root do
+        Mix.shell().info([:cyan, "* --local: using templates from ", :reset, t_root])
+      end
+    end
   end
 
   @doc """
@@ -1025,12 +1086,14 @@ defmodule MobNew.ProjectGenerator do
   defp render_templates(assigns, project_dir, opts) do
     no_ios = Keyword.get(opts, :no_ios, false)
     no_android = Keyword.get(opts, :no_android, false)
+    t_root = templates_root(opts)
+    log_local_priv_once(opts, t_root)
 
-    templates_root()
+    t_root
     |> find_templates()
-    |> Enum.filter(&platform_included?(&1, templates_root(), no_ios, no_android))
+    |> Enum.filter(&platform_included?(&1, t_root, no_ios, no_android))
     |> Enum.each(fn template_path ->
-      rel = Path.relative_to(template_path, templates_root())
+      rel = Path.relative_to(template_path, t_root)
       dest_rel = expand_path(rel, assigns)
       dest = Path.join(project_dir, dest_rel)
       File.mkdir_p!(Path.dirname(dest))
@@ -1049,14 +1112,15 @@ defmodule MobNew.ProjectGenerator do
   defp copy_static(project_dir, opts) do
     no_ios = Keyword.get(opts, :no_ios, false)
     no_android = Keyword.get(opts, :no_android, false)
+    s_root = static_root(opts)
 
-    static_root()
+    s_root
     |> Path.join("**/*")
     |> Path.wildcard(match_dot: true)
     |> Enum.reject(&File.dir?/1)
-    |> Enum.filter(&platform_included?(&1, static_root(), no_ios, no_android))
+    |> Enum.filter(&platform_included?(&1, s_root, no_ios, no_android))
     |> Enum.each(fn src ->
-      rel = Path.relative_to(src, static_root())
+      rel = Path.relative_to(src, s_root)
       dest = Path.join(project_dir, rel)
       File.mkdir_p!(Path.dirname(dest))
       File.copy!(src, dest)

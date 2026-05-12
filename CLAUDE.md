@@ -90,6 +90,37 @@ mix hex.publish archive    # publishes the .ez archive (not a library package)
 mix test
 ```
 
+## Tests cover the generator too, not just runtime code
+
+`mob_new` is mostly a code generator + a Mix archive — so the
+"non-runtime" half is most of what's here. Same testing discipline
+as the other repos: **every CLI command and every generator helper
+gets coverage.**
+
+- `mix mob.new` argument parsing, flag handling, `--help` output.
+- Template-rendering helpers (`MobNew.ProjectGenerator.*`):
+  test against tmpdir fixtures + verify rendered output where
+  feasible (the existing `--only lint` ktlint run is the
+  template-as-output check).
+- Path resolution / `--local` override semantics — the recent
+  `local_mob_new_priv/1` got 5 tests precisely because it
+  affects which templates every generated project sees, and a
+  bug there silently re-introduces issues we already fixed
+  upstream.
+- AST patchers (`MobNew.LiveViewPatcher`): test the
+  before-and-after shapes, including idempotency under repeat
+  application.
+
+**Goal: find bugs in CI before users hit them.** Every "regenerate
+test_migration → hit the same warning we already fixed" cycle this
+session was the templates lagging master because some lookup
+wasn't pinned by a test. Treat that as a bug-class-to-eliminate,
+not a one-off.
+
+When you change a template, run `mix test --only lint` (the
+generate-then-ktlint check) AND add a focused assertion on the
+specific behavior you changed if it isn't already covered.
+
 ## Pre-commit checklist
 
 Before committing changes, run **all** in this order:

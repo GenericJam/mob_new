@@ -1079,9 +1079,15 @@ defmodule MobNew.ProjectGenerator do
 
   # ── private ──────────────────────────────────────────────────────────────────
 
-  # iOS sim build.sh.eex eliminated in Phase 2 iter 13b. LV still has its
-  # inline build.sh emitted dynamically — iter 13c will close that out.
-  @executable_files []
+  # iOS sim build.sh.eex eliminated in Phase 2 iter 13b. The
+  # generate/4 path (used by `mix mob.new`) keeps a local
+  # `executable_templates` list because that one occasionally needs
+  # a chmod after rendering — see line ~508. THIS path
+  # (`generate/3`, the non-LiveView default + library callers) has
+  # no executable templates today. Re-add a chmod hook here only
+  # when a template needs it; the `@executable_files []` module
+  # attribute that used to live here was triggering Elixir 1.20's
+  # type checker on a known-always-false `in` check.
 
   defp render_templates(assigns, project_dir, opts) do
     no_ios = Keyword.get(opts, :no_ios, false)
@@ -1099,7 +1105,6 @@ defmodule MobNew.ProjectGenerator do
       File.mkdir_p!(Path.dirname(dest))
       content = EEx.eval_file(template_path, Map.to_list(assigns))
       File.write!(dest, content)
-      if dest_rel in @executable_files, do: File.chmod!(dest, 0o755)
     end)
   end
 

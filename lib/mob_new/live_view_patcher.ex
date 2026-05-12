@@ -173,7 +173,7 @@ defmodule MobNew.LiveViewPatcher do
          [
            {fn_name, _, args} = head,
            [{{:__block__, _, [:do]}, body}]
-         ]} = node,
+         ]} = _node,
         found?
         when defp_or_def in [:def, :defp] and fn_name in [:deps] and
                (is_nil(args) or args == []) ->

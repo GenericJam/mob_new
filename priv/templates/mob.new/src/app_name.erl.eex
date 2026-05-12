@@ -14,6 +14,14 @@ start() ->
 
 step(N, Fun) ->
     mob_nif:log("step " ++ integer_to_list(N) ++ " starting"),
-    Result = (catch Fun()),
+    %% Wrap to keep going after a step throws — we still want the log
+    %% line below to print so the user can see which step failed. Was
+    %% `(catch Fun())` before OTP 28 deprecated the classic catch
+    %% syntax. The `try Class:Reason` form catches all three exception
+    %% classes (throw / exit / error) and tags them so the log
+    %% formatter prints something readable.
+    Result = try Fun()
+             catch Class:Reason -> {Class, Reason}
+             end,
     mob_nif:log("step " ++ integer_to_list(N) ++ " => " ++
                 lists:flatten(io_lib:format("~p", [Result]))).

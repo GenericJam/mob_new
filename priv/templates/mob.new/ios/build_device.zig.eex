@@ -50,6 +50,13 @@ pub fn build(b: *std.Build) void {
     const epmd_build_src = required(b, "epmd_build_src", "OTP tree exposing erts/epmd/src + erts/include (the iOS-device OTP cache by default)");
     const errno_compat = required(b, "errno_compat", "Absolute path to the generated erl_errno_id_compat.c shim");
     const sqlite_static_lib = b.option([]const u8, "sqlite_static_lib", "Absolute path to sqlite3_nif.a (when exqlite is statically linked)") orelse "";
+    // Project-side NIFs declared in `mob.exs :static_nifs` (see issue #18).
+    // mob_dev passes these comma-separated lists after resolving each entry
+    // against `c_src/<name>.c` and `native/<name>/Cargo.toml`. Empty by
+    // default — old projects without project-side NIFs are unaffected.
+    const project_root = b.option([]const u8, "project_root", "Absolute path to the project root (for c_src/<name>.c lookups)") orelse "";
+    const project_c_nifs = b.option([]const u8, "project_c_nifs", "Comma-separated C NIF names (each at c_src/<name>.c); empty if none") orelse "";
+    const project_rust_libs = b.option([]const u8, "project_rust_libs", "Comma-separated absolute paths to Rust NIF .a files (pre-built by mob_dev)") orelse "";
 
     const objects_step = b.step("objects", "Compile C, ObjC, and Swift objects for iOS device");
     const binary_step = b.step("binary", "Compile + link the iOS device binary (default)");
@@ -237,12 +244,45 @@ pub fn build(b: *std.Build) void {
         .sdkroot = sdkroot,
     }), "erl_errno_id_compat.o");
 
+    // --- Project-side C NIFs (auto-wired from mob.exs :static_nifs) ───────────
+    // Each entry name maps to `c_src/<name>.c`. mob_dev passes the
+    // comma-separated list of names, plus the project root path for
+    // resolving the sources. -DSTATIC_ERLANG_NIF selects the static-link
+    // dispatch path in erl_nif.h; -DSTATIC_ERLANG_NIF_LIBNAME=<name>
+    // overrides the init function's symbol name to `<name>_nif_init`
+    // (matching driver_tab's declaration). Without the latter, the
+    // macro tries to mangle the BEAM module name (e.g.
+    // `Elixir.App.Nifs.Foo`) into a C identifier, which doesn't compile.
+    if (project_c_nifs.len > 0) {
+        var c_it = std.mem.splitScalar(u8, project_c_nifs, ',');
+        while (c_it.next()) |nif_name| {
+            if (nif_name.len == 0) continue;
+            const flags = b.allocator.alloc([]const u8, c_flags_base.len + 2) catch unreachable;
+            @memcpy(flags[0..c_flags_base.len], c_flags_base);
+            flags[c_flags_base.len] = "-DSTATIC_ERLANG_NIF";
+            flags[c_flags_base.len + 1] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{nif_name});
+
+            installAndCollect(b, objects_step, &objs, addCObject(b, .{
+                .name = nif_name,
+                .source = b.fmt("{s}/c_src/{s}.c", .{ project_root, nif_name }),
+                .target = target,
+                .optimize = optimize,
+                .c_flags = flags,
+                .mob_dir = mob_dir,
+                .otp_root = otp_root,
+                .erts_vsn = erts_vsn,
+                .sdkroot = sdkroot,
+            }), b.fmt("{s}.o", .{nif_name}));
+        }
+    }
+
     // --- Link via xcrun swiftc -------------------------------------------------
     addLink(b, binary_step, .{
         .module_name = module_name,
         .otp_root = otp_root,
         .erts_vsn = erts_vsn,
         .sqlite_static_lib = sqlite_static_lib,
+        .project_rust_libs = project_rust_libs,
         .objects = objs.items,
     });
 }
@@ -442,6 +482,9 @@ const LinkOptions = struct {
     otp_root: []const u8,
     erts_vsn: []const u8,
     sqlite_static_lib: []const u8,
+    // Comma-separated absolute paths to project-side Rust NIF .a files.
+    // Empty if the project has no Rust NIFs.
+    project_rust_libs: []const u8,
     objects: []const std.Build.LazyPath,
 };
 
@@ -482,6 +525,18 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
     // when the project depends on exqlite).
     if (opts.sqlite_static_lib.len > 0) {
         run.addArg(opts.sqlite_static_lib);
+    }
+
+    // Project-side Rust NIF static archives (auto-wired from mob.exs
+    // :static_nifs entries that have a native/<name>/Cargo.toml). mob_dev
+    // cross-compiles each with `cargo rustc --target aarch64-apple-ios
+    // --crate-type staticlib` before invoking zig.
+    if (opts.project_rust_libs.len > 0) {
+        var rust_it = std.mem.splitScalar(u8, opts.project_rust_libs, ',');
+        while (rust_it.next()) |lib_path| {
+            if (lib_path.len == 0) continue;
+            run.addArg(lib_path);
+        }
     }
 
     run.addArgs(&.{ "-lz", "-lc++", "-lpthread" });

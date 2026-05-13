@@ -62,6 +62,9 @@ pub fn build(b: *std.Build) void {
     const project_root = b.option([]const u8, "project_root", "Absolute path to the project root (for c_src/<name>.c lookups)") orelse "";
     const project_c_nifs = b.option([]const u8, "project_c_nifs", "Comma-separated C NIF names (each at c_src/<name>.c); empty if none") orelse "";
     const project_rust_libs = b.option([]const u8, "project_rust_libs", "Comma-separated absolute paths to Rust NIF .a files (pre-built by mob_dev)") orelse "";
+    // MLX + EMLX. See build_device.zig.eex for full rationale.
+    const mlx_static = b.option(bool, "mlx_static", "EMLX NIF statically linked + libmlx.a included (-DMOB_STATIC_EMLX_NIF on driver_tab)") orelse false;
+    const mlx_dir = b.option([]const u8, "mlx_dir", "Absolute path to extracted MLX bundle (libmlx.a + libemlx.a + include/)") orelse "";
 
     const objects_step = b.step(
         "objects",
@@ -125,9 +128,22 @@ pub fn build(b: *std.Build) void {
     // The Zig file imports `build_options` for the sqlite_static
     // comptime gate. Sim builds always set sqlite_static = false
     // (exqlite loads dynamically as a .so on sim).
+    // Build the C-path driver_tab compile flags, threading any enabled
+    // -DMOB_STATIC_<X>_NIF guards through. The Zig path uses b.addOptions()
+    // instead and consumes the same booleans at comptime.
+    var driver_tab_flags_buf = std.ArrayList([]const u8).empty;
+    defer driver_tab_flags_buf.deinit(b.allocator);
+    for (c_flags) |f| driver_tab_flags_buf.append(b.allocator, f) catch unreachable;
+    if (mlx_static) driver_tab_flags_buf.append(b.allocator, "-DMOB_STATIC_EMLX_NIF") catch unreachable;
+    const driver_tab_flags: []const []const u8 = driver_tab_flags_buf.items;
+
     const driver_tab_lp = if (std.mem.endsWith(u8, driver_tab, ".zig")) blk: {
         const opts = b.addOptions();
+        // Sim builds: exqlite loads dynamically as a .so, so sqlite_static
+        // is always false here. EMLX has no sim/device distinction — same
+        // static-link story regardless.
         opts.addOption(bool, "sqlite_static", false);
+        opts.addOption(bool, "emlx_static", mlx_static);
         break :blk addZigObject(b, .{
             .name = "driver_tab_ios",
             .source = driver_tab,
@@ -140,7 +156,7 @@ pub fn build(b: *std.Build) void {
         .source = driver_tab,
         .target = target,
         .optimize = optimize,
-        .c_flags = c_flags,
+        .c_flags = driver_tab_flags,
         .mob_dir = mob_dir,
         .otp_root = otp_root,
         .erts_vsn = erts_vsn,
@@ -225,6 +241,8 @@ pub fn build(b: *std.Build) void {
         .module_name = module_name,
         .otp_root = otp_root,
         .erts_vsn = erts_vsn,
+        .mlx_static = mlx_static,
+        .mlx_dir = mlx_dir,
         .project_rust_libs = project_rust_libs,
         .objects = objs.items,
     });
@@ -378,6 +396,9 @@ const LinkOptions = struct {
     module_name: []const u8,
     otp_root: []const u8,
     erts_vsn: []const u8,
+    // MLX bundle. Empty mlx_dir / false mlx_static = MLX not in this build.
+    mlx_static: bool = false,
+    mlx_dir: []const u8 = "",
     // Comma-separated absolute paths to project-side Rust NIF .a files
     // (pre-built by mob_dev with `cargo rustc --target
     // aarch64-apple-ios-sim --crate-type staticlib`). Empty if none.
@@ -419,6 +440,14 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
         run.addArg(b.fmt("{s}/{s}/{s}", .{ opts.otp_root, opts.erts_vsn, name }));
     }
 
+    // MLX + EMLX (Apple's MLX numerics + the EMLX Nx backend), wired in
+    // when `mix mob.enable mlx` set mlx_static=true. libemlx.a holds the
+    // NIF (emlx_nif_nif_init); libmlx.a is the underlying MLX library.
+    if (opts.mlx_static and opts.mlx_dir.len > 0) {
+        run.addArg(b.fmt("{s}/lib/libemlx.a", .{opts.mlx_dir}));
+        run.addArg(b.fmt("{s}/lib/libmlx.a", .{opts.mlx_dir}));
+    }
+
     // Project-side Rust NIF static archives (auto-wired from mob.exs
     // :static_nifs entries that have a native/<name>/Cargo.toml). mob_dev
     // cross-compiles each with `cargo rustc --target aarch64-apple-ios-sim
@@ -437,15 +466,21 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
     // analog of beam_lib:strip_release/1. Single biggest C-side win on
     // bundle size per the GRiSP nano writeup.
     run.addArgs(&.{ "-Xlinker", "-dead_strip" });
-    const frameworks = [_][]const u8{
+    const frameworks_base = [_][]const u8{
         "UIKit",
         "Foundation",
         "CoreGraphics",
         "QuartzCore",
         "SwiftUI",
     };
-    for (frameworks) |fw| {
+    for (frameworks_base) |fw| {
         run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", fw });
+    }
+
+    // Apple's Accelerate framework provides vectorized BLAS/LAPACK used by
+    // MLX-CPU. Available on iOS sim + device — only linked when MLX is on.
+    if (opts.mlx_static) {
+        run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", "Accelerate" });
     }
 
     run.addArg("-o");

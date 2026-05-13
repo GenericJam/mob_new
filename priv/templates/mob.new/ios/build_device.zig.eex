@@ -218,10 +218,13 @@ pub fn build(b: *std.Build) void {
     }
 
     // --- erl_errno_id_compat ──────────────────────────────────────────────────
-    // Weak shim for erl_errno_id_unknown — missing from libbeam.a in OTP 17.0
-    // (the function was split into a separate compilation unit but the
-    // pre-built tarball omits it). build_device.sh writes the .c file as a
-    // heredoc; we just compile it here.
+    // Weak shim for erl_errno_id_unknown. The iOS-device OTP tarball
+    // includes the legacy erl_posix_str.o (sim/Android tarballs don't),
+    // which the linker pulls in to satisfy _erl_errno_id and which leaves
+    // _erl_errno_id_unknown undefined. The weak shim resolves it; if a
+    // future tarball drops erl_posix_str.o this becomes dead code (loses
+    // to the real symbol). See native_build.ex's
+    // generate_erl_errno_compat_stub/1 for the full diagnosis.
     installAndCollect(b, objects_step, &objs, addCObject(b, .{
         .name = "erl_errno_id_compat",
         .source = errno_compat,

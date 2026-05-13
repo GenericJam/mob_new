@@ -61,12 +61,39 @@ else()
         set(DRIVER_TAB_ANDROID "${MOB_DIR}/android/jni/driver_tab_android.c")
     endif()
 
+    # Project-side C NIFs (auto-wired from mob.exs :static_nifs). Picked
+    # up by GLOB so this CMakeLists doesn't need to be regenerated every
+    # time a NIF is added/removed — `mix mob.add_nif --type c` drops the
+    # source at c_src/<name>.c and that's enough.
+    #
+    # This fallback only fires when neither the zig-built .so nor the
+    # zig-out/<abi>/ .o files exist (Android Studio "Sync Project" or a
+    # standalone `./gradlew assembleDebug` without Mix). The Mix-driven
+    # path (zig build) handles project NIFs via the build.zig template's
+    # `project_c_nifs` flag — see jni/build.zig.
+    file(GLOB PROJECT_NIF_C_SRCS "${_PROJECT_ROOT}/c_src/*.c")
+
     add_library(<%= app_name %> SHARED
         beam_jni.c
         ${MOB_DIR}/android/jni/mob_nif.c
         ${MOB_DIR}/android/jni/mob_beam.c
         ${DRIVER_TAB_ANDROID}
+        ${PROJECT_NIF_C_SRCS}
     )
+
+    # Per-NIF -DSTATIC_ERLANG_NIF_LIBNAME=<name>. The base STATIC_ERLANG_NIF
+    # define is added below as a target-level compile definition; this
+    # adds the per-source libname so ERL_NIF_INIT emits `<name>_nif_init`
+    # (matching the driver_tab declaration) rather than mangling the BEAM
+    # module name (e.g. `Elixir.App.Nifs.Foo`) into a C identifier.
+    foreach(_nif_src IN LISTS PROJECT_NIF_C_SRCS)
+        get_filename_component(_nif_name "${_nif_src}" NAME_WE)
+        set_property(
+            SOURCE "${_nif_src}"
+            APPEND PROPERTY COMPILE_DEFINITIONS
+            "STATIC_ERLANG_NIF_LIBNAME=${_nif_name}"
+        )
+    endforeach()
 endif()
 
 # Everything below applies only to CMake-built main library targets. When

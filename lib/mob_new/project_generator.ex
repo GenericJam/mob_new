@@ -374,8 +374,8 @@ defmodule MobNew.ProjectGenerator do
     #   asdf install    https://asdf-vm.com
     #
     # OTP 29 matches the device runtime tarballs. Java 17 LTS is required for Gradle.
-    erlang 29.0-rc3
-    elixir 1.20.0-rc.4-otp-29
+    erlang 29.0
+    elixir 1.20.0-rc.5-otp-29
     java temurin-17.0.18
     """,
     ".formatter.exs" => """

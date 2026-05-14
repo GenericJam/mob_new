@@ -460,7 +460,12 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) *std.Build.S
         var it = std.mem.splitScalar(u8, opts.project_rust_libs, ',');
         while (it.next()) |a_path| {
             if (a_path.len == 0) continue;
-            run.addArg(a_path);
+            // `addFileArg` (not `addArg`) so the cache key picks up the
+            // contents of the .a, not just its path. Otherwise the link
+            // step is reported UP-TO-DATE after rebuilding a project-side
+            // rust crate — the new .a sits unused in jniLibs.
+            const lp: std.Build.LazyPath = .{ .cwd_relative = a_path };
+            run.addFileArg(lp);
         }
     }
 

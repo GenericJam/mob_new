@@ -963,8 +963,8 @@ defmodule MobNew.LiveViewPatcher do
 
   # Returns the net brace depth change for a line (opens minus closes).
   defp count_brace_depth(line) do
-    opens = line |> String.graphemes() |> Enum.count(&(&1 == "{"))
-    closes = line |> String.graphemes() |> Enum.count(&(&1 == "}"))
+    opens = line |> :binary.matches("{") |> length()
+    closes = line |> :binary.matches("}") |> length()
     opens - closes
   end
 

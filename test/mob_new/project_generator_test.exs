@@ -755,8 +755,7 @@ defmodule MobNew.ProjectGeneratorTest do
         loop_code =
           loop_body
           |> String.split("\n")
-          |> Enum.map(&Regex.replace(~r{//.*$}, &1, ""))
-          |> Enum.join("\n")
+          |> Enum.map_join("\n", &Regex.replace(~r{//.*$}, &1, ""))
 
         assert loop_code =~ "addFileArg",
                "#{@label} build.zig loop over project_rust_libs must use addFileArg so " <>

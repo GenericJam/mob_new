@@ -2,8 +2,9 @@
 
 You're in **mob_new**, the project generator. Read
 [`~/code/mob/AGENTS.md`](../mob/AGENTS.md) first for the system view, the
-three-repo topology, and the cross-cutting pre-empt-failure rules. The
-notes below are mob_new-specific.
+three-repo topology, the cross-cutting pre-empt-failure rules, and the
+**"Don't write this slop"** list (AI-generated patterns to avoid at write
+time, not after credo flags them). The notes below are mob_new-specific.
 
 ## What this repo is
 

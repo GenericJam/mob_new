@@ -717,6 +717,57 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "target_link_libraries(test_app\n        PRIVATE"
     end
 
+    # ── Project rust libs must be tracked as file inputs ─────────────────────────
+    #
+    # The zig link step takes comma-separated `.a` paths for project-side Rust
+    # NIFs. Passing them via `run.addArg(path)` (string-only) makes the cache
+    # hash the path string but not the .a contents — rebuilding a project rust
+    # crate yields a fresh .a that the link step ignores as UP-TO-DATE, and
+    # the resulting .so silently keeps the old code. Use `addFileArg` with a
+    # LazyPath so the archive bytes are part of the cache key.
+    #
+    # This bit us once (rustler Android dlsym fix) — the second patch built
+    # cleanly but didn't reach the .so, masquerading as "my patch isn't
+    # compiling." The static check below prevents the regression on all three
+    # build.zig templates (android, ios sim, ios device).
+
+    for {path, label} <- [
+          {"android/app/src/main/jni/build.zig", "android"},
+          {"ios/build.zig", "ios sim"},
+          {"ios/build_device.zig", "ios device"}
+        ] do
+      @path path
+      @label label
+      test "#{@label} build.zig tracks project_rust_libs as file inputs (addFileArg, not addArg)",
+           %{tmp: tmp} do
+        {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+        content = File.read!(Path.join(dir, @path))
+
+        # Find the project_rust_libs loop body. The block is bounded by the
+        # opening conditional and the next `run.addArgs` (a stable marker —
+        # follows the rust-libs loop on all three templates). Strip line
+        # comments so the assertion isn't fooled by the comment text we add.
+        [_preamble, after_marker] =
+          String.split(content, "opts.project_rust_libs.len > 0", parts: 2)
+
+        [loop_body, _rest] = String.split(after_marker, "run.addArgs", parts: 2)
+
+        loop_code =
+          loop_body
+          |> String.split("\n")
+          |> Enum.map(&Regex.replace(~r{//.*$}, &1, ""))
+          |> Enum.join("\n")
+
+        assert loop_code =~ "addFileArg",
+               "#{@label} build.zig loop over project_rust_libs must use addFileArg so " <>
+                 ".a content changes invalidate the zig cache. Loop body:\n#{loop_body}"
+
+        refute loop_code =~ ~r/\baddArg\b/,
+               "#{@label} build.zig loop over project_rust_libs must NOT use addArg — " <>
+                 "the cache won't see content changes. Loop body:\n#{loop_body}"
+      end
+    end
+
     # ── MOB_BEAMS_DIR migration path — Ecto on flat -pa directories ──────────────
     #
     # Ecto.Migrator.run/3 uses :code.priv_dir(app) to find .exs files. That

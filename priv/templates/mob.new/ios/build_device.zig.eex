@@ -560,7 +560,12 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
         var rust_it = std.mem.splitScalar(u8, opts.project_rust_libs, ',');
         while (rust_it.next()) |lib_path| {
             if (lib_path.len == 0) continue;
-            run.addArg(lib_path);
+            // `addFileArg` (not `addArg`) so the cache key picks up the
+            // contents of the .a, not just its path. Otherwise rebuilding
+            // a project-side rust crate produces a new .a that the link
+            // step ignores as UP-TO-DATE.
+            const lp: std.Build.LazyPath = .{ .cwd_relative = lib_path };
+            run.addFileArg(lp);
         }
     }
 

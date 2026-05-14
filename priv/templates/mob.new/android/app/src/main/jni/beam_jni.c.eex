@@ -194,3 +194,61 @@ Java_<%= jni_package %>_MobBridge_nativeDeliverComponentEvent(JNIEnv* env, jclas
     (*env)->ReleaseStringUTFChars(env, event,        ce);
     (*env)->ReleaseStringUTFChars(env, payload_json, cj);
 }
+
+// ── Mob.Peripheral.VendorUsb delivery thunks ─────────────────────────────────
+// Called from MobBridge's USB code when Android USB host events fire.
+// See lib/mob/peripheral/vendor_usb.ex for the public message envelope shape.
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverVendorUsbDevices(JNIEnv* env, jclass cls,
+    jlong pid, jstring json) {
+    const char* cj = (*env)->GetStringUTFChars(env, json, NULL);
+    mob_deliver_vendor_usb_devices(pid, cj);
+    (*env)->ReleaseStringUTFChars(env, json, cj);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverVendorUsbPermission(JNIEnv* env, jclass cls,
+    jlong pid, jboolean granted, jstring device_json) {
+    const char* cj = (*env)->GetStringUTFChars(env, device_json, NULL);
+    mob_deliver_vendor_usb_permission(pid, granted ? 1 : 0, cj);
+    (*env)->ReleaseStringUTFChars(env, device_json, cj);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverVendorUsbOpened(JNIEnv* env, jclass cls,
+    jlong pid, jint session_id, jstring device_json) {
+    const char* cj = (*env)->GetStringUTFChars(env, device_json, NULL);
+    mob_deliver_vendor_usb_opened(pid, (int)session_id, cj);
+    (*env)->ReleaseStringUTFChars(env, device_json, cj);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverVendorUsbData(JNIEnv* env, jclass cls,
+    jlong pid, jint session_id, jbyteArray bytes, jint len) {
+    if (!bytes || len <= 0) {
+        mob_deliver_vendor_usb_data(pid, (int)session_id, NULL, 0);
+        return;
+    }
+    jbyte* buf = (*env)->GetByteArrayElements(env, bytes, NULL);
+    if (buf) {
+        mob_deliver_vendor_usb_data(pid, (int)session_id, (const uint8_t*)buf, (size_t)len);
+        (*env)->ReleaseByteArrayElements(env, bytes, buf, JNI_ABORT);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverVendorUsbWriteComplete(JNIEnv* env, jclass cls,
+    jlong pid, jint session_id, jint bytes_written) {
+    mob_deliver_vendor_usb_write_complete(pid, (int)session_id, (int)bytes_written);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverVendorUsbEvent(JNIEnv* env, jclass cls,
+    jlong pid, jint session_id, jstring tag, jstring reason) {
+    const char* ct = (*env)->GetStringUTFChars(env, tag, NULL);
+    const char* cr = reason ? (*env)->GetStringUTFChars(env, reason, NULL) : NULL;
+    mob_deliver_vendor_usb_event(pid, (int)session_id, ct, cr);
+    (*env)->ReleaseStringUTFChars(env, tag, ct);
+    if (cr) (*env)->ReleaseStringUTFChars(env, reason, cr);
+}

@@ -665,6 +665,17 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "TestApp.Repo.start_link()"
     end
 
+    test "app.ex configures pure-BEAM DNS in on_start", %{tmp: tmp} do
+      # Without `Mob.DNS.configure_pure_beam()` at startup, every iOS
+      # device hits the inet_gethost execve block on first `Req.get`
+      # / `Finch.build` / etc. The mob.new template ships this call
+      # by default so new apps don't have to discover the iOS DNS
+      # workaround themselves. Pin it.
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/app.ex"))
+      assert content =~ "Mob.DNS.configure_pure_beam()"
+    end
+
     test "generates config/config.exs", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "config/config.exs"))

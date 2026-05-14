@@ -128,7 +128,7 @@ Before committing changes, run **all** in this order:
 ```bash
 mix test            # full suite must pass (call out any pre-existing flake explicitly)
 mix format          # apply Elixir formatting
-mix credo --strict  # **whole tree, not just changed files** — pre-existing issues are tracked separately, but new ones (including in tests) must be fixed
+mix credo --strict  # **whole tree, not just changed files** — includes ExSlop (catches AI-generated patterns: blanket rescue, narrator docs, etc). Pre-existing issues are tracked separately, but new ones (including in tests) must be fixed
 mix test --only lint  # generate project + ktlint generated Kotlin (requires brew install ktlint)
 ```
 

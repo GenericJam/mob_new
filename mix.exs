@@ -28,7 +28,10 @@ defmodule MobNew.MixProject do
       # been the main fragility in the LV generator.
       {:sourceror, "~> 1.0"},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      # ex_slop — Credo check that catches AI-generated Elixir patterns
+      # (blanket rescue, narrator docs, etc). Wired in via .credo.exs.
+      {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false}
     ]
   end
 

@@ -38,7 +38,7 @@ defmodule Mix.Tasks.Mob.New do
                          Adds `:pythonx` to deps, generates a
                          `<App>.PythonPaths` detection module, and gates
                          `:pythonx, :uv_init` in `config.exs` on
-                         `MOB_TARGET=ios`. Mirrors `mix mob.enable python`
+                         `MOB_TARGET=ios`. Mirrors `mix mob.enable pythonx`
                          post-scaffold. Bundle size ~70 MB; iOS only —
                          Android Python is intentionally out of scope. See
                          the `Embedded CPython` guide in mob_dev's docs.

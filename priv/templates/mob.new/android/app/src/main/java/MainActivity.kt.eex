@@ -173,7 +173,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // If the project ships embedded Python (mix mob.enable python), the
+        // If the project ships embedded Python (mix mob.enable pythonx), the
         // APK contains assets/python/{stdlib,lib-dynload}/. Extract those to
         // filesDir on first launch and tell the BEAM where they landed via
         // env vars consumed by <App>.PythonPaths. Idempotent — re-launches

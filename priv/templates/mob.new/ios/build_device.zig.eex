@@ -89,6 +89,7 @@ pub fn build(b: *std.Build) void {
     swift_run.addArgs(&.{ "-parse-as-library", "-wmo" });
     swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobViewModel.swift", .{mob_dir}) });
     swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobRootView.swift", .{mob_dir}) });
+    swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobGpuView.swift", .{mob_dir}) });
     swift_run.addArg("-c");
     swift_run.addArg("-emit-objc-header");
     swift_run.addArg("-emit-objc-header-path");

@@ -220,6 +220,26 @@ defmodule MobNew.ProjectGeneratorTest do
       assert manifest =~ ~s(package="com.example.test_app")
     end
 
+    test "AndroidManifest.xml declares Bluetooth Classic permissions", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      manifest = File.read!(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
+
+      # Modern (API 31+) runtime permissions for Mob.Bt — these are the
+      # ones a user must request via Mob.Permissions.request/2 at runtime.
+      assert manifest =~ "android.permission.BLUETOOTH_SCAN"
+      assert manifest =~ "android.permission.BLUETOOTH_CONNECT"
+      assert manifest =~ "neverForLocation"
+
+      # Legacy (≤ API 30) capability permissions, install-time only.
+      assert manifest =~ "android.permission.BLUETOOTH"
+      assert manifest =~ "android.permission.BLUETOOTH_ADMIN"
+      assert manifest =~ ~s(android:maxSdkVersion="30")
+
+      # Hardware feature is declared but not required so the Play Store
+      # doesn't filter the app off devices without a BT radio.
+      assert manifest =~ ~s(<uses-feature android:name="android.hardware.bluetooth")
+    end
+
     test "generates MainActivity.kt in correct package path", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       kt = Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt")
@@ -316,10 +336,43 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ~s("com/example/test_app/MobBridge")
     end
 
+    test "beam_jni.c emits Bluetooth Classic JNI thunks", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
+
+      # Adapter-level (no session) — discovery + pairing.
+      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscoveryStarted"
+      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscoveryFinished"
+      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscovered"
+      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtPaired"
+      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtPairFailed"
+
+      # Profile-level — at least one entry per profile so a future
+      # rename surfaces here. Full surface is exercised on-device.
+      assert content =~ "MobBridge_nativeDeliverBtHfp"
+      assert content =~ "MobBridge_nativeDeliverBtSpp"
+      assert content =~ "MobBridge_nativeDeliverBtHid"
+    end
+
     test "generates MobBridge.kt in correct package path", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       path = Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt")
       assert File.exists?(path)
+    end
+
+    test "MobBridge.kt declares Bluetooth Classic external fns + receivers", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # External JNI declarations matching the C side.
+      assert content =~ "external fun nativeDeliverBtDiscoveryStarted"
+      assert content =~ "external fun nativeDeliverBtDiscovered"
+      assert content =~ "external fun nativeDeliverBtPaired"
+
+      # BroadcastReceiver wiring (system events arrive via Android intents).
+      assert content =~ "BroadcastReceiver"
     end
 
     test "generates MobFirebaseService.kt in correct package path", %{tmp: tmp} do

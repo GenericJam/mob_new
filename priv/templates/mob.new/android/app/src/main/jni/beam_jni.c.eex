@@ -251,4 +251,279 @@ Java_<%= jni_package %>_MobBridge_nativeDeliverVendorUsbEvent(JNIEnv* env, jclas
     mob_deliver_vendor_usb_event(pid, (int)session_id, ct, cr);
     (*env)->ReleaseStringUTFChars(env, tag, ct);
     if (cr) (*env)->ReleaseStringUTFChars(env, reason, cr);
+// ── Bluetooth Classic (Mob.Bt suite) — JNI thunks ───────────────────────
+// Each thunk unmarshals Java args into C primitives, calls the matching
+// mob_deliver_bt_* helper, then releases.
+
+// ── Adapter-level events (no session) ──────────────────────────────────
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtDiscoveryStarted(JNIEnv* env, jclass cls,
+    jlong pid) {
+    mob_deliver_bt_discovery_started(pid);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtDiscoveryFinished(JNIEnv* env, jclass cls,
+    jlong pid) {
+    mob_deliver_bt_discovery_finished(pid);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtDiscoveryCancelled(JNIEnv* env, jclass cls,
+    jlong pid) {
+    mob_deliver_bt_discovery_cancelled(pid);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtDiscovered(JNIEnv* env, jclass cls,
+    jlong pid, jstring address, jstring name, jboolean bonded) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    const char* c_name    = (*env)->GetStringUTFChars(env, name,    NULL);
+    mob_deliver_bt_discovered(pid, c_address, c_name, bonded ? 1 : 0);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+    (*env)->ReleaseStringUTFChars(env, name,    c_name);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtPaired(JNIEnv* env, jclass cls,
+    jlong pid, jstring address, jstring name, jboolean bonded) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    const char* c_name    = (*env)->GetStringUTFChars(env, name,    NULL);
+    mob_deliver_bt_paired(pid, c_address, c_name, bonded ? 1 : 0);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+    (*env)->ReleaseStringUTFChars(env, name,    c_name);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtPairFailed(JNIEnv* env, jclass cls,
+    jlong pid, jstring address, jstring reason) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    const char* c_reason  = (*env)->GetStringUTFChars(env, reason,  NULL);
+    mob_deliver_bt_pair_failed(pid, c_address, c_reason);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+    (*env)->ReleaseStringUTFChars(env, reason,  c_reason);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtUnpaired(JNIEnv* env, jclass cls,
+    jlong pid, jstring address) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    mob_deliver_bt_unpaired(pid, c_address);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtError(JNIEnv* env, jclass cls,
+    jlong pid, jstring reason) {
+    const char* c_reason = (*env)->GetStringUTFChars(env, reason, NULL);
+    mob_deliver_bt_error(pid, c_reason);
+    (*env)->ReleaseStringUTFChars(env, reason, c_reason);
+}
+
+// ── Paired-list streaming builder ──────────────────────────────────────
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtPairedListBegin(JNIEnv* env, jclass cls,
+    jlong pid) {
+    mob_deliver_bt_paired_list_begin(pid);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtPairedListEntry(JNIEnv* env, jclass cls,
+    jlong pid, jstring address, jstring name, jboolean bonded) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    const char* c_name    = (*env)->GetStringUTFChars(env, name,    NULL);
+    mob_deliver_bt_paired_list_entry(pid, c_address, c_name, bonded ? 1 : 0);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+    (*env)->ReleaseStringUTFChars(env, name,    c_name);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtPairedListFinish(JNIEnv* env, jclass cls,
+    jlong pid) {
+    mob_deliver_bt_paired_list_finish(pid);
+}
+
+// ── HFP profile ────────────────────────────────────────────────────────
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHfpConnecting(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jstring address) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    mob_deliver_bt_hfp_connecting(pid, (int)session, c_address);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHfpConnected(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jstring address, jstring name) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    const char* c_name    = (*env)->GetStringUTFChars(env, name,    NULL);
+    mob_deliver_bt_hfp_connected(pid, (int)session, c_address, c_name);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+    (*env)->ReleaseStringUTFChars(env, name,    c_name);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHfpConnectFailed(JNIEnv* env, jclass cls,
+    jlong pid, jstring address, jstring reason) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    const char* c_reason  = (*env)->GetStringUTFChars(env, reason,  NULL);
+    mob_deliver_bt_hfp_connect_failed(pid, c_address, c_reason);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+    (*env)->ReleaseStringUTFChars(env, reason,  c_reason);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHfpDisconnected(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jstring reason) {
+    const char* c_reason = (*env)->GetStringUTFChars(env, reason, NULL);
+    mob_deliver_bt_hfp_disconnected(pid, (int)session, c_reason);
+    (*env)->ReleaseStringUTFChars(env, reason, c_reason);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHfpVendorSubscribed(JNIEnv* env, jclass cls,
+    jlong pid, jint session) {
+    mob_deliver_bt_hfp_vendor_subscribed(pid, (int)session);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHfpVendorAt(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jstring cmd, jint cmd_type, jstring args, jstring address) {
+    const char* c_cmd     = (*env)->GetStringUTFChars(env, cmd,     NULL);
+    const char* c_args    = (*env)->GetStringUTFChars(env, args,    NULL);
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    mob_deliver_bt_hfp_vendor_at(pid, (int)session, c_cmd, (int)cmd_type, c_args, c_address);
+    (*env)->ReleaseStringUTFChars(env, cmd,     c_cmd);
+    (*env)->ReleaseStringUTFChars(env, args,    c_args);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHfpScoStarted(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jstring address) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    mob_deliver_bt_hfp_sco_started(pid, (int)session, c_address);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHfpScoStopped(JNIEnv* env, jclass cls,
+    jlong pid, jint session) {
+    mob_deliver_bt_hfp_sco_stopped(pid, (int)session);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHfpScoAudio(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jbyteArray pcm) {
+    jsize len = (*env)->GetArrayLength(env, pcm);
+    jbyte* buf = (*env)->GetByteArrayElements(env, pcm, NULL);
+    mob_deliver_bt_hfp_sco_audio(pid, (int)session, (const char*)buf, (size_t)len);
+    (*env)->ReleaseByteArrayElements(env, pcm, buf, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHfpError(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jstring reason) {
+    const char* c_reason = (*env)->GetStringUTFChars(env, reason, NULL);
+    mob_deliver_bt_hfp_error(pid, (int)session, c_reason);
+    (*env)->ReleaseStringUTFChars(env, reason, c_reason);
+}
+
+// ── SPP profile ────────────────────────────────────────────────────────
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtSppConnected(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jstring address, jstring name) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    const char* c_name    = (*env)->GetStringUTFChars(env, name,    NULL);
+    mob_deliver_bt_spp_connected(pid, (int)session, c_address, c_name);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+    (*env)->ReleaseStringUTFChars(env, name,    c_name);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtSppConnectFailed(JNIEnv* env, jclass cls,
+    jlong pid, jstring address, jstring reason) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    const char* c_reason  = (*env)->GetStringUTFChars(env, reason,  NULL);
+    mob_deliver_bt_spp_connect_failed(pid, c_address, c_reason);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+    (*env)->ReleaseStringUTFChars(env, reason,  c_reason);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtSppDisconnected(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jstring reason) {
+    const char* c_reason = (*env)->GetStringUTFChars(env, reason, NULL);
+    mob_deliver_bt_spp_disconnected(pid, (int)session, c_reason);
+    (*env)->ReleaseStringUTFChars(env, reason, c_reason);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtSppData(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jbyteArray data) {
+    jsize len = (*env)->GetArrayLength(env, data);
+    jbyte* buf = (*env)->GetByteArrayElements(env, data, NULL);
+    mob_deliver_bt_spp_data(pid, (int)session, (const char*)buf, (size_t)len);
+    (*env)->ReleaseByteArrayElements(env, data, buf, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtSppWritten(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jint size) {
+    mob_deliver_bt_spp_written(pid, (int)session, (int)size);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtSppError(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jstring reason) {
+    const char* c_reason = (*env)->GetStringUTFChars(env, reason, NULL);
+    mob_deliver_bt_spp_error(pid, (int)session, c_reason);
+    (*env)->ReleaseStringUTFChars(env, reason, c_reason);
+}
+
+// ── HID profile ────────────────────────────────────────────────────────
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHidConnected(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jstring address) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    mob_deliver_bt_hid_connected(pid, (int)session, c_address);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHidConnectFailed(JNIEnv* env, jclass cls,
+    jlong pid, jstring address, jstring reason) {
+    const char* c_address = (*env)->GetStringUTFChars(env, address, NULL);
+    const char* c_reason  = (*env)->GetStringUTFChars(env, reason,  NULL);
+    mob_deliver_bt_hid_connect_failed(pid, c_address, c_reason);
+    (*env)->ReleaseStringUTFChars(env, address, c_address);
+    (*env)->ReleaseStringUTFChars(env, reason,  c_reason);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHidDisconnected(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jstring reason) {
+    const char* c_reason = (*env)->GetStringUTFChars(env, reason, NULL);
+    mob_deliver_bt_hid_disconnected(pid, (int)session, c_reason);
+    (*env)->ReleaseStringUTFChars(env, reason, c_reason);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHidInput(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jint type, jint code, jint value) {
+    mob_deliver_bt_hid_input(pid, (int)session, (int)type, (int)code, (int)value);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverBtHidRawReport(JNIEnv* env, jclass cls,
+    jlong pid, jint session, jbyteArray report) {
+    jsize len = (*env)->GetArrayLength(env, report);
+    jbyte* buf = (*env)->GetByteArrayElements(env, report, NULL);
+    mob_deliver_bt_hid_raw_report(pid, (int)session, (const char*)buf, (size_t)len);
+    (*env)->ReleaseByteArrayElements(env, report, buf, JNI_ABORT);
 }

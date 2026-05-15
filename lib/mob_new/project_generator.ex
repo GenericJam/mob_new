@@ -174,7 +174,7 @@ defmodule MobNew.ProjectGenerator do
   (when --python is set) inlines the pyproject_toml and calls
   `Pythonx.Uv.fetch + init` only on the `:desktop` branch.
 
-  Mirrors `mix mob.enable python` (in `mob_dev`). Idempotent — safe to
+  Mirrors `mix mob.enable pythonx` (in `mob_dev`). Idempotent — safe to
   run twice. Public for testing.
   """
   @spec apply_python_patches(String.t(), String.t()) :: :ok

@@ -65,6 +65,10 @@ pub fn build(b: *std.Build) void {
     // MLX + EMLX. See build_device.zig.eex for full rationale.
     const mlx_static = b.option(bool, "mlx_static", "EMLX NIF statically linked + libmlx.a included (-DMOB_STATIC_EMLX_NIF on driver_tab)") orelse false;
     const mlx_dir = b.option([]const u8, "mlx_dir", "Absolute path to extracted MLX bundle (libmlx.a + libemlx.a + include/)") orelse "";
+    // NxEigen (Eigen-backed Nx backend, C++ NIF). mob_dev cross-compiles
+    // libnx_eigen.a per arch and threads the output dir through nxeigen_dir.
+    const nxeigen_static = b.option(bool, "nxeigen_static", "NxEigen NIF statically linked (-DMOB_STATIC_NX_EIGEN_NIF on driver_tab)") orelse false;
+    const nxeigen_dir = b.option([]const u8, "nxeigen_dir", "Absolute path to dir containing libnx_eigen.a") orelse "";
 
     const objects_step = b.step(
         "objects",
@@ -136,6 +140,7 @@ pub fn build(b: *std.Build) void {
     defer driver_tab_flags_buf.deinit(b.allocator);
     for (c_flags) |f| driver_tab_flags_buf.append(b.allocator, f) catch unreachable;
     if (mlx_static) driver_tab_flags_buf.append(b.allocator, "-DMOB_STATIC_EMLX_NIF") catch unreachable;
+    if (nxeigen_static) driver_tab_flags_buf.append(b.allocator, "-DMOB_STATIC_NX_EIGEN_NIF") catch unreachable;
     const driver_tab_flags: []const []const u8 = driver_tab_flags_buf.items;
 
     const driver_tab_lp = if (std.mem.endsWith(u8, driver_tab, ".zig")) blk: {
@@ -145,6 +150,7 @@ pub fn build(b: *std.Build) void {
         // static-link story regardless.
         opts.addOption(bool, "sqlite_static", false);
         opts.addOption(bool, "emlx_static", mlx_static);
+        opts.addOption(bool, "nx_eigen_static", nxeigen_static);
         break :blk addZigObject(b, .{
             .name = "driver_tab_ios",
             .source = driver_tab,
@@ -218,10 +224,10 @@ pub fn build(b: *std.Build) void {
         var c_it = std.mem.splitScalar(u8, project_c_nifs, ',');
         while (c_it.next()) |nif_name| {
             if (nif_name.len == 0) continue;
-            const flags = b.allocator.alloc([]const u8, c_flags_base.len + 2) catch unreachable;
-            @memcpy(flags[0..c_flags_base.len], c_flags_base);
-            flags[c_flags_base.len] = "-DSTATIC_ERLANG_NIF";
-            flags[c_flags_base.len + 1] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{nif_name});
+            const flags = b.allocator.alloc([]const u8, c_flags.len + 2) catch unreachable;
+            @memcpy(flags[0..c_flags.len], c_flags);
+            flags[c_flags.len] = "-DSTATIC_ERLANG_NIF";
+            flags[c_flags.len + 1] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{nif_name});
 
             installAndCollect(b, objects_step, &objs, addCObject(b, .{
                 .name = nif_name,
@@ -244,6 +250,8 @@ pub fn build(b: *std.Build) void {
         .erts_vsn = erts_vsn,
         .mlx_static = mlx_static,
         .mlx_dir = mlx_dir,
+        .nxeigen_static = nxeigen_static,
+        .nxeigen_dir = nxeigen_dir,
         .project_rust_libs = project_rust_libs,
         .objects = objs.items,
     });
@@ -400,6 +408,9 @@ const LinkOptions = struct {
     // MLX bundle. Empty mlx_dir / false mlx_static = MLX not in this build.
     mlx_static: bool = false,
     mlx_dir: []const u8 = "",
+    // NxEigen. Empty nxeigen_dir / false nxeigen_static = NxEigen not in this build.
+    nxeigen_static: bool = false,
+    nxeigen_dir: []const u8 = "",
     // Comma-separated absolute paths to project-side Rust NIF .a files
     // (pre-built by mob_dev with `cargo rustc --target
     // aarch64-apple-ios-sim --crate-type staticlib`). Empty if none.
@@ -447,6 +458,15 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
     if (opts.mlx_static and opts.mlx_dir.len > 0) {
         run.addArg(b.fmt("{s}/lib/libemlx.a", .{opts.mlx_dir}));
         run.addArg(b.fmt("{s}/lib/libmlx.a", .{opts.mlx_dir}));
+    }
+
+    // NxEigen (Eigen-backed Nx backend, C++ NIF). Wired in when
+    // `mix mob.enable nxeigen` set nxeigen_static=true and mob_dev passed
+    // the per-arch build dir through nxeigen_dir. libnx_eigen.a holds
+    // nx_eigen_nif_init (the static-NIF symbol); no separate runtime
+    // library (Eigen is header-only).
+    if (opts.nxeigen_static and opts.nxeigen_dir.len > 0) {
+        run.addArg(b.fmt("{s}/libnx_eigen.a", .{opts.nxeigen_dir}));
     }
 
     // Project-side Rust NIF static archives (auto-wired from mob.exs

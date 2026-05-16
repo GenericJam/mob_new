@@ -8,7 +8,7 @@ defmodule MobNew.MixProject do
       elixir: "~> 1.19",
       deps: deps(),
       description: "Project generator for the Mob mobile framework",
-      source_url: "https://github.com/genericjam/mob",
+      source_url: "https://github.com/genericjam/mob_new",
       package: package(),
       docs: docs()
     ]
@@ -38,16 +38,19 @@ defmodule MobNew.MixProject do
   defp docs do
     [
       main: "Mix.Tasks.Mob.New",
-      source_url: "https://github.com/genericjam/mob",
-      source_url_pattern: "https://github.com/genericjam/mob/blob/main/mob_new/%{path}#L%{line}",
-      extras: ["README.md": [title: "mob_new"]]
+      source_url: "https://github.com/genericjam/mob_new",
+      source_url_pattern: "https://github.com/genericjam/mob_new/blob/master/%{path}#L%{line}",
+      extras: [
+        "README.md": [title: "mob_new"],
+        "CHANGELOG.md": [title: "Changelog"]
+      ]
     ]
   end
 
   defp package do
     [
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/genericjam/mob"}
+      links: %{"GitHub" => "https://github.com/genericjam/mob_new"}
     ]
   end
 end

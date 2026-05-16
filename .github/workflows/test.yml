@@ -1,0 +1,91 @@
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - elixir: '1.19'
+            otp: '28'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      - name: Cache deps + _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-
+
+      - run: mix deps.get
+      - run: mix deps.compile
+      - run: mix compile --warnings-as-errors
+
+      - name: Format check
+        run: mix format --check-formatted
+
+      - name: Credo (strict)
+        run: mix credo --strict
+
+      # mob_new's tests run `mix phx.new` under the hood for the LiveView path
+      # (~40s wall clock per case). Total suite is ~100s — bumping the timeout
+      # to 10 minutes to absorb cold-cache variability.
+      - name: Tests
+        run: mix test
+        timeout-minutes: 10
+
+  security_scan:
+    name: Security scan (mix_audit)
+    needs: test
+    runs-on: ubuntu-latest
+    if: always()
+    continue-on-error: true
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.19'
+          otp-version: '28'
+
+      - name: Cache deps + _build (reuse test job's key)
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-1.19-28-${{ hashFiles('**/mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-1.19-28-
+
+      - run: mix deps.get
+      - run: mix deps.compile
+
+      - name: Install mix_audit
+        run: mix archive.install hex mix_audit --force
+
+      - name: Audit deps
+        run: mix deps.audit

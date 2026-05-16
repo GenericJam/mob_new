@@ -31,7 +31,13 @@ defmodule MobNew.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       # ex_slop — Credo check that catches AI-generated Elixir patterns
       # (blanket rescue, narrator docs, etc). Wired in via .credo.exs.
-      {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false}
+      {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
+      # mix_audit — CVE scan over mix.lock. Invocation note: `mix
+      # deps.audit` alone fails with `YamlElixir.read_from_file/1 is
+      # undefined` because mix_audit doesn't ensure_all_started its
+      # yaml_elixir transitive dep; CI uses `mix do app.start +
+      # deps.audit` which starts the host app and pulls yaml_elixir in.
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false}
     ]
   end
 

@@ -8,7 +8,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.3.2]
 
 ### Fixed
 - HexDocs `source_url` and `source_url_pattern` pointed at the wrong repo (`mob` instead of `mob_new`) and at a non-existent `/mob_new/` subdirectory prefix; the rendered `</>` glyphs all 404'd. Corrected to `github.com/genericjam/mob_new/blob/master/...`.

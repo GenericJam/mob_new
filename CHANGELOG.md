@@ -8,6 +8,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.3.3]
+
+### Added
+- Bluetooth Classic peripheral codegen (`MobBridge.kt.eex`, `beam_jni.c.eex`, `AndroidManifest.xml.eex`) — generated apps now include the Kotlin BroadcastReceivers, JNI native_* externs, and Android permissions for the `Mob.Bt` runtime API (HFP / SPP / HID). Companion to `mob` 0.6.5's `Mob.Bt` module. Contributed by [@HeroesLament](https://github.com/HeroesLament) ([#4](https://github.com/GenericJam/mob_new/pull/4)).
+
 ## [0.3.2]
 
 ### Fixed

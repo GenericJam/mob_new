@@ -132,6 +132,34 @@ mix credo --strict  # **whole tree, not just changed files** — includes ExSlop
 mix test --only lint  # generate project + ktlint generated Kotlin (requires brew install ktlint)
 ```
 
+## Release flow
+
+Canonical process lives in
+[`mob/RELEASE.md`](https://github.com/GenericJam/mob/blob/master/RELEASE.md)
+— trigger model (mix.exs as source of truth), patch-bump default with
+mandatory permission, CHANGELOG conventions, per-step idempotency of
+`release.yml`. **mob_new specifics:**
+
+- The generator tests that build a project from templates need
+  `MOB_DIR=/Users/kevin/code/mob` set explicitly when running from
+  a worktree — the resolver looks for `mob` alongside the project
+  and the worktree path breaks that assumption. Two tests
+  (`project_generator_test.exs:1226` and `:1537`) demonstrate this
+  pattern.
+- The published Hex package is the project generator itself; new
+  apps built via `mix mob.new` from a fresh install pick up the
+  latest published template the moment a version lands.
+
+**Pre-push hook**: `.githooks/pre-push` runs `mix format
+--check-formatted`, `mix credo --strict`, `mix compile
+--warnings-as-errors` on every push (fast). When the push touches
+`mix.exs` it additionally runs the full test suite as the release
+preflight. Activate once per clone or worktree:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## Template linting strategy
 
 EEx templates (`priv/templates/**/*.kt.eex`, `*.m.eex`, etc.) cannot be

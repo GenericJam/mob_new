@@ -1616,6 +1616,12 @@ defmodule MobNew.ProjectGeneratorTest do
       # If the host happens to have ~/code/mob_new (this dev's machine
       # almost certainly does), the function correctly finds it. Don't
       # over-assert; just confirm shape.
+      #
+      # The Path.expand here probes an EXTERNAL filesystem location (the
+      # developer's checkout of mob_new) — it's not looking up this app's
+      # own priv/, which is what JumpCredo's Application.app_dir check
+      # is for. Silenced inline.
+      # credo:disable-for-next-line ExSlop.Check.Warning.PathExpandPriv
       if File.dir?(Path.expand("~/code/mob_new/priv/templates/mob.new")) do
         assert is_binary(MobNew.ProjectGenerator.local_mob_new_priv(local: true))
       else

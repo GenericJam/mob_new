@@ -1126,7 +1126,11 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
       content = File.read!(Path.join(dir, "assets/js/app.js"))
       assert content =~ "const MobHook ="
-      assert content =~ "hooks: {MobHook}"
+      # Match the hook registered in the LiveSocket's hooks block. Phoenix
+      # has shipped variants over time — `hooks: {MobHook}`,
+      # `hooks: {MobHook, ...colocatedHooks}` — so anchor on the property
+      # name rather than the literal one-element-object form.
+      assert content =~ ~r/hooks:\s*\{[^}]*MobHook\b/
       assert content =~ "pushEvent(\"mob_message\", data)"
     end
 
@@ -1330,10 +1334,20 @@ defmodule MobNew.ProjectGeneratorTest do
              "config/test.exs still has Phoenix's default 4002"
 
       runtime = File.read!(Path.join(dir, "config/runtime.exs"))
-      assert runtime =~ "\"PORT\") || \"4200\""
 
-      refute runtime =~ "\"PORT\") || \"4000\"",
-             "config/runtime.exs PORT env-var fallback still 4000"
+      # Phoenix changed its runtime PORT fallback syntax between 1.7 and
+      # 1.8: the older form was `System.get_env("PORT") || "4200"`, the
+      # newer is `System.get_env("PORT", "4200")` (two-arg form). Match
+      # either — the patcher in project_generator.ex handles both.
+      assert runtime =~ ~r/"PORT"\s*\)\s*\|\|\s*"4200"/ or
+               runtime =~ ~r/"PORT"\s*,\s*"4200"/,
+             "config/runtime.exs has no PORT-to-4200 fallback in either form"
+
+      refute runtime =~ ~r/"PORT"\s*\)\s*\|\|\s*"4000"/,
+             "config/runtime.exs PORT env-var fallback still 4000 (legacy ||)"
+
+      refute runtime =~ ~r/"PORT"\s*,\s*"4000"/,
+             "config/runtime.exs PORT env-var fallback still 4000 (two-arg form)"
     end
 
     @tag :integration

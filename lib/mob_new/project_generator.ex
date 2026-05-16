@@ -781,10 +781,42 @@ defmodule MobNew.ProjectGenerator do
        "dev port 4000 → 4200"},
       {"config/test.exs", Regex.compile!("port:\\s*4002\\b"), "port: 4202",
        "test port 4002 → 4202"},
+      # Phoenix ≤ 1.7: `System.get_env("PORT") || "4000"`.
       {"config/runtime.exs", Regex.compile!(~S{"PORT"\s*\)\s*\|\|\s*"4000"}),
-       "\"PORT\") || \"4200\"", "runtime PORT default 4000 → 4200"}
+       "\"PORT\") || \"4200\"", "runtime PORT default 4000 → 4200 (legacy ||)"},
+      # Phoenix ≥ 1.8: `System.get_env("PORT", "4000")` — two-arg form.
+      {"config/runtime.exs", Regex.compile!(~S{"PORT"\s*,\s*"4000"}), "\"PORT\", \"4200\"",
+       "runtime PORT default 4000 → 4200"}
     ]
     |> Enum.each(&apply_port_patch(project_dir, &1))
+
+    # Fallback for newer Phoenix versions that omit an explicit `port:` line
+    # in config/dev.exs (Phoenix defaults the port to 4000 implicitly). The
+    # regex above finds nothing to replace, so we have to inject a port: line
+    # into the http: keyword list ourselves. Idempotent.
+    ensure_dev_port(project_dir)
+  end
+
+  defp ensure_dev_port(project_dir) do
+    path = Path.join([project_dir, "config", "dev.exs"])
+
+    with true <- File.exists?(path),
+         content <- File.read!(path),
+         # Idempotency check tied to the actual target value, not a generic
+         # `port:\s*\d+` regex — Phoenix's dev.exs ships an SSL example block
+         # in comments that contains `port: 4001`, which would otherwise
+         # fool a presence-only check into thinking we already patched.
+         false <- String.contains?(content, "port: 4200"),
+         # First `http: [` in the file is the Endpoint's. Inject the port
+         # at the front of its keyword list. The global: false on
+         # String.replace ensures only the first occurrence is touched.
+         [match | _] <- Regex.run(~r/http:\s*\[/, content) do
+      patched = String.replace(content, match, "#{match}port: 4200, ", global: false)
+      File.write!(path, patched)
+      Mix.shell().info([:green, "* patch ", :reset, path, " (dev port injected → 4200)"])
+    else
+      _ -> :ok
+    end
   end
 
   defp apply_port_patch(project_dir, {rel, find, replace, label}) do

@@ -8,6 +8,19 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.3.4]
+
+### Added
+- `CLAUDE.md` "Release flow" section pointing at the canonical process
+  in [`mob/RELEASE.md`](https://github.com/GenericJam/mob/blob/master/RELEASE.md)
+  (URL form so it resolves without a local mob checkout). mob_new
+  specifics: generator tests need `MOB_DIR=/Users/kevin/code/mob` set
+  when running from a worktree (the resolver looks for `mob` alongside
+  the project and the worktree path breaks that assumption).
+- `.githooks/pre-push` — same script shipped in mob (cheap preflight
+  always, release preflight when `mix.exs` changed). Activate per
+  clone or worktree with `git config core.hooksPath .githooks`.
+
 ## [0.3.3]
 
 ### Added

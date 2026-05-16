@@ -375,6 +375,33 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "BroadcastReceiver"
     end
 
+    test "MobBridge.kt wires the GpuView GLES 3.0 renderer", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # Composable + renderer classes for the GLES 3.0 surface.
+      assert content =~ "private fun MobGpuView("
+      assert content =~ "private class MobGpuSurfaceView"
+      assert content =~ "private class MobGpuRenderer"
+
+      # GLES 3.0 + GLSurfaceView imports — the renderer can't compile without
+      # them, so if these drop out the template build breaks loudly.
+      assert content =~ "import android.opengl.GLES30"
+      assert content =~ "import android.opengl.GLSurfaceView"
+
+      # Composable dispatch picks up the "gpu_view" node type.
+      assert content =~ ~s|"gpu_view"       -> MobGpuView(node, m)|
+
+      # Uniform packing mirrors iOS std140 layout (scalar / vec2 / vec4).
+      assert content =~ "packGpuUniforms"
+
+      # Shader source accepts the cross-platform map form (per the iOS
+      # commit's docstring: %{ios: "...MSL...", android: "...GLSL ES..."}).
+      assert content =~ ~s|raw.optString("android", "")|
+    end
+
     test "generates MobFirebaseService.kt in correct package path", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

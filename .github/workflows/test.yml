@@ -25,6 +25,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The liveview_generate/3 tests shell out to `mix phx.new lv_test`
+      # to scaffold a Phoenix project, then patch it. Phoenix's project
+      # generator is shipped as a Hex archive, not bundled with Elixir.
+      # The `local: true` flavour of those tests resolves `MOB_DIR` /
+      # `MOB_DEV_DIR` / `./mob` / `../mob` for in-tree path deps — we
+      # check the sister repos into the workspace so those resolutions
+      # land in CI without a sibling on the host filesystem.
+      - name: Checkout mob (for --local path resolution)
+        uses: actions/checkout@v4
+        with:
+          repository: GenericJam/mob
+          path: mob-checkout
+
+      - name: Checkout mob_dev (for --local path resolution)
+        uses: actions/checkout@v4
+        with:
+          repository: GenericJam/mob_dev
+          path: mob_dev-checkout
+
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ matrix.elixir }}
@@ -43,6 +62,13 @@ jobs:
       - run: mix deps.compile
       - run: mix compile --warnings-as-errors
 
+      - name: Install Phoenix project generator
+        # phx_new is the `mix phx.new` archive. Cached in ~/.mix/archives
+        # between runs by the cache action above (deps + _build only —
+        # not ~/.mix), so the install runs cold on every job. It's small
+        # (a few hundred ms) so caching ~/.mix isn't worth the complexity.
+        run: mix archive.install hex phx_new --force
+
       - name: Format check
         run: mix format --check-formatted
 
@@ -53,6 +79,12 @@ jobs:
       # (~40s wall clock per case). Total suite is ~100s — bumping the timeout
       # to 10 minutes to absorb cold-cache variability.
       - name: Tests
+        env:
+          # Point the local-mob resolver at the checkouts we cloned above
+          # so `liveview_generate/3 generates local dep paths when --local
+          # flag set` and the --python E2E test find an mob / mob_dev tree.
+          MOB_DIR: ${{ github.workspace }}/mob-checkout
+          MOB_DEV_DIR: ${{ github.workspace }}/mob_dev-checkout
         run: mix test
         timeout-minutes: 10
 

@@ -4,6 +4,7 @@ defmodule MobNew.ProjectGeneratorTest do
   use ExUnit.Case, async: false
 
   alias MobNew.ProjectGenerator
+  alias MobNew.Templates.Lint
 
   # ── assigns/1 ────────────────────────────────────────────────────────────────
 
@@ -375,57 +376,98 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "BroadcastReceiver"
     end
 
-    test "MobBridge.kt has no duplicate imports", %{tmp: tmp} do
-      # kotlinc rejects duplicate imports with "Conflicting import" and
-      # the whole gradleDebug target fails. The class of regression that
-      # bit us in 0.3.2 (and again post-PR-#4 in 0.3.4) was an unrelated
-      # contribution adding `import X` at the top of the file when `X`
-      # was already present in the bottom-of-file alphabetised import
-      # block — string-match assertions miss this entirely because the
-      # asserted-on substring still appears, just twice.
+    test "MobBridge.kt passes structural lints (no dup imports, balanced delimiters, no EEx leaks)",
+         %{tmp: tmp} do
+      # Aggregate structural check via Lint.check_kotlin/1.
+      # Catches the 0.3.2 → 0.3.4 duplicate-import regression class
+      # (the BT-PR merge re-introduced imports that the 0.3.2 fix had
+      # removed) AND adjacent structural bug shapes — unbalanced
+      # braces/parens/brackets, leaked `<%=` tags from malformed
+      # templates. See MobNew.Templates.Lint for the full check list.
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       content =
         File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
 
-      imports =
-        content
-        |> String.split("\n")
-        |> Enum.map(&String.trim/1)
-        |> Enum.filter(&String.starts_with?(&1, "import "))
+      issues = Lint.check_kotlin(content)
 
-      duplicates =
-        imports
-        |> Enum.frequencies()
-        |> Enum.filter(fn {_, count} -> count > 1 end)
-        |> Enum.map(fn {imp, count} -> "#{imp} (×#{count})" end)
-
-      assert duplicates == [],
-             "MobBridge.kt has duplicate imports that will fail kotlinc:\n  " <>
-               Enum.join(duplicates, "\n  ")
+      assert issues == [],
+             "MobBridge.kt failed structural lints:\n  " <>
+               Enum.map_join(issues, "\n  ", & &1.message)
     end
 
-    test "beam_jni.c has balanced braces", %{tmp: tmp} do
-      # The 0.3.2 → 0.3.4 regression that broke C compilation was a
-      # missing closing `}` after `nativeDeliverVendorUsbEvent`, which
-      # turned every subsequent JNIEXPORT into a "function definition
-      # is not allowed here" error. Naive brace counting catches this
-      # class of bug; not a full C parser (string literals containing
-      # `{` or `}` would skew the count), but the JNI template only
-      # contains function bodies + ASCII art comments — no JSON or
-      # printf-style braces in strings — so the simple count is
-      # reliable here.
+    test "beam_jni.c passes structural lints (balanced braces, no EEx leaks)", %{tmp: tmp} do
+      # Aggregate structural check via Lint.check_c/1.
+      # Catches the 0.3.2 → 0.3.4 missing-`}` regression after
+      # nativeDeliverVendorUsbEvent (which turned every subsequent
+      # JNIEXPORT into a "function definition is not allowed here"
+      # parse error). See MobNew.Templates.Lint for full check list.
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
 
-      chars = String.to_charlist(content)
-      opens = Enum.count(chars, &(&1 == ?{))
-      closes = Enum.count(chars, &(&1 == ?}))
+      issues = Lint.check_c(content)
 
-      assert opens == closes,
-             "beam_jni.c has unbalanced braces (#{opens} `{` vs #{closes} `}`) — " <>
-               "likely a missing closing brace, the same class of regression noted " <>
-               "in 0.3.2's CHANGELOG"
+      assert issues == [],
+             "beam_jni.c failed structural lints:\n  " <>
+               Enum.map_join(issues, "\n  ", & &1.message)
+    end
+
+    @tag :requires_android_ndk
+    test "beam_jni.c passes `clang -fsyntax-only`", %{tmp: tmp} do
+      # Tier-3 compile-check (vs. tier-1 structural lint above): invoke
+      # the NDK's clang in syntax-only mode against the rendered C.
+      # Catches the full class of "actually broken C" — typos in
+      # identifiers, wrong arg counts, type mismatches — that the
+      # tier-1 brace-balance check can miss. Skipped when the Android
+      # NDK isn't installed (mirror of the :requires_zig pattern).
+      ndk_clang = find_android_ndk_clang()
+
+      unless ndk_clang do
+        flunk(
+          "Android NDK not found — tag this test :requires_android_ndk should have skipped it"
+        )
+      end
+
+      mob_dir = System.get_env("MOB_DIR") || "/Users/kevin/code/mob"
+
+      unless File.dir?(Path.join(mob_dir, "android/jni")) do
+        flunk("MOB_DIR=#{mob_dir} not a valid mob checkout (no android/jni/ inside)")
+      end
+
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      beam_jni = Path.join(dir, "android/app/src/main/jni/beam_jni.c")
+
+      {output, exit_code} =
+        System.cmd(
+          ndk_clang,
+          ["-fsyntax-only", "-I", Path.join(mob_dir, "android/jni"), beam_jni],
+          stderr_to_stdout: true
+        )
+
+      assert exit_code == 0,
+             "clang -fsyntax-only on rendered beam_jni.c failed:\n" <> output
+    end
+
+    test "Kotlin externs and C JNI thunks are consistent (no missing-pair regressions)",
+         %{tmp: tmp} do
+      # Cross-file consistency: every `@JvmStatic external fun nativeFoo`
+      # in MobBridge.kt must have a matching `Java_..._MobBridge_nativeFoo`
+      # in beam_jni.c, and vice versa. Catches "added the Kotlin side
+      # but forgot the C thunk" (or the reverse) — which the BT-PR merge
+      # also touched and we'd want to catch immediately if either side
+      # drifts.
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      c = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
+
+      issues = Lint.external_fun_jni_consistency(kt, c)
+
+      assert issues == [],
+             "Kotlin/C JNI pair mismatches:\n  " <>
+               Enum.map_join(issues, "\n  ", & &1.message)
     end
 
     test "MobBridge.kt wires the GpuView GLES 3.0 renderer", %{tmp: tmp} do
@@ -1694,6 +1736,64 @@ defmodule MobNew.ProjectGeneratorTest do
       else
         assert MobNew.ProjectGenerator.local_mob_new_priv(local: true) == nil
       end
+    end
+  end
+
+  # ── helpers ──────────────────────────────────────────────────────────────
+
+  # Returns the path to the NDK's aarch64 clang, or nil if no NDK is
+  # installed. Probes standard locations + env vars; picks the
+  # lexicographically-highest version (which is also the highest
+  # semver for x.y.z NDK names).
+  defp find_android_ndk_clang do
+    candidates =
+      [
+        System.get_env("ANDROID_NDK_ROOT"),
+        System.get_env("ANDROID_NDK_HOME"),
+        # macOS default
+        Path.expand("~/Library/Android/sdk/ndk"),
+        # Linux default
+        Path.expand("~/Android/Sdk/ndk")
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    Enum.find_value(candidates, &probe_ndk_root/1)
+  end
+
+  defp probe_ndk_root(root) do
+    cond do
+      # ANDROID_NDK_ROOT may point directly at an NDK, not at the parent
+      File.dir?(Path.join(root, "toolchains/llvm/prebuilt")) -> clang_in(root)
+      File.dir?(root) -> highest_versioned_clang(root)
+      true -> nil
+    end
+  end
+
+  defp highest_versioned_clang(root) do
+    root
+    |> File.ls!()
+    |> Enum.sort(:desc)
+    |> Enum.find_value(fn version -> clang_in(Path.join(root, version)) end)
+  end
+
+  defp clang_in(ndk_root) do
+    host =
+      case :os.type() do
+        {:unix, :darwin} -> "darwin-x86_64"
+        {:unix, :linux} -> "linux-x86_64"
+        _ -> nil
+      end
+
+    if host do
+      path =
+        Path.join([
+          ndk_root,
+          "toolchains/llvm/prebuilt",
+          host,
+          "bin/aarch64-linux-android24-clang"
+        ])
+
+      if File.exists?(path), do: path, else: nil
     end
   end
 end

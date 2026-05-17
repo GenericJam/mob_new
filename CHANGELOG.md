@@ -8,6 +8,21 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.3.5]
+
+### Fixed
+- `beam_jni.c.eex`: restored the closing `}` for `nativeDeliverVendorUsbEvent`. Without it, clang sees nested function definitions and rejects every `JNIEXPORT` that follows ("function definition is not allowed here") — C compilation fails immediately on any project generated from 0.3.3/0.3.4.
+- `MobBridge.kt.eex`: removed three duplicate imports (`IntentFilter`, `ConcurrentHashMap`, `AtomicInteger`). Each now appears exactly once in the alphabetised bottom-of-file import block. kotlinc was rejecting with "Conflicting import" so `gradleDebug` failed on any project generated from 0.3.3/0.3.4.
+- `beam_jni.c.eex`: removed a 276-line duplicate Bluetooth Classic JNI block (lines 533-808 mirrored 256-531 verbatim). Caused "redefinition of `Java_..._MobBridge_nativeDeliverBt*`" errors at compile time. The canonical first block stays. (Surfaced by the new `clang -fsyntax-only` test below — string-match generator-test assertions still passed because the substrings exist, just twice.)
+
+All three regressions were introduced by the 0.3.3 BT-PR merge taking the union of imports / blocks during conflict resolution, when the 0.3.2 fix had specifically de-duplicated them. Reported by external user on master 2026-05-17.
+
+### Added
+- `MobNew.Templates.Lint` — module of structural lints for generator-rendered native source files. 8 checks: `balanced_braces`, `balanced_parens`, `balanced_brackets`, `no_eex_leaks`, `unique_kotlin_imports`, `unique_swift_imports`, `external_fun_jni_consistency`, plus `check_kotlin/1` / `check_c/1` / `check_swift/1` aggregate functions. Returns a list of issue maps; empty list = clean. 25 unit tests cover each check red-then-green.
+- Generator tests now use `Lint.check_kotlin/1` and `Lint.check_c/1` instead of inline brace-counting + import-dedup logic. Single source of truth; clearer failure messages.
+- New cross-file consistency test: asserts every `external fun nativeFoo(...)` in MobBridge.kt has a matching `Java_..._MobBridge_nativeFoo(...)` JNI thunk in beam_jni.c. Catches "added the Kotlin side but forgot the C thunk" (or the reverse).
+- New `clang -fsyntax-only` test (`@tag :requires_android_ndk`) that invokes the NDK's clang against the rendered `beam_jni.c`. Catches the full class of "actually broken C" — typos, wrong arg counts, duplicate definitions — that tier-1 structural lints can miss. Skips cleanly when the Android NDK isn't installed (mirrors the existing `:requires_zig` pattern).
+
 ## [0.3.4]
 
 ### Added

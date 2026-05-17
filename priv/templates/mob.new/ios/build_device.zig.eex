@@ -18,6 +18,7 @@
 //   Swift (xcrun swiftc via system command):
 //     - $MOB_DIR/ios/MobViewModel.swift
 //     - $MOB_DIR/ios/MobRootView.swift
+//     - optional project Swift sources from -Dproject_swift_sources
 //
 // Differences vs build.zig (iOS sim):
 //   - SDK: iphoneos vs iphonesimulator
@@ -66,6 +67,7 @@ pub fn build(b: *std.Build) void {
     const project_root = b.option([]const u8, "project_root", "Absolute path to the project root (for c_src/<name>.c lookups)") orelse "";
     const project_c_nifs = b.option([]const u8, "project_c_nifs", "Comma-separated C NIF names (each at c_src/<name>.c); empty if none") orelse "";
     const project_rust_libs = b.option([]const u8, "project_rust_libs", "Comma-separated absolute paths to Rust NIF .a files (pre-built by mob_dev)") orelse "";
+    const project_swift_sources = b.option([]const u8, "project_swift_sources", "Comma-separated absolute paths to extra project Swift sources; empty if none") orelse "";
 
     const objects_step = b.step("objects", "Compile C, ObjC, and Swift objects for iOS device");
     const binary_step = b.step("binary", "Compile + link the iOS device binary (default)");
@@ -94,6 +96,13 @@ pub fn build(b: *std.Build) void {
     swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobViewModel.swift", .{mob_dir}) });
     swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobRootView.swift", .{mob_dir}) });
     swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobGpuView.swift", .{mob_dir}) });
+    if (project_swift_sources.len > 0) {
+        var swift_it = std.mem.splitScalar(u8, project_swift_sources, ',');
+        while (swift_it.next()) |source| {
+            if (source.len == 0) continue;
+            swift_run.addFileArg(.{ .cwd_relative = source });
+        }
+    }
     swift_run.addArg("-c");
     swift_run.addArg("-emit-objc-header");
     swift_run.addArg("-emit-objc-header-path");

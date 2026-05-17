@@ -251,6 +251,8 @@ Java_<%= jni_package %>_MobBridge_nativeDeliverVendorUsbEvent(JNIEnv* env, jclas
     mob_deliver_vendor_usb_event(pid, (int)session_id, ct, cr);
     (*env)->ReleaseStringUTFChars(env, tag, ct);
     if (cr) (*env)->ReleaseStringUTFChars(env, reason, cr);
+}
+
 // ── Bluetooth Classic (Mob.Bt suite) — JNI thunks ───────────────────────
 // Each thunk unmarshals Java args into C primitives, calls the matching
 // mob_deliver_bt_* helper, then releases.

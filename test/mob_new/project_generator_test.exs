@@ -953,6 +953,27 @@ defmodule MobNew.ProjectGeneratorTest do
       end
     end
 
+    for {path, label} <- [
+          {"ios/build.zig", "ios sim"},
+          {"ios/build_device.zig", "ios device"}
+        ] do
+      @path path
+      @label label
+      test "#{@label} build.zig compiles project Swift sources from project_swift_sources",
+           %{tmp: tmp} do
+        {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+        content = File.read!(Path.join(dir, @path))
+
+        assert content =~ ~s("project_swift_sources")
+
+        assert content =~
+                 "Comma-separated absolute paths to extra project Swift sources; empty if none"
+
+        assert content =~ "std.mem.splitScalar(u8, project_swift_sources, ',')"
+        assert content =~ "swift_run.addFileArg(.{ .cwd_relative = source });"
+      end
+    end
+
     # ── MOB_BEAMS_DIR migration path — Ecto on flat -pa directories ──────────────
     #
     # Ecto.Migrator.run/3 uses :code.priv_dir(app) to find .exs files. That

@@ -375,6 +375,59 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "BroadcastReceiver"
     end
 
+    test "MobBridge.kt has no duplicate imports", %{tmp: tmp} do
+      # kotlinc rejects duplicate imports with "Conflicting import" and
+      # the whole gradleDebug target fails. The class of regression that
+      # bit us in 0.3.2 (and again post-PR-#4 in 0.3.4) was an unrelated
+      # contribution adding `import X` at the top of the file when `X`
+      # was already present in the bottom-of-file alphabetised import
+      # block — string-match assertions miss this entirely because the
+      # asserted-on substring still appears, just twice.
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      imports =
+        content
+        |> String.split("\n")
+        |> Enum.map(&String.trim/1)
+        |> Enum.filter(&String.starts_with?(&1, "import "))
+
+      duplicates =
+        imports
+        |> Enum.frequencies()
+        |> Enum.filter(fn {_, count} -> count > 1 end)
+        |> Enum.map(fn {imp, count} -> "#{imp} (×#{count})" end)
+
+      assert duplicates == [],
+             "MobBridge.kt has duplicate imports that will fail kotlinc:\n  " <>
+               Enum.join(duplicates, "\n  ")
+    end
+
+    test "beam_jni.c has balanced braces", %{tmp: tmp} do
+      # The 0.3.2 → 0.3.4 regression that broke C compilation was a
+      # missing closing `}` after `nativeDeliverVendorUsbEvent`, which
+      # turned every subsequent JNIEXPORT into a "function definition
+      # is not allowed here" error. Naive brace counting catches this
+      # class of bug; not a full C parser (string literals containing
+      # `{` or `}` would skew the count), but the JNI template only
+      # contains function bodies + ASCII art comments — no JSON or
+      # printf-style braces in strings — so the simple count is
+      # reliable here.
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
+
+      chars = String.to_charlist(content)
+      opens = Enum.count(chars, &(&1 == ?{))
+      closes = Enum.count(chars, &(&1 == ?}))
+
+      assert opens == closes,
+             "beam_jni.c has unbalanced braces (#{opens} `{` vs #{closes} `}`) — " <>
+               "likely a missing closing brace, the same class of regression noted " <>
+               "in 0.3.2's CHANGELOG"
+    end
+
     test "MobBridge.kt wires the GpuView GLES 3.0 renderer", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

@@ -8,6 +8,19 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.3.6]
+
+### Added
+- **`Mob.Camera.start_frame_stream/2` Android support baked into the template.** Apps generated from `mix mob.new` now ship the Kotlin side (`camera_start_frame_stream`, `camera_stop_frame_stream`, `deliverFrame`, `centerCropAndScale`, `bitmapToRgbF32`, `bitmapToBgraU8`) plus the JNI thunk (`nativeDeliverCameraFrame`) wired through to `mob_deliver_camera_frame`. Prior to this, projects generated from `mob_new` ≤ 0.3.5 would fail at NIF load against `mob ≥ 0.6.8` — the new JNI bindings for `camera_start_frame_stream` / `camera_stop_frame_stream` are `cacheRequired`, so missing static methods caused the app to crash on launch.
+- **`aspect_ratio` modifier prop** in `nodeModifier` (Android) — wraps `Modifier.aspectRatio(r)`. Useful for locking camera + canvas overlays to a 1:1 square so model-space coordinates align with the visible preview area.
+
+### Fixed
+- **`MobCameraPreview` Z-order and stability fixes** so Compose overlays (status text, bounding boxes, etc.) drawn on top of the camera actually render:
+  - Switched `PreviewView` from default `ImplementationMode.PERFORMANCE` (SurfaceView, punches through above Compose and hides overlays) to `COMPATIBLE` (TextureView, renders inside the normal Compose Z-order).
+  - Moved the camera bind out of `AndroidView.update` (which re-runs on every recomposition and caused continual `unbindAll` / `bindToLifecycle` cycles whenever any sibling state ticked — e.g. an FPS counter — making the surface flicker and fight with overlays) into a `LaunchedEffect(frameActive, cameraSelector)` keyed only on values that should trigger a rebind.
+  - Added `Modifier.clipToBounds()` to the `AndroidView` wrapping the `PreviewView` so the surface texture can't bleed past its declared layout bounds.
+  - `PreviewView.scaleType = FILL_CENTER` to match the model-side center-crop in `MobBridge.deliverFrame`, so overlay-canvas coords align with the preview underneath.
+
 ## [0.3.5]
 
 ### Fixed

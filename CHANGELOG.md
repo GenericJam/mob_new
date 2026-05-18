@@ -12,6 +12,16 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ### Added
 - **`project_swift_sources` build hook on iOS templates.** Both `ios/build.zig.eex` and `ios/build_device.zig.eex` now accept `-Dproject_swift_sources=<absolute,paths>` — a comma-separated list of extra Swift sources to compile into the same `swiftc` invocation as Mob's bridge sources. Empty/unset is a no-op. Paired with `mob_dev`'s `:project_swift_sources` mob.exs key (mob_dev#6) so downstream apps can ship project Swift without patching the generator. Originally proposed by @dl-alexandre.
+- `MobBridge.kt.eex`: `MobTextField` now honours `secure: true`. Applies
+  `PasswordVisualTransformation()` to mask input and overrides the
+  keyboard type to `KeyboardType.Password` (autocorrect off, no
+  suggestions strip). Mirrors the iOS-side `secure` prop landing in
+  mob 0.6.x. The Elixir cleartext still reaches the BEAM via
+  `on_change` so apps hash/store the value as normal.
+
+  Existing apps generated from prior templates are unaffected — the
+  prop is a no-op there. Regenerating or hand-porting `MobBridge.kt`
+  enables masking.
 
 ## [0.3.7]
 
@@ -33,7 +43,6 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   - Moved the camera bind out of `AndroidView.update` (which re-runs on every recomposition and caused continual `unbindAll` / `bindToLifecycle` cycles whenever any sibling state ticked — e.g. an FPS counter — making the surface flicker and fight with overlays) into a `LaunchedEffect(frameActive, cameraSelector)` keyed only on values that should trigger a rebind.
   - Added `Modifier.clipToBounds()` to the `AndroidView` wrapping the `PreviewView` so the surface texture can't bleed past its declared layout bounds.
   - `PreviewView.scaleType = FILL_CENTER` to match the model-side center-crop in `MobBridge.deliverFrame`, so overlay-canvas coords align with the preview underneath.
-
 ## [0.3.5]
 
 ### Fixed

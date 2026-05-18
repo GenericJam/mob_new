@@ -94,6 +94,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -2284,7 +2286,14 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
     val placeholder   = node.props["placeholder"] as? String ?: ""
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    val keyboardType = when (node.props["keyboard"] as? String) {
+    val isSecure = boolProp(node.props, "secure") ?: false
+    // `secure: true` overrides any explicit `keyboard:` choice — Compose's
+    // PasswordVisualTransformation pairs naturally with KeyboardType.Password
+    // (autocorrect off, no suggestions strip). Apps wanting numeric PINs that
+    // still mask the input should layer their own masking on a Number keyboard.
+    val keyboardType = if (isSecure) {
+        KeyboardType.Password
+    } else when (node.props["keyboard"] as? String) {
         "number"  -> KeyboardType.Number
         "decimal" -> KeyboardType.Decimal
         "email"   -> KeyboardType.Email
@@ -2324,6 +2333,8 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
                 else                 blurHandle?.let  { MobBridge.nativeSendBlur(it)  }
             },
         singleLine      = true,
+        visualTransformation =
+            if (isSecure) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
         keyboardActions = KeyboardActions(onAny = {
             submitHandle?.let { MobBridge.nativeSendSubmit(it) }

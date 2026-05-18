@@ -8,6 +8,20 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Added
+- `MobBridge.kt.eex`: `MobTextField` now honours `secure: true`. Applies
+  `PasswordVisualTransformation()` to mask input and overrides the
+  keyboard type to `KeyboardType.Password` (autocorrect off, no
+  suggestions strip). Mirrors the iOS-side `secure` prop landing in
+  mob 0.6.x. The Elixir cleartext still reaches the BEAM via
+  `on_change` so apps hash/store the value as normal.
+
+  Existing apps generated from prior templates are unaffected — the
+  prop is a no-op there. Regenerating or hand-porting `MobBridge.kt`
+  enables masking.
+
 ## [0.3.5]
 
 ### Fixed

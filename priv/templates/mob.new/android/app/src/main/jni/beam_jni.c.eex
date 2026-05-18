@@ -137,6 +137,32 @@ Java_<%= jni_package %>_MobBridge_nativeDeliverFileResult(JNIEnv* env, jclass cl
 }
 
 JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverCameraFrame(JNIEnv* env, jclass cls,
+    jlong pid, jbyteArray bytes, jint width, jint height, jstring format,
+    jlong timestamp_ms, jlong dropped) {
+    if (!bytes) return;
+    // Resolve every other JNI handle BEFORE entering the critical
+    // section. JNI's rule: between Get/ReleasePrimitiveArrayCritical
+    // you can call neither another JNI method nor any blocking native
+    // code (CheckJNI catches this and SIGABRTs with "using JNI after
+    // critical get"). The mob_deliver_camera_frame call itself only
+    // does memcpy + BEAM-owned allocs, so it's safe.
+    jsize n = (*env)->GetArrayLength(env, bytes);
+    const char* fmt = format ? (*env)->GetStringUTFChars(env, format, NULL) : NULL;
+    const char* fmt_use = fmt ? fmt : "rgb_f32";
+
+    void* raw = (*env)->GetPrimitiveArrayCritical(env, bytes, NULL);
+    if (raw) {
+        mob_deliver_camera_frame(pid, (const unsigned char*)raw, (size_t)n,
+                                 (int)width, (int)height, fmt_use,
+                                 timestamp_ms, dropped);
+        (*env)->ReleasePrimitiveArrayCritical(env, bytes, raw, JNI_ABORT);
+    }
+
+    if (fmt) (*env)->ReleaseStringUTFChars(env, format, fmt);
+}
+
+JNIEXPORT void JNICALL
 Java_<%= jni_package %>_MobBridge_nativeDeliverPushToken(JNIEnv* env, jclass cls,
     jlong pid, jstring token) {
     const char* ct = (*env)->GetStringUTFChars(env, token, NULL);

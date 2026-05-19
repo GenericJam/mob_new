@@ -22,8 +22,11 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.core.content.FileProvider
 import java.io.File
 
@@ -146,30 +149,64 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state by MobBridge.rootState
+            val themeColors by MobBridge.themeColors
 
             BackHandler(enabled = state.node != null) { MobBridge.nativeHandleBack() }
 
-            AnimatedContent(
-                targetState   = state,
-                contentKey    = { it.navKey },
-                transitionSpec = {
-                    when (targetState.transition) {
-                        "push" ->
-                            slideInHorizontally(animationSpec = tween(300)) { it } togetherWith
-                            slideOutHorizontally(animationSpec = tween(300)) { -it / 3 }
-                        "pop" ->
-                            slideInHorizontally(animationSpec = tween(300)) { -it / 3 } togetherWith
-                            slideOutHorizontally(animationSpec = tween(300)) { it }
-                        "reset" ->
-                            fadeIn(animationSpec = tween(250)) togetherWith
-                            fadeOut(animationSpec = tween(250))
-                        else ->
-                            EnterTransition.None togetherWith ExitTransition.None
-                    }
-                },
-                label = "nav"
-            ) { s ->
-                s.node?.let { RenderNode(it, modifier = Modifier.fillMaxSize().safeDrawingPadding()) }
+            // Material 3 chrome (NavigationBar, Button, …) pulls its colours
+            // from `MaterialTheme.colorScheme`. We want those to match the
+            // BEAM-side `Mob.Theme` so the system widgets don't clash with
+            // mob's own primitives. `themeColors` updates via
+            // `:mob_nif.set_theme/1` whenever `Mob.Theme.set(...)` runs.
+            //
+            // There's a brief window at launch — Compose evaluates setContent
+            // before the BEAM finishes `mount/3` and pushes the first theme
+            // — so the null branch falls back to Material's stock dark
+            // scheme, which usually reads as a fine placeholder until the
+            // real palette arrives.
+            val colorScheme = themeColors?.let { tc ->
+                darkColorScheme(
+                    primary          = colorFromMap(tc, "primary",          0xFF6750A4),
+                    onPrimary        = colorFromMap(tc, "on_primary",       0xFFFFFFFF),
+                    secondary        = colorFromMap(tc, "secondary",        0xFF625B71),
+                    onSecondary      = colorFromMap(tc, "on_secondary",     0xFFFFFFFF),
+                    background       = colorFromMap(tc, "background",       0xFF1C1B1F),
+                    onBackground     = colorFromMap(tc, "on_background",    0xFFE6E1E5),
+                    surface          = colorFromMap(tc, "surface",          0xFF1C1B1F),
+                    onSurface        = colorFromMap(tc, "on_surface",       0xFFE6E1E5),
+                    // Mob's `surface_raised` / `muted` map onto Material 3's
+                    // surfaceVariant / onSurfaceVariant — same role.
+                    surfaceVariant   = colorFromMap(tc, "surface_raised",   0xFF49454F),
+                    onSurfaceVariant = colorFromMap(tc, "muted",            0xFFCAC4D0),
+                    outline          = colorFromMap(tc, "border",           0xFF938F99),
+                    error            = colorFromMap(tc, "error",            0xFFF2B8B5),
+                    onError          = colorFromMap(tc, "on_error",         0xFFFFFFFF),
+                )
+            } ?: darkColorScheme()
+
+            MaterialTheme(colorScheme = colorScheme) {
+                AnimatedContent(
+                    targetState   = state,
+                    contentKey    = { it.navKey },
+                    transitionSpec = {
+                        when (targetState.transition) {
+                            "push" ->
+                                slideInHorizontally(animationSpec = tween(300)) { it } togetherWith
+                                slideOutHorizontally(animationSpec = tween(300)) { -it / 3 }
+                            "pop" ->
+                                slideInHorizontally(animationSpec = tween(300)) { -it / 3 } togetherWith
+                                slideOutHorizontally(animationSpec = tween(300)) { it }
+                            "reset" ->
+                                fadeIn(animationSpec = tween(250)) togetherWith
+                                fadeOut(animationSpec = tween(250))
+                            else ->
+                                EnterTransition.None togetherWith ExitTransition.None
+                        }
+                    },
+                    label = "nav"
+                ) { s ->
+                    s.node?.let { RenderNode(it, modifier = Modifier.fillMaxSize().safeDrawingPadding()) }
+                }
             }
         }
 
@@ -278,4 +315,10 @@ class MainActivity : ComponentActivity() {
         val scheme = if (nightMode == Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
         MobBridge.notifyColorSchemeChanged(scheme)
     }
+
+    // Pulls an ARGB long out of the BEAM-pushed theme map, falling back to
+    // a Material 3 stock dark value when the key isn't present (e.g. a
+    // custom theme that doesn't define every Material 3 slot).
+    private fun colorFromMap(map: Map<String, Long>, key: String, fallback: Long): Color =
+        Color(map[key] ?: fallback)
 }

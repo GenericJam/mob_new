@@ -228,6 +228,42 @@ object MobBridge {
     private val _rootState = mutableStateOf(RootState(0, "none", null))
     val rootState: State<RootState> get() = _rootState
 
+    // Compose-observable theme palette pushed from `Mob.Theme.set/1` via
+    // `:mob_nif.set_theme/1`. Null until the BEAM side calls Mob.Theme.set
+    // for the first time; the MaterialTheme wrapper in MainActivity reads
+    // this and falls back to a sensible default while it's still null.
+    // Keys are the semantic token strings (`"primary"`, `"on_surface"`,
+    // `"surface_raised"`, `"muted"`, …) — the same names mob's renderer
+    // uses on the Elixir side. Values are ARGB longs already resolved
+    // through theme.color_map / Mob.Renderer.colors so MaterialTheme can
+    // call `Color(it)` directly.
+    private val _themeColors = mutableStateOf<Map<String, Long>?>(null)
+    val themeColors: State<Map<String, Long>?> get() = _themeColors
+
+    /** Called from mob_nif.zig (nif_set_theme) whenever `Mob.Theme.set/1`
+     *  runs on the BEAM side. The JSON is the resolved-token map: atom
+     *  names → ARGB ints (e.g. `{"primary":4286331629,"surface":...}`).
+     *  The Compose-state write hops to the main thread so recomposition
+     *  fires safely. */
+    @JvmStatic
+    fun setTheme(json: String) {
+        try {
+            val obj = JSONObject(json)
+            val map = mutableMapOf<String, Long>()
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val value = obj.opt(key)
+                if (value is Number) map[key] = value.toLong()
+            }
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                _themeColors.value = map
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("MobBridge", "setTheme failed: ${e.message}")
+        }
+    }
+
     // Persists LazyListState across re-renders so scroll position survives data
     // updates. Keyed by the on_end_reached handle integer, which is stable within
     // a screen (same render-order index after each clear_taps). Cleared on

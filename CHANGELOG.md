@@ -8,6 +8,14 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.3.7]
+
+### Added
+- **MaterialTheme follows BEAM-side `Mob.Theme` out of the box.** Apps generated from `mix mob.new` now wire Compose's MaterialTheme to the BEAM-pushed theme so Material 3 system widgets (NavigationBar, Button, …) match whatever `Mob.Theme.set(...)` the host has active — no more white-on-light NavigationBar over a dark Obsidian / ObsidianGlass page. Two pieces:
+  - `MobBridge.kt`: `setTheme(json)` JNI handler called by `mob 0.6.14`'s new `:mob_nif.set_theme/1`. Decodes the resolved palette JSON into a `mutableStateOf<Map<String, Long>?>` (Compose-observable; cross-thread-safe via a main-looper hop).
+  - `MainActivity.kt`: reads `MobBridge.themeColors` and builds `darkColorScheme(...)` from it. Mob's `surface_raised` / `muted` map onto Material 3's `surfaceVariant` / `onSurfaceVariant` (same role). Stock `darkColorScheme()` covers the brief gap between `setContent` and the BEAM's first theme push.
+- Requires `mob ≥ 0.6.14`. Older runtimes don't define the `setTheme` Bridge method or call the NIF, so MaterialTheme just stays on the fallback — no breakage, but the system widgets won't follow `Mob.Theme.set/1`.
+
 ## [0.3.6]
 
 ### Added

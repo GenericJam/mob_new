@@ -8,6 +8,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **`project_swift_sources` build hook on iOS templates.** Both `ios/build.zig.eex` and `ios/build_device.zig.eex` now accept `-Dproject_swift_sources=<absolute,paths>` — a comma-separated list of extra Swift sources to compile into the same `swiftc` invocation as Mob's bridge sources. Empty/unset is a no-op. Paired with `mob_dev`'s `:ios_swift_sources` mob.exs key (mob_dev#6) so downstream apps can ship project Swift without patching the generator. Originally proposed by @dl-alexandre.
+
 ## [0.3.7]
 
 ### Added

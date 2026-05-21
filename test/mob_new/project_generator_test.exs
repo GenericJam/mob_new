@@ -974,6 +974,31 @@ defmodule MobNew.ProjectGeneratorTest do
       end
     end
 
+    # Regression: the Android jni build.zig must declare `tflite_static` as
+    # a `b.option` AND thread it into the `driver_tab_android` build_options
+    # alongside `nx_eigen_static`. MobDev.StaticNifs.default_nifs/0 always
+    # lists both guarded NIFs (nx_eigen + tflite_nif), so the generated
+    # driver_tab_android.zig always references `build_options.tflite_static`.
+    # Without the b.option declaration the project fails to compile with
+    # "struct 'options' has no member named 'tflite_static'" — bit any user
+    # who scaffolded a fresh project, added a static NIF, and ran
+    # `mix mob.regen_driver_tab` until 0.3.9.
+    test "android build.zig declares tflite_static b.option for driver_tab parity",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "android/app/src/main/jni/build.zig"))
+
+      assert content =~ ~s|b.option(bool, "tflite_static"|,
+             "android build.zig must declare tflite_static as a b.option " <>
+               "(symmetric to nxeigen_static) so driver_tab_android.zig's " <>
+               "build_options.tflite_static reference resolves at compile time"
+
+      assert content =~ ~s|o.addOption(bool, "tflite_static", tflite_static)|,
+             "android build.zig must thread tflite_static into the " <>
+               "driver_tab_android build_opts via o.addOption — otherwise the " <>
+               "b.option flag is declared but never reaches the consuming Zig module"
+    end
+
     # ── MOB_BEAMS_DIR migration path — Ecto on flat -pa directories ──────────────
     #
     # Ecto.Migrator.run/3 uses :code.priv_dir(app) to find .exs files. That

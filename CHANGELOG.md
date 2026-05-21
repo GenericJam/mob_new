@@ -8,6 +8,15 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.3.10]
+
+### Added
+- **`MobBridge.kt.eex` ships `audio_play_at` and supporting WAV chunk walker.** Pairs with `Mob.Audio.play_at/4` in mob 0.6.17 — sample-accurate scheduled playback against the Android audio hardware clock via `AudioTrack` in `MODE_STREAM`. Coarse `Thread.sleep` + 3 ms busy-wait for sub-buffer-tick wakeup precision, `THREAD_PRIORITY_AUDIO` to favour scheduling, 64 KB chunked feed from `RandomAccessFile` so multi-MB stems don't load fully into memory. Per-device output-latency calibration via `AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER` / `PROPERTY_OUTPUT_SAMPLE_RATE`, cached after first probe.
+- WAV header parser handles intermediate `LIST` / `INFO` chunks between `fmt ` and `data` — ffmpeg-generated WAVs often emit metadata chunks the naive "header is at byte 44" approach would skip.
+
+### Fixed
+- `audio_stop_playback` no longer bails early when no legacy `MediaPlayer` is active. Previously the `audioPlayer ?: return` short-circuit prevented the scheduled-track cleanup from running, so apps using `audio_play_at` exclusively had a Stop call that silently no-op'd on the audio path while the UI thought it had stopped.
+
 ## [0.3.9]
 
 ### Fixed

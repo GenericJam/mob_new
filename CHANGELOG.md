@@ -8,6 +8,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.3.9]
+
+### Fixed
+- **Android `build.zig.eex` template now exposes `tflite_static` as a `b.option`** and threads it into the `driver_tab_android` build options alongside `nx_eigen_static`. Without this, any newly-scaffolded project that adds a static NIF and runs `mix mob.regen_driver_tab` would fail to compile with `error: root source file struct 'options' has no member named 'tflite_static'` — the driver_tab generator unconditionally references `build_options.tflite_static`, but the template only declared `nx_eigen_static`. Asymmetry surfaced while wiring up a fresh rustler-using test app; the fix restores symmetry between the two guarded NIFs that mob_dev's StaticNifs defaults declare.
+
 ## [0.3.8]
 
 ### Added

@@ -2,11 +2,13 @@ cmake_minimum_required(VERSION 3.22.1)
 project(<%= app_name %>)
 
 # Paths injected by build.gradle (read from android/local.properties or env vars).
-# OTP_RELEASE (arm64), OTP_RELEASE_ARM32, ERTS_VSN, MOB_DIR are set via -D flags.
+# OTP_RELEASE (arm64), OTP_RELEASE_ARM32, OTP_RELEASE_X86_64, ERTS_VSN, MOB_DIR are set via -D flags.
 
 # Select OTP path based on target ABI.
 if(ANDROID_ABI STREQUAL "armeabi-v7a")
     set(OTP_DIR "${OTP_RELEASE_ARM32}")
+elseif(ANDROID_ABI STREQUAL "x86_64")
+    set(OTP_DIR "${OTP_RELEASE_X86_64}")
 else()
     set(OTP_DIR "${OTP_RELEASE}")
 endif()

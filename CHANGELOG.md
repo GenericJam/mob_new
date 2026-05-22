@@ -8,6 +8,53 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **`mix mob.install` — add Mob to an existing Phoenix project.** Composable
+  Igniter-based installer mirroring the architecture of
+  [team-alembic/phx_install](https://github.com/team-alembic/phx_install).
+  Distributed as a path/Hex dep (not the mob_new archive — Igniter tasks
+  need to compile against the target project's deps tree). An orchestrator
+  (`mix mob.install`) composes 7 sub-installers: `mob.install.deps`,
+  `mob.install.bridge`, `mob.install.screen`, `mob.install.mob_app`,
+  `mob.install.mob_exs`, `mob.install.native` (+ `.android` / `.ios`),
+  `mob.install.finalize`. Each sub-installer is idempotent and runnable
+  standalone. `Mob.App` is the *behaviour* the on-device entry uses via
+  `use Mob.App`, never a supervision-tree child — on-device runtime
+  services start imperatively inside `<App>.MobApp.start/0`. Patches existing `app.js` /
+  `root.html.heex` for the LiveView bridge; for non-LV hosts (e.g.
+  Hologram) those patches harmlessly no-op since the native `window.mob`
+  injection from Mob's WebView shell carries the bridge traffic. Triggered
+  by [mob#16](https://github.com/GenericJam/mob/issues/16).
+
+  Native trees (android/ios) emit through Igniter for EEx-rendered text
+  and direct `File.copy!/2` for binaries (gradle-wrapper.jar, gradlew,
+  PNG icons) since Igniter's `Rewrite` engine assumes UTF-8.
+  `mix mob.new` is unaffected — install is purely additive. Adds
+  `{:igniter, "~> 0.7"}` to mob_new's deps.
+
+  CLI flags:
+  - `--no-ios` / `--no-android` — skip a platform's native tree.
+  - `--local` — `path:` deps + pre-fill `mob.exs` from `MOB_DIR` /
+    `MOB_DEV_DIR`.
+  - `--python` — iOS-only Pythonx pre-config.
+  - `--host-url URL` — writes `config :mob, host_url: URL` to
+    `config/config.exs`. Generated `MobScreen` reads via
+    `Application.get_env(:mob, :host_url, "http://127.0.0.1:4000/")`,
+    so the URL lives in config (not hardcoded in the module). Use for
+    thin-client deployments pointing at a deployed Phoenix server.
+  - `--no-live-view` — skip the LV bridge patches AND generate a
+    thin-client `mob_app.ex` using `use Mob.App` (no
+    `Application.ensure_all_started(:<app>)`, no on-device Phoenix
+    boot). For Hologram-only or non-Phoenix hosts.
+
+  All flags forward from `mix mob.install` to each sub-installer.
+  Every sub-installer accepts the full orchestrator flag set in its
+  schema, ignoring flags that don't apply to it — so each is also
+  individually invokable with the same CLI surface (`mix help
+  mob.install.screen` documents `--host-url`, etc.).
+
 ## [0.3.10]
 
 ### Added

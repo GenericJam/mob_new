@@ -1,0 +1,73 @@
+defmodule Mix.Tasks.Mob.Install.Native do
+  @shortdoc "Installs the native (Android + iOS) build trees"
+
+  @moduledoc """
+  Dispatcher — composes `mob.install.native.android` and
+  `mob.install.native.ios`.
+
+  ## Options
+
+  - `--no-android` — skip the Android tree.
+  - `--no-ios` — skip the iOS tree.
+  - `--local` — forwarded to the platform sub-installers for path-dep
+    resolution.
+  - `--python` — iOS-only: pre-configure embedded CPython via Pythonx
+    (forwarded to `mob.install.native.ios`).
+
+  Other orchestrator flags accepted but inert.
+
+  Both platforms emit by default. Useful as a standalone task for
+  "refresh the native trees after a template fix" workflows.
+  """
+  use Igniter.Mix.Task
+
+  alias Mix.Tasks.Mob.Install.Native.{Android, Ios}
+
+  @common_schema [
+    ios: :boolean,
+    android: :boolean,
+    local: :boolean,
+    python: :boolean,
+    host_url: :string,
+    live_view: :boolean
+  ]
+  @common_defaults [ios: true, android: true, live_view: true]
+
+  @impl Igniter.Mix.Task
+  def info(_argv, _composing_task) do
+    %Igniter.Mix.Task.Info{
+      group: :mob,
+      example: "mix mob.install.native",
+      schema: @common_schema,
+      defaults: @common_defaults,
+      composes: ["mob.install.native.android", "mob.install.native.ios"]
+    }
+  end
+
+  @impl Igniter.Mix.Task
+  def igniter(igniter) do
+    ensure_archive_path_loaded()
+    opts = igniter.args.options
+
+    igniter
+    |> maybe_compose(Android, Keyword.get(opts, :android, true))
+    |> maybe_compose(Ios, Keyword.get(opts, :ios, true))
+  end
+
+  defp maybe_compose(igniter, _module, false), do: igniter
+
+  defp maybe_compose(igniter, module, true),
+    do: Igniter.compose_task(igniter, module, igniter.args.argv)
+
+  # See `Mix.Tasks.Mob.Install.ensure_archive_path_loaded/0`.
+  defp ensure_archive_path_loaded do
+    case :code.which(__MODULE__) do
+      path when is_list(path) ->
+        path |> Path.dirname() |> String.to_charlist() |> :code.add_patha()
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+end

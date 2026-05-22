@@ -27,6 +27,13 @@ defmodule MobNew.MixProject do
       # migration replaced the regex-on-Elixir-source approach that had
       # been the main fragility in the LV generator.
       {:sourceror, "~> 1.0"},
+      # Igniter — composable code-mod framework. Powers `mix mob.install`,
+      # which adds Mob to an existing Phoenix project (analogous to how
+      # team-alembic/phx_install adds Phoenix to a vanilla Elixir project).
+      # Bundled into the archive so users don't need it as a target-project
+      # dep. `mix mob.new --liveview` does not use Igniter — that path
+      # continues to use Sourceror directly via `LiveViewPatcher`.
+      {:igniter, "~> 0.7"},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       # ex_slop — Credo check that catches AI-generated Elixir patterns

@@ -38,8 +38,13 @@ defmodule MobNew.ProjectGenerator do
   # mob/mob_dev" only, but users (rightly) expected it to also pick up
   # local template fixes — same mental model as `--local` everywhere
   # else in the Mix ecosystem.
-  defp templates_root(opts), do: priv_root(opts) |> Path.join("templates/mob.new")
-  defp static_root(opts), do: priv_root(opts) |> Path.join("static/mob.new")
+  @doc false
+  @spec templates_root(keyword()) :: String.t()
+  def templates_root(opts), do: priv_root(opts) |> Path.join("templates/mob.new")
+
+  @doc false
+  @spec static_root(keyword()) :: String.t()
+  def static_root(opts), do: priv_root(opts) |> Path.join("static/mob.new")
 
   defp priv_root(opts) do
     case local_mob_new_priv(opts) do
@@ -986,7 +991,9 @@ defmodule MobNew.ProjectGenerator do
     end
   end
 
-  defp extract_secret_key_base(project_dir) do
+  @doc false
+  @spec extract_secret_key_base(String.t()) :: String.t() | nil
+  def extract_secret_key_base(project_dir) do
     dev_exs = Path.join([project_dir, "config", "dev.exs"])
 
     if File.exists?(dev_exs) do
@@ -999,11 +1006,15 @@ defmodule MobNew.ProjectGenerator do
     end
   end
 
-  defp generate_secret_key_base do
+  @doc false
+  @spec generate_secret_key_base() :: String.t()
+  def generate_secret_key_base do
     :crypto.strong_rand_bytes(48) |> Base.encode64(padding: false)
   end
 
-  defp generate_signing_salt do
+  @doc false
+  @spec generate_signing_salt() :: String.t()
+  def generate_signing_salt do
     :crypto.strong_rand_bytes(8) |> Base.encode64(padding: false)
   end
 
@@ -1058,7 +1069,9 @@ defmodule MobNew.ProjectGenerator do
 
   # ── Dep resolution ────────────────────────────────────────────────────────────
 
-  defp resolve_deps(opts) do
+  @doc false
+  @spec resolve_deps(keyword()) :: {String.t(), String.t(), String.t(), String.t()}
+  def resolve_deps(opts) do
     if opts[:local] do
       mob_dir = resolve_local_path("MOB_DIR", "mob")
       mob_dev_dir = resolve_local_path("MOB_DEV_DIR", "mob_dev")
@@ -1089,7 +1102,9 @@ defmodule MobNew.ProjectGenerator do
     end
   end
 
-  defp resolve_local_path(env_var, sibling_name) do
+  @doc false
+  @spec resolve_local_path(String.t(), String.t()) :: String.t()
+  def resolve_local_path(env_var, sibling_name) do
     cond do
       path = System.get_env(env_var) ->
         Path.expand(path)
@@ -1165,8 +1180,10 @@ defmodule MobNew.ProjectGenerator do
     end)
   end
 
+  @doc false
   # Replace `app_name` placeholder in directory segments and strip .eex extension.
-  defp expand_path(rel, assigns) do
+  @spec expand_path(String.t(), map()) :: String.t()
+  def expand_path(rel, assigns) do
     rel
     |> String.replace("app_name", assigns.app_name)
     |> String.replace("java/", "java/#{assigns.java_path}/")

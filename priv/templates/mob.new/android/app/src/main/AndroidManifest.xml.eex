@@ -54,6 +54,9 @@
     <!-- Haptic feedback -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- In-app purchases (MobIap plugin) -->
+    <uses-permission android:name="com.android.vending.BILLING" />
+
     <!-- Background keep-alive (Mob.Background) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"

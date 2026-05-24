@@ -54,6 +54,21 @@
     <!-- Haptic feedback -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!--
+      In-app purchases (MobIap plugin).
+
+      Declared unconditionally because: (1) it has no runtime cost when
+      the app doesn't use Play Billing, and (2) making it conditional
+      requires either a generator flag or a deps-introspecting template,
+      both of which add complexity for marginal benefit.
+
+      Tradeoff: if your app does NOT integrate IAP, Google Play Console
+      may surface a warning during review noting the declared permission
+      is unused. To remove this declaration for non-IAP apps, delete
+      this `uses-permission` line.
+    -->
+    <uses-permission android:name="com.android.vending.BILLING" />
+
     <!-- Background keep-alive (Mob.Background) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"

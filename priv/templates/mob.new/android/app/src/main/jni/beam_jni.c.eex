@@ -211,6 +211,19 @@ Java_<%= jni_package %>_MobBridge_nativeDeliverAlertAction(JNIEnv* env, jclass c
     (*env)->ReleaseStringUTFChars(env, action, ca);
 }
 
+// Called from MobBridge.nativeBeginBackgroundTask when WorkManager fires.
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeBeginBackgroundTask(JNIEnv* env, jclass cls,
+    jstring uuid, jstring type, jstring payload) {
+    const char* c_uuid    = (*env)->GetStringUTFChars(env, uuid,    NULL);
+    const char* c_type    = (*env)->GetStringUTFChars(env, type,    NULL);
+    const char* c_payload = (*env)->GetStringUTFChars(env, payload, NULL);
+    mob_begin_background_task(c_uuid, c_type, c_payload ? c_payload : "");
+    if (c_uuid)    (*env)->ReleaseStringUTFChars(env, uuid,    c_uuid);
+    if (c_type)    (*env)->ReleaseStringUTFChars(env, type,    c_type);
+    if (c_payload) (*env)->ReleaseStringUTFChars(env, payload, c_payload);
+}
+
 JNIEXPORT void JNICALL
 Java_<%= jni_package %>_MobBridge_nativeDeliverComponentEvent(JNIEnv* env, jclass cls,
     jint handle, jstring event, jstring payload_json) {

@@ -440,6 +440,9 @@ object MobBridge {
     @JvmStatic external fun nativeDeliverWebViewBlocked(pid: Long, url: String)
     @JvmStatic external fun nativeDeliverAlertAction(action: String)
 
+    // ── Mob.Background.Task — background task bridge ──────────────────────
+    @JvmStatic external fun nativeBeginBackgroundTask(uuid: String, type: String, payload: String)
+
   // ── Mob.Bt — typed delivery externs (Phase 2 B-pure) ─────────────────────
   @JvmStatic external fun nativeDeliverBtDiscoveryStarted(pid: Long)
   @JvmStatic external fun nativeDeliverBtDiscoveryFinished(pid: Long)

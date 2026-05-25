@@ -20,6 +20,14 @@ class MobFirebaseService : FirebaseMessagingService() {
     // directly; otherwise a JSON object is built from the notification fields.
     override fun onMessageReceived(message: RemoteMessage) {
         val pid = MobBridge.notifyPid
+
+        val bgType = message.data["mob_background_task"]
+        if (bgType != null) {
+            val bgPayload = message.data["mob_background_payload"] ?: "{}"
+            MobBackgroundWorker.enqueue(this, bgType, bgPayload)
+            return
+        }
+
         if (pid == 0L) return
         val json = message.data["mob_notification_json"] ?: run {
             val notif = message.notification ?: return

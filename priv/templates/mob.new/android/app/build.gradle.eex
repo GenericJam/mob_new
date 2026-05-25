@@ -123,4 +123,7 @@ dependencies {
     // retrieval will fail at runtime until you swap the file.
     implementation platform('com.google.firebase:firebase-bom:33.1.0')
     implementation 'com.google.firebase:firebase-messaging'
+
+    // WorkManager — background task execution triggered by FCM data messages.
+    implementation 'androidx.work:work-runtime:2.9.0'
 }

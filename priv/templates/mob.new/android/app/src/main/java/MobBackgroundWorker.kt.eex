@@ -1,0 +1,50 @@
+package <%= bundle_id %>
+
+import android.content.Context
+import android.util.Log
+import androidx.work.Worker
+import androidx.work.WorkerParameters
+import androidx.work.Data
+import java.util.UUID
+
+// WorkManager background worker triggered by FCM data messages.
+// Sends {:background_task, uuid, :fcm_data, payload_json, deadline_us}
+// to the BEAM via JNI. The worker returns immediately — the BEAM runs
+// the actual background work on its own schedulers.
+class MobBackgroundWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
+
+    override fun doWork(): Result {
+        val uuid = UUID.randomUUID().toString()
+        val type = inputData.getString("type") ?: "fcm_data"
+        val payload = inputData.getString("payload") ?: ""
+
+        Log.d(TAG, "Starting background task uuid=$uuid type=$type")
+
+        // Call into the native layer to deliver the message to BEAM.
+        MobBridge.nativeBeginBackgroundTask(uuid, type, payload)
+
+        // Return immediately. The BEAM handles the work asynchronously.
+        return Result.success()
+    }
+
+    companion object {
+        private const val TAG = "MobBackgroundWorker"
+        const val WORK_NAME = "mob_background_task"
+
+        // Enqueue a one-off expedited background work request.
+        fun enqueue(context: Context, type: String = "fcm_data", payload: String = ""): androidx.work.Operation {
+            val data = Data.Builder()
+                .putString("type", type)
+                .putString("payload", payload)
+                .build()
+
+            val request = androidx.work.OneTimeWorkRequestBuilder<MobBackgroundWorker>()
+                .setInputData(data)
+                .setExpedited(androidx.work.OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .build()
+
+            return androidx.work.WorkManager.getInstance(context)
+                .enqueueUniqueWork(WORK_NAME, androidx.work.ExistingWorkPolicy.APPEND, request)
+        }
+    }
+}

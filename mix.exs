@@ -4,7 +4,7 @@ defmodule MobNew.MixProject do
   def project do
     [
       app: :mob_new,
-      version: "0.3.10",
+      version: "0.3.11",
       elixir: "~> 1.19",
       deps: deps(),
       description: "Project generator for the Mob mobile framework",

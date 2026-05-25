@@ -8,6 +8,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.3.11]
+
+### Fixed
+- **Android WebView now fills its bounds** — `MobWebView` sets `MATCH_PARENT` layout params plus `useWideViewPort` / `loadWithOverviewMode`. The WebView previously defaulted to `wrap_content`, so any full-viewport page loaded into it (CSS `100vh` / `100%` — e.g. an embedded xterm.js terminal) measured its container as 0px and rendered blank. Surfaced while building a terminal-in-mob proof-of-concept; fix verified on a physical Android device (xterm.js terminal renders and accepts input). iOS WKWebView is unaffected — it's sized by its SwiftUI frame, so `vh` units already resolve.
+
 ## [0.3.10]
 
 ### Added

@@ -3077,8 +3077,21 @@ private fun MobWebView(node: MobNode, modifier: Modifier) {
             modifier = Modifier.weight(1f),
             factory  = { ctx ->
                 android.webkit.WebView(ctx).apply {
+                    // Fill the AndroidView's allocated bounds. Without explicit
+                    // MATCH_PARENT layout params the WebView defaults to
+                    // wrap_content, so a full-viewport web app (CSS 100vh/100%,
+                    // e.g. an xterm.js terminal) measures its container as 0px
+                    // and collapses to nothing. useWideViewPort +
+                    // loadWithOverviewMode make the WebView honour the page's
+                    // viewport meta so vh units resolve correctly.
+                    layoutParams = android.view.ViewGroup.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
                     addJavascriptInterface(object : Any() {
                         @android.webkit.JavascriptInterface
                         fun postMessage(json: String) {

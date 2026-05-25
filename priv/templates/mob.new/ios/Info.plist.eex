@@ -30,6 +30,8 @@
     <key>UIBackgroundModes</key>
     <array>
         <string>audio</string>
+        <string>fetch</string>
+        <string>remote-notification</string>
     </array>
     <key>NSCameraUsageDescription</key>
     <string><%= display_name %> uses the camera for capture and preview.</string>

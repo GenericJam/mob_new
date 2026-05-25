@@ -75,6 +75,12 @@ pub fn build(b: *std.Build) void {
     // iOS template's `-Denif_keepalive=` arg.
     const enif_keepalive = b.option([]const u8, "enif_keepalive", "Absolute path to generated enif_keepalive.c (empty if none needed)") orelse "";
 
+    // Plugin native C sources (auto-discovered by mob_dev from deps).
+    // Each entry: "name:path" where name is the .o basename and path
+    // is the absolute source path. mob_dev scans priv/native/android/jni/
+    // for .c files and emits `-Dproject_plugin_sources=name:path,...`.
+    const project_plugin_sources = b.option([]const u8, "project_plugin_sources", "Comma-separated name:path pairs for plugin native sources") orelse "";
+
     const target_query = abi_to_target(abi) orelse {
         std.debug.print(
             "ERROR: unsupported -Dabi={s} (expected arm64-v8a or armeabi-v7a)\n",
@@ -226,6 +232,35 @@ pub fn build(b: *std.Build) void {
                 .mob_dir = mob_dir,
             });
             const install = b.addInstallFile(obj, b.fmt("{s}/{s}.o", .{ abi, nif_name }));
+            c_objects_step.dependOn(&install.step);
+            obj_paths.append(b.allocator, obj) catch @panic("OOM");
+        }
+    }
+
+    // --- Plugin native C sources (auto-discovered from deps) ────────────────
+    // mob_dev scans each dependency for `priv/native/android/jni/*.c` and
+    // passes them as `-Dproject_plugin_sources=name:path,...`. Each .c
+    // file is compiled as a plain C object and linked into lib<app>.so.
+    // Plugin Kotlin files are handled separately by Gradle (copied into
+    // the project's java tree by mob_dev).
+    if (project_plugin_sources.len > 0) {
+        var plug_it = std.mem.splitScalar(u8, project_plugin_sources, ',');
+        while (plug_it.next()) |pair| {
+            if (pair.len == 0) continue;
+            var colon_it = std.mem.splitScalar(u8, pair, ':');
+            const name = colon_it.next() orelse continue;
+            const path = colon_it.next() orelse continue;
+            const obj = addCObject(b, .{
+                .name = name,
+                .source = path,
+                .target = target,
+                .optimize = optimize,
+                .c_flags = c_flags,
+                .otp_dir = otp_dir,
+                .erts_vsn = erts_vsn,
+                .mob_dir = mob_dir,
+            });
+            const install = b.addInstallFile(obj, b.fmt("{s}/{s}.o", .{ abi, name }));
             c_objects_step.dependOn(&install.step);
             obj_paths.append(b.allocator, obj) catch @panic("OOM");
         }

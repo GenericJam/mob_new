@@ -9,6 +9,11 @@
 // Declared in mob_nif — delivers {:push_token, :ios, token} to the registered screen process.
 extern void mob_send_push_token(const char* hex_token);
 
+// Declared in mob_beam.h — begins an OS background task and delivers
+// {:background_task, uuid, type, payload, deadline_us} to the BEAM.
+extern void mob_begin_background_task(const char* type, const char* payload_json,
+                                       void (^completion)(UIBackgroundFetchResult));
+
 static void* beam_thread(void* arg) {
     mob_start_beam((const char*)arg);
     return NULL;
@@ -53,6 +58,23 @@ static void* beam_thread(void* arg) {
 - (void)application:(UIApplication*)app
     didFailToRegisterForRemoteNotificationsWithError:(NSError*)error {
     NSLog(@"[Mob] Failed to register for remote notifications: %@", error);
+}
+
+- (void)application:(UIApplication *)app
+    didReceiveRemoteNotification:(NSDictionary *)userInfo
+    fetchCompletionHandler:(void (^)(UIBackgroundFetchResult))completionHandler {
+    // Silent push (content-available: 1).  Convert the APNS payload to JSON
+    // and hand it to the BEAM as a background task.
+    NSError *err = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:userInfo options:0 error:&err];
+    NSString *json = err ? nil : [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    mob_begin_background_task("silent_push", [json UTF8String], completionHandler);
+}
+
+- (void)application:(UIApplication *)application
+    performFetchWithCompletionHandler:(void (^)(UIBackgroundFetchResult))completionHandler {
+    // iOS background fetch — OS wakes the app periodically (15–60 min).
+    mob_begin_background_task("background_fetch", NULL, completionHandler);
 }
 
 @end

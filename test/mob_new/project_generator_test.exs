@@ -376,6 +376,25 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "BroadcastReceiver"
     end
 
+    test "MobBridge.kt WebView fills its bounds so full-viewport pages don't collapse",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # Regression: an Android WebView defaults to wrap_content, so a web app
+      # using CSS 100vh / 100% (e.g. an xterm.js terminal) measures its
+      # container as 0px and renders blank. The WebView must request
+      # MATCH_PARENT layout and honour the page viewport so vh units resolve.
+      assert content =~ "ViewGroup.LayoutParams.MATCH_PARENT",
+             "MobWebView must set MATCH_PARENT layout params, else full-viewport " <>
+               "pages collapse to 0px height and render blank"
+
+      assert content =~ "settings.useWideViewPort = true"
+      assert content =~ "settings.loadWithOverviewMode = true"
+    end
+
     test "MobBridge.kt passes structural lints (no dup imports, balanced delimiters, no EEx leaks)",
          %{tmp: tmp} do
       # Aggregate structural check via Lint.check_kotlin/1.

@@ -8,6 +8,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.3.12]
+
+### Fixed
+- **Generated `.gitignore` now excludes native build artifacts and signing secrets.** The template only ignored `_build`/`deps`/`*.beam`/`android/app/build/`, so a fresh project that ran a native build and then `git add -A` would commit `.cxx/` and `.zig-cache/` outputs, the bundled OTP zip (~19 MB), compiled `*.o`/`*.so`/`*.a`, and — worst — the Android signing keystore + `keystore.properties`. Both generation paths are covered: the bare-Mob `.gitignore` heredoc, and `patch_gitignore/1` on the LiveView path now appends the native-excludes block to Phoenix's own `.gitignore` (idempotent, sentinel-guarded). A generator test pins the critical patterns. Surfaced when pushing a fresh project to GitHub and finding build junk staged.
+
 ## [0.3.11]
 
 ### Fixed

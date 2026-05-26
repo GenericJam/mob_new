@@ -209,6 +209,31 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "TestApp.HomeScreen"
     end
 
+    test ".gitignore excludes native build artifacts and signing secrets", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      gi = File.read!(Path.join(dir, ".gitignore"))
+
+      # Regression: a fresh project's `git add -A` after a native build must
+      # not commit build junk or secrets. The template previously only
+      # ignored _build/deps/app-build, so .cxx/, .zig-cache/, the bundled
+      # OTP zip (~19MB), and keystores all leaked into version control.
+      for pattern <- [
+            "*.o",
+            "*.so",
+            "*.a",
+            "android/app/.cxx/",
+            "**/.zig-cache/",
+            "android/app/src/main/assets/otp.zip",
+            "android/keystore.properties",
+            "android/*.keystore",
+            "erl_crash.dump"
+          ] do
+        assert gi =~ pattern,
+               ".gitignore must exclude #{pattern} — else fresh projects commit " <>
+                 "build artifacts / secrets on `git add -A`"
+      end
+    end
+
     test "generates AndroidManifest.xml", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       manifest = Path.join(dir, "android/app/src/main/AndroidManifest.xml")

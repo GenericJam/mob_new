@@ -234,6 +234,21 @@ defmodule MobNew.ProjectGeneratorTest do
       end
     end
 
+    test ".credo.exs registers ExSlop as a plugin, not a check", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      credo = File.read!(Path.join(dir, ".credo.exs"))
+
+      # Regression: ex_slop >= 0.4.2 is a Credo *plugin*. Registering it under
+      # checks.enabled (as the template used to) makes Credo ignore it as an
+      # "undefined check" and run zero ex_slop checks — silently. It must live
+      # in plugins:, and the dep must be pinned to the plugin-API version.
+      assert credo =~ "plugins: [{ExSlop, []}]",
+             ".credo.exs must register ExSlop as a plugin or ex_slop is a no-op"
+
+      refute credo =~ ~r/enabled:.*ExSlop/s,
+             "ExSlop under checks.enabled is the bug — Credo ignores it there"
+    end
+
     test "generates AndroidManifest.xml", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       manifest = Path.join(dir, "android/app/src/main/AndroidManifest.xml")

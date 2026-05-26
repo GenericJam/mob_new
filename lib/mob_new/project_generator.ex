@@ -391,10 +391,29 @@ defmodule MobNew.ProjectGenerator do
     /.fetch
     *.ez
     *.beam
+    *.o
+    *.so
+    *.a
+    erl_crash.dump
     mob.exs
+
+    # Signing secrets — NEVER commit
+    android/keystore.properties
+    android/*.keystore
+
+    # Native build caches / outputs
+    android/app/src/main/assets/otp.zip
     android/local.properties
     android/.gradle/
     android/app/build/
+    android/app/.cxx/
+    ios/zig-out/
+    ios/.zig-cache/
+    **/.zig-cache/
+    _build/mob_release/
+
+    # macOS
+    .DS_Store
     """
   }
 
@@ -1049,11 +1068,42 @@ defmodule MobNew.ProjectGenerator do
     if File.exists?(path) do
       content = File.read!(path)
 
-      unless String.contains?(content, "mob.exs") do
-        File.write!(path, content <> "\n# Mob local config\nmob.exs\n")
-        Mix.shell().info([:green, "* patch ", :reset, path, " (added mob.exs)"])
+      # Phoenix ships its own .gitignore (so the native template's is blocked
+      # by liveview_phoenix_owned?/3), but it knows nothing about Mob's native
+      # build: the bundled OTP zip, .cxx/.zig-cache outputs, and Android signing
+      # keystores would all be committed on `git add -A`. Append what's missing,
+      # each guarded by a sentinel so re-running the generator stays idempotent.
+      additions =
+        [
+          {"mob.exs", "# Mob local config\nmob.exs\n"},
+          {"android/app/.cxx/", mob_native_gitignore_block()}
+        ]
+        |> Enum.reject(fn {sentinel, _} -> String.contains?(content, sentinel) end)
+        |> Enum.map_join("\n", fn {_sentinel, block} -> block end)
+
+      unless additions == "" do
+        File.write!(path, content <> "\n" <> additions)
+        Mix.shell().info([:green, "* patch ", :reset, path, " (mob excludes)"])
       end
     end
+  end
+
+  defp mob_native_gitignore_block do
+    """
+    # Mob native build caches / outputs and signing secrets
+    *.o
+    *.so
+    *.a
+    erl_crash.dump
+    android/keystore.properties
+    android/*.keystore
+    android/app/src/main/assets/otp.zip
+    android/app/.cxx/
+    ios/zig-out/
+    ios/.zig-cache/
+    **/.zig-cache/
+    _build/mob_release/
+    """
   end
 
   # ── Dep resolution ────────────────────────────────────────────────────────────

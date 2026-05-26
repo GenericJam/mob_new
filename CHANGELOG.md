@@ -8,6 +8,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.3.13]
+
+### Fixed
+- **Generated `.credo.exs` now actually runs ex_slop.** The template registered `{ExSlop, []}` under `checks.enabled`, but ex_slop ≥ 0.4.2 is a Credo *plugin* — listed as a check it's ignored as an "undefined check" and runs *zero* ex_slop checks, silently (the build still passes, so the regression is invisible). Generated projects have had AI-slop linting disabled. Now registered under `plugins:`, with the dep pinned to `~> 0.4.2` (the plugin-API version) so config and version can't drift. A generator test pins it. (The mob/mob_dev/mob_new repos themselves are unaffected — they're on ex_slop 0.4.0, where ExSlop is still a check and the existing wiring is correct.)
+
 ## [0.3.12]
 
 ### Fixed

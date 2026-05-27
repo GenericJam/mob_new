@@ -1,7 +1,8 @@
 defmodule Mix.Tasks.Mob.New do
   use Mix.Task
 
-  @shortdoc "Create a new Mob mobile app project"
+  @version Mix.Project.config()[:version]
+  @shortdoc "Create a new Mob v#{@version} mobile app project"
 
   @moduledoc """
   Creates a new Mob project with Android and iOS boilerplate.
@@ -44,6 +45,7 @@ defmodule Mix.Tasks.Mob.New do
                          the `Embedded CPython` guide in mob_dev's docs.
     * `--no-install`   — skip running `mix deps.get` after generation
     * `--dest DIR`     — create project in DIR (default: current directory)
+    * `--version`      — print the mob_new version and exit
     * `--local`        — use `path:` deps pointing to local mob/mob_dev repos
                          instead of hex version constraints, AND render from
                          the local mob_new checkout's templates (not the
@@ -116,12 +118,23 @@ defmodule Mix.Tasks.Mob.New do
     dest: :string,
     local: :boolean,
     liveview: :boolean,
-    python: :boolean
+    python: :boolean,
+    version: :boolean
   ]
 
   @impl Mix.Task
   def run(argv) do
     {opts, args, _} = OptionParser.parse(argv, strict: @switches)
+
+    if opts[:version] do
+      Mix.shell().info("mob_new v#{@version}")
+      :ok
+    else
+      run_generate(args, opts)
+    end
+  end
+
+  defp run_generate(args, opts) do
     app_name = parse_app_name!(args)
     {dest_dir, liveview, gen_opts} = parse_gen_opts(opts)
     project_dir = Path.join(Path.expand(dest_dir), app_name)

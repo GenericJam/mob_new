@@ -1031,6 +1031,22 @@ defmodule MobNew.ProjectGeneratorTest do
         assert content =~ "std.mem.splitScalar(u8, project_swift_sources, ',')"
         assert content =~ "swift_run.addFileArg(.{ .cwd_relative = source });"
       end
+
+      test "#{@label} build.zig globs mob Swift sources (no hardcoded file list)",
+           %{tmp: tmp} do
+        {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+        content = File.read!(Path.join(dir, @path))
+
+        # mob Swift sources are globbed from $mob_dir/ios at build time so a
+        # newly-added file (e.g. MobGpuView.swift, referenced by MobRootView)
+        # compiles without a template edit — listing files by name is how a new
+        # mob Swift file broke iOS builds.
+        assert content =~ ~s|b.build_root.handle.openDir(glob_io, b.fmt("{s}/ios", .{mob_dir})|
+        assert content =~ ~s|std.mem.endsWith(u8, entry.name, ".swift")|
+
+        refute content =~ ~s|b.fmt("{s}/ios/MobGpuView.swift", .{mob_dir})|,
+               "#{@label} build.zig must glob ios/*.swift, not list mob Swift files by name"
+      end
     end
 
     # Regression: the Android jni build.zig must declare `tflite_static` as

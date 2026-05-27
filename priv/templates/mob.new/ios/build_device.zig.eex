@@ -93,9 +93,19 @@ pub fn build(b: *std.Build) void {
     swift_run.addArg("-I");
     swift_run.addArg(b.fmt("{s}/ios", .{mob_dir}));
     swift_run.addArgs(&.{ "-parse-as-library", "-wmo" });
-    swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobViewModel.swift", .{mob_dir}) });
-    swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobRootView.swift", .{mob_dir}) });
-    swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobGpuView.swift", .{mob_dir}) });
+    // Glob all mob Swift sources so a newly-added file (e.g. MobGpuView.swift,
+    // referenced by MobRootView) compiles without editing this template.
+    {
+        const glob_io = b.graph.io;
+        var mob_ios = b.build_root.handle.openDir(glob_io, b.fmt("{s}/ios", .{mob_dir}), .{ .iterate = true }) catch @panic("mob ios dir not found");
+        defer mob_ios.close(glob_io);
+        var swift_entries = mob_ios.iterate();
+        while (swift_entries.next(glob_io) catch @panic("mob ios dir iterate failed")) |entry| {
+            if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".swift")) {
+                swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/{s}", .{ mob_dir, entry.name }) });
+            }
+        }
+    }
     if (project_swift_sources.len > 0) {
         var swift_it = std.mem.splitScalar(u8, project_swift_sources, ',');
         while (swift_it.next()) |source| {

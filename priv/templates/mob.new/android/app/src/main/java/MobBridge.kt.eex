@@ -3113,6 +3113,24 @@ private fun MobWebView(node: MobNode, modifier: Modifier) {
     val allowList = allowStr.split(",").filter { it.isNotEmpty() }
     val title     = node.props["title"] as? String
 
+    // File-chooser plumbing for HTML <input type="file"> inside the WebView
+    // (e.g. Livebook's Upload import, attachments). Without a WebChromeClient
+    // that handles onShowFileChooser, tapping a file input does nothing.
+    val filePathCallback =
+        remember { mutableStateOf<android.webkit.ValueCallback<Array<android.net.Uri>>?>(null) }
+    val fileChooserLauncher =
+        androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            val uris =
+                android.webkit.WebChromeClient.FileChooserParams.parseResult(
+                    result.resultCode,
+                    result.data,
+                )
+            filePathCallback.value?.onReceiveValue(uris)
+            filePathCallback.value = null
+        }
+
     Column(modifier = modifier) {
         if (title != null) {
             Text(text = title, fontSize = 12.sp,
@@ -3156,6 +3174,31 @@ private fun MobWebView(node: MobNode, modifier: Modifier) {
                             if (allowList.any { reqUrl.startsWith(it) }) return false
                             MobBridge.nativeDeliverWebViewBlocked(0L, reqUrl)
                             return true
+                        }
+                    }
+                    webChromeClient = object : android.webkit.WebChromeClient() {
+                        override fun onShowFileChooser(
+                            webView: android.webkit.WebView?,
+                            callback: android.webkit.ValueCallback<Array<android.net.Uri>>?,
+                            params: android.webkit.WebChromeClient.FileChooserParams?,
+                        ): Boolean {
+                            // Cancel any in-flight chooser, then launch the picker the
+                            // page asked for (params carries its accept/multiple flags).
+                            filePathCallback.value?.onReceiveValue(null)
+                            filePathCallback.value = callback
+                            val intent = params?.createIntent()
+                            return if (intent != null) {
+                                try {
+                                    fileChooserLauncher.launch(intent)
+                                    true
+                                } catch (e: Exception) {
+                                    filePathCallback.value = null
+                                    false
+                                }
+                            } else {
+                                filePathCallback.value = null
+                                false
+                            }
                         }
                     }
                     MobBridge.webView = this

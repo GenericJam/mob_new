@@ -401,6 +401,18 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(path)
     end
 
+    test "MobBridge.kt declares ttsSpeak/ttsStop for text-to-speech", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # Android side of Mob.Speech — TextToSpeech driven via JNI-cached methods.
+      assert content =~ "import android.speech.tts.TextToSpeech"
+      assert content =~ "fun ttsSpeak(text: String, optsJson: String)"
+      assert content =~ "fun ttsStop()"
+    end
+
     test "MobBridge.kt declares Bluetooth Classic external fns + receivers", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

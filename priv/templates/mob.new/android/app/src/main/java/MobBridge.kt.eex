@@ -22,6 +22,7 @@ import android.net.Uri
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.os.SystemClock
+import android.speech.tts.TextToSpeech
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.app.ActivityCompat
@@ -1651,6 +1652,50 @@ object MobBridge {
                 view.performHapticFeedback(constant, HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING)
             }
         }
+    }
+
+    // ── Text-to-speech ──────────────────────────────────────────────────────
+    // TextToSpeech initializes asynchronously; we keep one engine alive and
+    // queue the first utterance until onInit fires.
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private var ttsPending: Pair<String, String>? = null
+
+    /** Called from nif_tts_speak via JNI — speaks text via TextToSpeech.
+     *  optsJson may carry {"rate":Float,"pitch":Float,"voice":"en-US"} (all optional). */
+    @JvmStatic
+    fun ttsSpeak(text: String, optsJson: String) {
+        val activity = activityRef?.get() ?: return
+        activity.runOnUiThread {
+            if (tts == null) {
+                tts = TextToSpeech(activity.applicationContext) { status ->
+                    ttsReady = status == TextToSpeech.SUCCESS
+                    val pending = ttsPending
+                    ttsPending = null
+                    if (ttsReady && pending != null) speakNow(pending.first, pending.second)
+                }
+            }
+            if (ttsReady) speakNow(text, optsJson) else ttsPending = text to optsJson
+        }
+    }
+
+    private fun speakNow(text: String, optsJson: String) {
+        val engine = tts ?: return
+        try {
+            val opts = org.json.JSONObject(optsJson)
+            if (opts.has("rate")) engine.setSpeechRate(opts.getDouble("rate").toFloat())
+            if (opts.has("pitch")) engine.setPitch(opts.getDouble("pitch").toFloat())
+            if (opts.has("voice"))
+                engine.setLanguage(java.util.Locale.forLanguageTag(opts.getString("voice")))
+        } catch (_: Exception) {
+        }
+        engine.speak(text, TextToSpeech.QUEUE_ADD, null, "mob_tts_${System.currentTimeMillis()}")
+    }
+
+    /** Called from nif_tts_stop via JNI — stops any in-progress speech immediately. */
+    @JvmStatic
+    fun ttsStop() {
+        tts?.stop()
     }
 
     /** Called from nif_clipboard_put via JNI — writes text to the system clipboard. */

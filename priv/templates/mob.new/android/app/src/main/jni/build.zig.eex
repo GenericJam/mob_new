@@ -59,6 +59,11 @@ pub fn build(b: *std.Build) void {
     // currently skips project NIFs — issue #19 scope is arm64 first).
     const project_c_nifs = b.option([]const u8, "project_c_nifs", "Comma-separated C NIF names (each at c_src/<name>.c); empty if none") orelse "";
     const project_rust_libs = b.option([]const u8, "project_rust_libs", "Comma-separated absolute paths to Rust/Zig NIF .a files (pre-built by mob_dev); empty if none") orelse "";
+    // Plugin C NIFs — absolute paths to .c files contributed by activated
+    // mob plugins (mob_dev gathers these from each plugin's manifest).
+    // Basename (sans .c) is the NIF module name, used for the
+    // STATIC_ERLANG_NIF_LIBNAME flag below.
+    const plugin_c_nifs = b.option([]const u8, "plugin_c_nifs", "Comma-separated absolute paths to plugin C NIF sources; basename = NIF module name; empty if none") orelse "";
     // NxEigen (Eigen-backed Nx backend, C++ NIF). mob_dev cross-compiles
     // libnx_eigen.a per arch and threads the per-abi path through nxeigen_lib.
     const nxeigen_static = b.option(bool, "nxeigen_static", "NxEigen NIF statically linked (-DMOB_STATIC_NX_EIGEN_NIF on driver_tab)") orelse false;
@@ -226,6 +231,40 @@ pub fn build(b: *std.Build) void {
                 .mob_dir = mob_dir,
             });
             const install = b.addInstallFile(obj, b.fmt("{s}/{s}.o", .{ abi, nif_name }));
+            c_objects_step.dependOn(&install.step);
+            obj_paths.append(b.allocator, obj) catch @panic("OOM");
+        }
+    }
+
+    // --- Plugin C NIFs (gathered by mob_dev from activated plugins) ──────────
+    // Same shape as project_c_nifs above but with absolute paths (plugins live
+    // outside the host's c_src/). Basename (sans .c) is the NIF module name,
+    // matching the manifest's nif :module and the symbol the driver table
+    // references via STATIC_ERLANG_NIF_LIBNAME.
+    if (plugin_c_nifs.len > 0) {
+        var p_it = std.mem.splitScalar(u8, plugin_c_nifs, ',');
+        while (p_it.next()) |path| {
+            if (path.len == 0) continue;
+            const basename = std.fs.path.basename(path);
+            const name = if (std.mem.endsWith(u8, basename, ".c"))
+                basename[0 .. basename.len - 2]
+            else
+                basename;
+            const flags = b.allocator.alloc([]const u8, c_flags.len + 1) catch @panic("OOM");
+            @memcpy(flags[0..c_flags.len], c_flags);
+            flags[c_flags.len] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name});
+
+            const obj = addCObject(b, .{
+                .name = name,
+                .source = path,
+                .target = target,
+                .optimize = optimize,
+                .c_flags = flags,
+                .otp_dir = otp_dir,
+                .erts_vsn = erts_vsn,
+                .mob_dir = mob_dir,
+            });
+            const install = b.addInstallFile(obj, b.fmt("{s}/{s}.o", .{ abi, name }));
             c_objects_step.dependOn(&install.step);
             obj_paths.append(b.allocator, obj) catch @panic("OOM");
         }

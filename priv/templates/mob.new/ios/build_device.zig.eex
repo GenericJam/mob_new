@@ -68,6 +68,10 @@ pub fn build(b: *std.Build) void {
     const project_c_nifs = b.option([]const u8, "project_c_nifs", "Comma-separated C NIF names (each at c_src/<name>.c); empty if none") orelse "";
     const project_rust_libs = b.option([]const u8, "project_rust_libs", "Comma-separated absolute paths to Rust NIF .a files (pre-built by mob_dev)") orelse "";
     const project_swift_sources = b.option([]const u8, "project_swift_sources", "Comma-separated absolute paths to extra project Swift sources; empty if none") orelse "";
+    // Plugin contributions gathered by mob_dev from activated plugin manifests
+    // (same shape as the sim build).
+    const plugin_swift_files = b.option([]const u8, "plugin_swift_files", "Comma-separated absolute paths to plugin Swift sources; empty if none") orelse "";
+    const plugin_frameworks = b.option([]const u8, "plugin_frameworks", "Comma-separated iOS framework names contributed by plugins; empty if none") orelse "";
 
     const objects_step = b.step("objects", "Compile C, ObjC, and Swift objects for iOS device");
     const binary_step = b.step("binary", "Compile + link the iOS device binary (default)");
@@ -109,6 +113,15 @@ pub fn build(b: *std.Build) void {
     if (project_swift_sources.len > 0) {
         var swift_it = std.mem.splitScalar(u8, project_swift_sources, ',');
         while (swift_it.next()) |source| {
+            if (source.len == 0) continue;
+            swift_run.addFileArg(.{ .cwd_relative = source });
+        }
+    }
+    // Plugin-contributed Swift sources compile in the same step so the
+    // -emit-objc-header pass sees everything that needs to bridge to ObjC.
+    if (plugin_swift_files.len > 0) {
+        var plugin_swift_it = std.mem.splitScalar(u8, plugin_swift_files, ',');
+        while (plugin_swift_it.next()) |source| {
             if (source.len == 0) continue;
             swift_run.addFileArg(.{ .cwd_relative = source });
         }
@@ -324,6 +337,7 @@ pub fn build(b: *std.Build) void {
         .nxeigen_static = nxeigen_static,
         .nxeigen_dir = nxeigen_dir,
         .project_rust_libs = project_rust_libs,
+        .plugin_frameworks = plugin_frameworks,
         .objects = objs.items,
     });
 }
@@ -532,6 +546,8 @@ const LinkOptions = struct {
     // Comma-separated absolute paths to project-side Rust NIF .a files.
     // Empty if the project has no Rust NIFs.
     project_rust_libs: []const u8,
+    // Plugin-contributed extra iOS frameworks (comma-separated).
+    plugin_frameworks: []const u8 = "",
     objects: []const std.Build.LazyPath,
 };
 
@@ -619,6 +635,17 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
     };
     for (frameworks_base) |fw| {
         run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", fw });
+    }
+
+    // Plugin-contributed frameworks (gathered by mob_dev from activated
+    // manifests). ld dedups -framework args so overlap with the base list
+    // is harmless.
+    if (opts.plugin_frameworks.len > 0) {
+        var fw_it = std.mem.splitScalar(u8, opts.plugin_frameworks, ',');
+        while (fw_it.next()) |fw| {
+            if (fw.len == 0) continue;
+            run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", fw });
+        }
     }
 
     // MLX-CPU uses Apple's Accelerate framework (vectorized BLAS/LAPACK

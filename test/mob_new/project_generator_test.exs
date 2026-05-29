@@ -646,6 +646,23 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ~s(#import "MobApp-Swift.h")
     end
 
+    test "AppDelegate.m declares and calls mob_register_plugins() before mob_init_ui()",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/AppDelegate.m"))
+
+      # The extern declaration must be present so the call resolves at link
+      # time against the @_cdecl symbol the bootstrap Swift file exports.
+      assert content =~ "extern void mob_register_plugins(void);"
+
+      # The call must come before mob_init_ui() — see comment in template;
+      # plugins register their factories with MobNativeViewRegistry.shared and
+      # the registry has to be populated by the time the BEAM starts mounting.
+      register_idx = :binary.match(content, "mob_register_plugins();") |> elem(0)
+      init_idx = :binary.match(content, "mob_init_ui();") |> elem(0)
+      assert register_idx < init_idx
+    end
+
     test "does NOT generate ios/build.sh — iOS sim build glue lives in mob_dev's NativeBuild as of iter 13b",
          %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)

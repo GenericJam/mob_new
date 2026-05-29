@@ -301,11 +301,14 @@ object MobBridge {
         var horizontal: Boolean = false
     }
 
-    private val scrollHandlesById = mutableMapOf<String, ScrollHandle>()
+    // Concurrent: written from the Compose main thread (registration), read from
+    // the NIF/binder thread (scrollInfo/scrollTo). computeIfAbsent keeps creation
+    // atomic so a registration race can't drop a handle.
+    private val scrollHandlesById = ConcurrentHashMap<String, ScrollHandle>()
     private val mainScope = CoroutineScope(Dispatchers.Main)
 
     fun scrollHandle(id: String): ScrollHandle =
-        scrollHandlesById.getOrPut(id) { ScrollHandle() }
+        scrollHandlesById.computeIfAbsent(id) { ScrollHandle() }
 
     // ── Element frame registry (positions without a screenshot) ────────────────
     //
@@ -313,7 +316,11 @@ object MobBridge {
     // window bounds (px) here and tags it with a Compose testTag. elementFrames()
     // returns them in dp so an agent can locate/drive elements by id over dist
     // with no image bytes. Populated by RenderNodeInner.
-    private val elementFramesById = mutableMapOf<String, FloatArray>()
+    //
+    // Concurrent: written from the Compose main thread (onGloballyPositioned),
+    // iterated from the NIF/binder thread (elementFrames). ConcurrentHashMap's
+    // weakly-consistent iteration can't throw ConcurrentModificationException.
+    private val elementFramesById = ConcurrentHashMap<String, FloatArray>()
 
     fun recordElementFrame(id: String, x: Float, y: Float, w: Float, h: Float) {
         elementFramesById[id] = floatArrayOf(x, y, w, h)

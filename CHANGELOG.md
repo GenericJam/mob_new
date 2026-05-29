@@ -8,6 +8,15 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.3.15]
+
+### Added
+- **Test-harness driving in `MobBridge.kt.eex` (Kotlin side of mob #40; companion to mob 0.6.23).** Generated apps gain the bridge methods mob's Zig NIFs call so a remotely-connected agent can capture, scroll, and locate elements over Erlang dist with no `adb`: `screenshot(format, quality, scale)` (`PixelCopy` → PNG/JPEG bytes, decor-view `draw` fallback pre-API-26); an id-keyed `ScrollHandle` registry with `scrollInfo(id)`/`scrollTo(id, x, y)` (`pixel` for `ScrollState`/`verticalScroll`, `index` for `LazyListState`); and `frameTrackingModifier(id)` (`testTag` + `onGloballyPositioned`) feeding `elementFrames()` → JSON `{id:[x,y,w,h]}` in dp. Opt-in per `:id`; untagged nodes get no tracking modifier. Registries clear on navigation. Verified end-to-end on a moto g power (Android 11) via a generated app.
+- **Android WebView handles HTML file inputs.** `MobWebView` wires `onShowFileChooser`, so `<input type="file">` in an embedded page now opens the system picker instead of silently doing nothing.
+
+### Fixed
+- **Bridge scroll/element-frame registries are now thread-safe.** `scrollHandlesById` and `elementFramesById` are written from the Compose main thread (registration / `onGloballyPositioned`) and read from the NIF/binder thread (`scrollInfo`/`scrollTo`/`elementFrames`). They were plain `mutableMapOf`, so a concurrent layout during a read could throw `ConcurrentModificationException`. Both are now `ConcurrentHashMap` (weakly-consistent iteration, no CME), and `scrollHandle/1` uses `computeIfAbsent` so a registration race can't drop a handle. (iOS already guarded its registry with `@synchronized`.)
+
 ## [0.3.13]
 
 ### Fixed

@@ -90,9 +90,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.platform.testTag
+import android.view.PixelCopy
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.draw.clip
@@ -279,6 +287,207 @@ object MobBridge {
     fun getOrCreateLazyListState(handle: Int): LazyListState =
         lazyListStates.getOrPut(handle) { LazyListState() }
 
+    // ── Test harness: id-addressable scroll registry + in-process capture ──────
+    //
+    // Gives a remotely-connected agent (Mob.Test.screenshot/scroll_info/scroll_to)
+    // pixels and deterministic scroll over Erlang dist, with no adb/xcrun. A
+    // ScrollHandle carries whichever Compose scroll state backs the node plus its
+    // measured viewport; the :scroll / lazy-list composables register themselves
+    // here by their :id prop.
+    class ScrollHandle {
+        var scrollState: ScrollState? = null // pixel-precise vertical/horizontal scroll
+        var lazyState: LazyListState? = null // item-indexed list
+        var viewportPx: Int = 0 // measured viewport extent (for ScrollState kind)
+        var horizontal: Boolean = false
+    }
+
+    private val scrollHandlesById = mutableMapOf<String, ScrollHandle>()
+    private val mainScope = CoroutineScope(Dispatchers.Main)
+
+    fun scrollHandle(id: String): ScrollHandle =
+        scrollHandlesById.getOrPut(id) { ScrollHandle() }
+
+    // ── Element frame registry (positions without a screenshot) ────────────────
+    //
+    // Any rendered node with an :id gets a frameTrackingModifier that records its
+    // window bounds (px) here and tags it with a Compose testTag. elementFrames()
+    // returns them in dp so an agent can locate/drive elements by id over dist
+    // with no image bytes. Populated by RenderNodeInner.
+    private val elementFramesById = mutableMapOf<String, FloatArray>()
+
+    fun recordElementFrame(id: String, x: Float, y: Float, w: Float, h: Float) {
+        elementFramesById[id] = floatArrayOf(x, y, w, h)
+    }
+
+    fun frameTrackingModifier(id: String): Modifier =
+        Modifier
+            .testTag(id)
+            .onGloballyPositioned { c ->
+                val b = c.boundsInWindow()
+                recordElementFrame(id, b.left, b.top, b.width, b.height)
+            }
+
+    /** JSON {id:[x,y,w,h], ...} in dp (matches screenInfo / tap_xy units). */
+    @JvmStatic
+    fun elementFrames(): String {
+        val density = activityRef?.get()?.resources?.displayMetrics?.density ?: 1f
+        val o = JSONObject()
+        for ((id, f) in elementFramesById) {
+            val arr = org.json.JSONArray()
+            arr.put((f[0] / density).toDouble())
+            arr.put((f[1] / density).toDouble())
+            arr.put((f[2] / density).toDouble())
+            arr.put((f[3] / density).toDouble())
+            o.put(id, arr)
+        }
+        return o.toString()
+    }
+
+    /**
+     * Capture the activity window in-process and return PNG/JPEG bytes.
+     * Called from nif_screenshot/3 via JNI. `scale` is a multiplier of native
+     * resolution (1.0 = full, 0.5 = half). Returns null when there is no live
+     * window (e.g. backgrounded) so the NIF can report {:error, :no_window}.
+     */
+    @JvmStatic
+    fun screenshot(format: String, quality: Int, scale: Double): ByteArray? {
+        val activity = activityRef?.get() ?: return null
+        val window = activity.window ?: return null
+        val decor = window.decorView
+        val w = decor.width
+        val h = decor.height
+        if (w <= 0 || h <= 0) return null
+
+        val src = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var ok = false
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            PixelCopy.request(window, src, { result ->
+                ok = result == PixelCopy.SUCCESS
+                latch.countDown()
+            }, handler)
+        } else {
+            // Pre-O fallback: draw the decor view (misses SurfaceView/GL layers).
+            handler.post {
+                ok =
+                    try {
+                        decor.draw(android.graphics.Canvas(src)); true
+                    } catch (e: Throwable) {
+                        false
+                    }
+                latch.countDown()
+            }
+        }
+
+        if (!latch.await(2, java.util.concurrent.TimeUnit.SECONDS) || !ok) return null
+
+        val bmp =
+            if (scale > 0.0 && scale != 1.0) {
+                Bitmap.createScaledBitmap(
+                    src,
+                    (w * scale).toInt().coerceAtLeast(1),
+                    (h * scale).toInt().coerceAtLeast(1),
+                    true
+                )
+            } else {
+                src
+            }
+
+        val out = java.io.ByteArrayOutputStream()
+        if (format == "jpeg") {
+            bmp.compress(Bitmap.CompressFormat.JPEG, quality.coerceIn(0, 100), out)
+        } else {
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+        return out.toByteArray()
+    }
+
+    /**
+     * Read a scroll view's offset/extent as a flat JSON object (the shape
+     * Mob.Test.scroll_info/2 decodes). Returns null when no scroll view is
+     * registered under `id`. `kind` is "pixel" for ScrollState (px units) or
+     * "index" for LazyListState (item-index units; viewport = visible items).
+     */
+    @JvmStatic
+    fun scrollInfo(id: String): String? {
+        val h = scrollHandlesById[id] ?: return null
+
+        h.scrollState?.let { s ->
+            val vp = h.viewportPx.toDouble()
+            val maxV = s.maxValue.toDouble()
+            val content = maxV + vp
+            val off = s.value.toDouble()
+            val o = JSONObject()
+            if (h.horizontal) {
+                o.put("offset_x", off); o.put("offset_y", 0.0)
+                o.put("content_w", content); o.put("content_h", vp)
+                o.put("viewport_w", vp); o.put("viewport_h", vp)
+                o.put("max_x", maxV); o.put("max_y", 0.0)
+            } else {
+                o.put("offset_x", 0.0); o.put("offset_y", off)
+                o.put("content_w", vp); o.put("content_h", content)
+                o.put("viewport_w", vp); o.put("viewport_h", vp)
+                o.put("max_x", 0.0); o.put("max_y", maxV)
+            }
+            o.put("kind", "pixel")
+            return o.toString()
+        }
+
+        h.lazyState?.let { ls ->
+            val li = ls.layoutInfo
+            val total = li.totalItemsCount.toDouble()
+            val visible = li.visibleItemsInfo.size.toDouble()
+            val first = ls.firstVisibleItemIndex.toDouble()
+            val maxIdx = (total - visible).coerceAtLeast(0.0)
+            val o = JSONObject()
+            o.put("offset_x", 0.0); o.put("offset_y", first)
+            o.put("content_w", 0.0); o.put("content_h", total)
+            o.put("viewport_w", 0.0); o.put("viewport_h", visible)
+            o.put("max_x", 0.0); o.put("max_y", maxIdx)
+            o.put("kind", "index")
+            return o.toString()
+        }
+
+        return null
+    }
+
+    /**
+     * Scroll the view registered under `id` to absolute (x, y). Pixel views use
+     * the relevant axis; index lists use y as an item index. Runs the suspend
+     * scroll on the main thread and blocks the NIF thread until it completes.
+     */
+    @JvmStatic
+    fun scrollTo(id: String, x: Double, y: Double): Boolean {
+        val h = scrollHandlesById[id] ?: return false
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var ok = false
+        mainScope.launch {
+            try {
+                val s = h.scrollState
+                val ls = h.lazyState
+                when {
+                    s != null -> {
+                        val target = (if (h.horizontal) x else y).toInt()
+                        s.scrollTo(target.coerceIn(0, s.maxValue))
+                        ok = true
+                    }
+                    ls != null -> {
+                        ls.scrollToItem(y.toInt().coerceAtLeast(0))
+                        ok = true
+                    }
+                }
+            } catch (e: Throwable) {
+                ok = false
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+        return ok
+    }
+
     private var activityRef: WeakReference<Activity>? = null
 
     /** Called from mob_nif.c via JNI — initialise anything activity-scoped. */
@@ -399,6 +608,8 @@ object MobBridge {
         // is no longer relevant and would scroll the wrong list to a stale position.
         val newKey = if (transition != "none") {
             lazyListStates.clear()
+            scrollHandlesById.clear()
+            elementFramesById.clear()
             _rootState.value.navKey + 1
         } else {
             _rootState.value.navKey
@@ -2653,7 +2864,11 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     val tapModifier = if (tapHandle != null && node.type != "button") {
         modifier.clickable { MobBridge.nativeSendTap(tapHandle) }
     } else modifier
-    val m = tapModifier.then(nodeModifier(node.props))
+    val base = tapModifier.then(nodeModifier(node.props))
+    // Track on-screen frame + set a testTag for any node carrying an :id, so the
+    // agent can read positions (Mob.Test.element_frames) without a screenshot.
+    val trackId = node.props["id"] as? String
+    val m = if (trackId != null) base.then(MobBridge.frameTrackingModifier(trackId)) else base
     when (node.type) {
         "column" -> Column(modifier = m) {
             node.children.forEach { child ->
@@ -2681,12 +2896,27 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         }
         "scroll" -> {
             val scrollState = rememberScrollState()
-            if (node.props["axis"] == "horizontal") {
-                Row(modifier = m.horizontalScroll(scrollState)) {
+            val horizontal = node.props["axis"] == "horizontal"
+            // Register by :id so Mob.Test.scroll_info/scroll_to can address it,
+            // and record the measured viewport (ScrollState doesn't expose it).
+            val id = node.props["id"] as? String
+            val regMod: Modifier =
+                if (id != null) {
+                    val handle = MobBridge.scrollHandle(id)
+                    handle.scrollState = scrollState
+                    handle.horizontal = horizontal
+                    Modifier.onGloballyPositioned {
+                        handle.viewportPx = if (horizontal) it.size.width else it.size.height
+                    }
+                } else {
+                    Modifier
+                }
+            if (horizontal) {
+                Row(modifier = m.then(regMod).horizontalScroll(scrollState)) {
                     node.children.forEach { RenderNode(it) }
                 }
             } else {
-                Column(modifier = m.verticalScroll(scrollState).imePadding()) {
+                Column(modifier = m.then(regMod).verticalScroll(scrollState).imePadding()) {
                     node.children.forEach { RenderNode(it) }
                 }
             }
@@ -3780,6 +4010,11 @@ private fun MobLazyList(node: MobNode, modifier: Modifier) {
     val listState = remember(handle) {
         if (handle != null) MobBridge.getOrCreateLazyListState(handle)
         else LazyListState()
+    }
+
+    // Register by :id so Mob.Test.scroll_info/scroll_to can address this list.
+    (node.props["id"] as? String)?.let { id ->
+        MobBridge.scrollHandle(id).lazyState = listState
     }
 
     val reachedEnd by remember {

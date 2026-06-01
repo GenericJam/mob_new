@@ -261,24 +261,19 @@ defmodule MobNew.ProjectGeneratorTest do
       assert manifest =~ ~s(package="com.example.test_app")
     end
 
-    test "AndroidManifest.xml declares Bluetooth Classic permissions", %{tmp: tmp} do
+    test "AndroidManifest.xml does not bake in Bluetooth permissions (plugin-provided)",
+         %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       manifest = File.read!(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
 
-      # Modern (API 31+) runtime permissions for Mob.Bt — these are the
-      # ones a user must request via Mob.Permissions.request/2 at runtime.
-      assert manifest =~ "android.permission.BLUETOOTH_SCAN"
-      assert manifest =~ "android.permission.BLUETOOTH_CONNECT"
-      assert manifest =~ "neverForLocation"
-
-      # Legacy (≤ API 30) capability permissions, install-time only.
-      assert manifest =~ "android.permission.BLUETOOTH"
-      assert manifest =~ "android.permission.BLUETOOTH_ADMIN"
-      assert manifest =~ ~s(android:maxSdkVersion="30")
-
-      # Hardware feature is declared but not required so the Play Store
-      # doesn't filter the app off devices without a BT radio.
-      assert manifest =~ ~s(<uses-feature android:name="android.hardware.bluetooth")
+      # Bluetooth moved out of core into the mob_bluetooth plugin. mob_dev
+      # merges the plugin's declared permissions into the manifest at build
+      # time (MobDev.NativeBuild merge_android_permissions), so a freshly
+      # generated app must NOT hardcode them.
+      refute manifest =~ "android.permission.BLUETOOTH_SCAN"
+      refute manifest =~ "android.permission.BLUETOOTH_CONNECT"
+      refute manifest =~ "android.permission.BLUETOOTH_ADMIN"
+      refute manifest =~ "android.hardware.bluetooth"
     end
 
     test "generates MainActivity.kt in correct package path", %{tmp: tmp} do
@@ -377,22 +372,15 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ~s("com/example/test_app/MobBridge")
     end
 
-    test "beam_jni.c emits Bluetooth Classic JNI thunks", %{tmp: tmp} do
+    test "beam_jni.c does not emit Bluetooth JNI thunks (plugin-provided)", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
 
-      # Adapter-level (no session) — discovery + pairing.
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscoveryStarted"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscoveryFinished"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscovered"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtPaired"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtPairFailed"
-
-      # Profile-level — at least one entry per profile so a future
-      # rename surfaces here. Full surface is exercised on-device.
-      assert content =~ "MobBridge_nativeDeliverBtHfp"
-      assert content =~ "MobBridge_nativeDeliverBtSpp"
-      assert content =~ "MobBridge_nativeDeliverBtHid"
+      # Bluetooth lives in the mob_bluetooth plugin now; its JNI thunks ship
+      # in the plugin's own jni_source. A generated app's beam_jni.c carries
+      # none of them.
+      refute content =~ "nativeDeliverBt"
+      refute content =~ "mob_deliver_bt"
     end
 
     test "generates MobBridge.kt in correct package path", %{tmp: tmp} do
@@ -413,19 +401,18 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "fun ttsStop()"
     end
 
-    test "MobBridge.kt declares Bluetooth Classic external fns + receivers", %{tmp: tmp} do
+    test "MobBridge.kt does not declare Bluetooth external fns (plugin-provided)", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       content =
         File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
 
-      # External JNI declarations matching the C side.
-      assert content =~ "external fun nativeDeliverBtDiscoveryStarted"
-      assert content =~ "external fun nativeDeliverBtDiscovered"
-      assert content =~ "external fun nativeDeliverBtPaired"
-
-      # BroadcastReceiver wiring (system events arrive via Android intents).
-      assert content =~ "BroadcastReceiver"
+      # Bluetooth lives in the mob_bluetooth plugin (MobBluetoothBridge); the
+      # app's core MobBridge no longer carries any bt externs, methods, or
+      # imports.
+      refute content =~ "nativeDeliverBt"
+      refute content =~ "fun bt_"
+      refute content =~ "import android.bluetooth"
     end
 
     test "MobBridge.kt WebView fills its bounds so full-viewport pages don't collapse",

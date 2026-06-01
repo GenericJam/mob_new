@@ -261,24 +261,19 @@ defmodule MobNew.ProjectGeneratorTest do
       assert manifest =~ ~s(package="com.example.test_app")
     end
 
-    test "AndroidManifest.xml declares Bluetooth Classic permissions", %{tmp: tmp} do
+    test "AndroidManifest.xml does not bake in Bluetooth permissions (plugin-provided)",
+         %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       manifest = File.read!(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
 
-      # Modern (API 31+) runtime permissions for Mob.Bt — these are the
-      # ones a user must request via Mob.Permissions.request/2 at runtime.
-      assert manifest =~ "android.permission.BLUETOOTH_SCAN"
-      assert manifest =~ "android.permission.BLUETOOTH_CONNECT"
-      assert manifest =~ "neverForLocation"
-
-      # Legacy (≤ API 30) capability permissions, install-time only.
-      assert manifest =~ "android.permission.BLUETOOTH"
-      assert manifest =~ "android.permission.BLUETOOTH_ADMIN"
-      assert manifest =~ ~s(android:maxSdkVersion="30")
-
-      # Hardware feature is declared but not required so the Play Store
-      # doesn't filter the app off devices without a BT radio.
-      assert manifest =~ ~s(<uses-feature android:name="android.hardware.bluetooth")
+      # Bluetooth moved out of core into the mob_bluetooth plugin. mob_dev
+      # merges the plugin's declared permissions into the manifest at build
+      # time (MobDev.NativeBuild merge_android_permissions), so a freshly
+      # generated app must NOT hardcode them.
+      refute manifest =~ "android.permission.BLUETOOTH_SCAN"
+      refute manifest =~ "android.permission.BLUETOOTH_CONNECT"
+      refute manifest =~ "android.permission.BLUETOOTH_ADMIN"
+      refute manifest =~ "android.hardware.bluetooth"
     end
 
     test "generates MainActivity.kt in correct package path", %{tmp: tmp} do
@@ -377,22 +372,15 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ~s("com/example/test_app/MobBridge")
     end
 
-    test "beam_jni.c emits Bluetooth Classic JNI thunks", %{tmp: tmp} do
+    test "beam_jni.c does not emit Bluetooth JNI thunks (plugin-provided)", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
 
-      # Adapter-level (no session) — discovery + pairing.
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscoveryStarted"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscoveryFinished"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscovered"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtPaired"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtPairFailed"
-
-      # Profile-level — at least one entry per profile so a future
-      # rename surfaces here. Full surface is exercised on-device.
-      assert content =~ "MobBridge_nativeDeliverBtHfp"
-      assert content =~ "MobBridge_nativeDeliverBtSpp"
-      assert content =~ "MobBridge_nativeDeliverBtHid"
+      # Bluetooth lives in the mob_bluetooth plugin now; its JNI thunks ship
+      # in the plugin's own jni_source. A generated app's beam_jni.c carries
+      # none of them.
+      refute content =~ "nativeDeliverBt"
+      refute content =~ "mob_deliver_bt"
     end
 
     test "generates MobBridge.kt in correct package path", %{tmp: tmp} do
@@ -413,19 +401,18 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "fun ttsStop()"
     end
 
-    test "MobBridge.kt declares Bluetooth Classic external fns + receivers", %{tmp: tmp} do
+    test "MobBridge.kt does not declare Bluetooth external fns (plugin-provided)", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       content =
         File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
 
-      # External JNI declarations matching the C side.
-      assert content =~ "external fun nativeDeliverBtDiscoveryStarted"
-      assert content =~ "external fun nativeDeliverBtDiscovered"
-      assert content =~ "external fun nativeDeliverBtPaired"
-
-      # BroadcastReceiver wiring (system events arrive via Android intents).
-      assert content =~ "BroadcastReceiver"
+      # Bluetooth lives in the mob_bluetooth plugin (MobBluetoothBridge); the
+      # app's core MobBridge no longer carries any bt externs, methods, or
+      # imports.
+      refute content =~ "nativeDeliverBt"
+      refute content =~ "fun bt_"
+      refute content =~ "import android.bluetooth"
     end
 
     test "MobBridge.kt WebView fills its bounds so full-viewport pages don't collapse",
@@ -644,6 +631,23 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "ios/AppDelegate.m"))
       assert content =~ ~s(#import "MobApp-Swift.h")
+    end
+
+    test "AppDelegate.m declares and calls mob_register_plugins() before mob_init_ui()",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/AppDelegate.m"))
+
+      # The extern declaration must be present so the call resolves at link
+      # time against the @_cdecl symbol the bootstrap Swift file exports.
+      assert content =~ "extern void mob_register_plugins(void);"
+
+      # The call must come before mob_init_ui() — see comment in template;
+      # plugins register their factories with MobNativeViewRegistry.shared and
+      # the registry has to be populated by the time the BEAM starts mounting.
+      register_idx = :binary.match(content, "mob_register_plugins();") |> elem(0)
+      init_idx = :binary.match(content, "mob_init_ui();") |> elem(0)
+      assert register_idx < init_idx
     end
 
     test "does NOT generate ios/build.sh — iOS sim build glue lives in mob_dev's NativeBuild as of iter 13b",
@@ -1084,6 +1088,37 @@ defmodule MobNew.ProjectGeneratorTest do
              "android build.zig must thread tflite_static into the " <>
                "driver_tab_android build_opts via o.addOption — otherwise the " <>
                "b.option flag is declared but never reaches the consuming Zig module"
+    end
+
+    # Regression: same drift as the Android case above, but for the iOS sim
+    # and iOS device templates. driver_tab_ios.zig (generated by
+    # MobDev.StaticNifs.generate(:ios, ..., format: :zig)) references
+    # `build_options.tflite_static` because the default NIF list includes
+    # :tflite_nif on `archs: [:all]`. The iOS templates declared sqlite_static,
+    # emlx_static, and nx_eigen_static via b.addOptions() but never declared
+    # tflite_static — bit the 2026-05-28 iOS smoke (had to hand-patch
+    # mob_plugin_demo/ios/build*.zig) before this fix.
+    for {path, label} <- [
+          {"ios/build.zig", "ios sim"},
+          {"ios/build_device.zig", "ios device"}
+        ] do
+      @path path
+      @label label
+      test "#{@label} build.zig declares tflite_static b.option for driver_tab parity",
+           %{tmp: tmp} do
+        {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+        content = File.read!(Path.join(dir, @path))
+
+        assert content =~ ~s|b.option(bool, "tflite_static"|,
+               "#{@label} build.zig must declare tflite_static as a b.option " <>
+                 "(symmetric to nxeigen_static) so driver_tab_ios.zig's " <>
+                 "build_options.tflite_static reference resolves at compile time"
+
+        assert content =~ ~s|opts.addOption(bool, "tflite_static", tflite_static)|,
+               "#{@label} build.zig must thread tflite_static into the " <>
+                 "driver_tab_ios build_opts via opts.addOption — otherwise the " <>
+                 "b.option flag is declared but never reaches the consuming Zig module"
+      end
     end
 
     # ── MOB_BEAMS_DIR migration path — Ecto on flat -pa directories ──────────────

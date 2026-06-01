@@ -36,21 +36,6 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"
         android:minSdkVersion="31" />
 
-
-    <!-- Bluetooth Classic (Mob.Bt — HFP/SPP/HID for headsets, peripherals) -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
-        android:usesPermissionFlags="neverForLocation"
-        android:minSdkVersion="31" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"
-        android:minSdkVersion="31" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"
-        android:minSdkVersion="31" />
-    <uses-permission android:name="android.permission.BLUETOOTH"
-        android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
-        android:maxSdkVersion="30" />
-    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
-
     <!-- Haptic feedback -->
     <uses-permission android:name="android.permission.VIBRATE" />
 

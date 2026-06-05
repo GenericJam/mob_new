@@ -681,7 +681,10 @@ object MobBridge {
             "notifications" -> if (android.os.Build.VERSION.SDK_INT >= 33)
                 arrayOf(android.Manifest.permission.POST_NOTIFICATIONS)
             else { nativeDeliverAtom3(pid, "permission", "notifications", "granted"); return }
-            else -> { nativeDeliverAtom3(pid, "permission", cap, "denied"); return }
+            // Fall through to a plugin-supplied capability (e.g. mob_location
+            // once :location leaves core). Unknown -> denied.
+            else -> io.mob.plugin.MobPluginBootstrap.permissionsFor(cap)
+                ?: run { nativeDeliverAtom3(pid, "permission", cap, "denied"); return }
         }
         if (perms.all { ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED }) {
             nativeDeliverAtom3(pid, "permission", cap, "granted")

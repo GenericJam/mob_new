@@ -112,12 +112,6 @@ Java_<%= jni_package %>_MobBridge_nativeDeliverAtom3(JNIEnv* env, jclass cls,
 }
 
 JNIEXPORT void JNICALL
-Java_<%= jni_package %>_MobBridge_nativeDeliverLocation(JNIEnv* env, jclass cls,
-    jlong pid, jdouble lat, jdouble lon, jdouble acc, jdouble alt) {
-    mob_deliver_location(pid, lat, lon, acc, alt);
-}
-
-JNIEXPORT void JNICALL
 Java_<%= jni_package %>_MobBridge_nativeDeliverMotion(JNIEnv* env, jclass cls,
     jlong pid, jdouble ax, jdouble ay, jdouble az,
     jdouble gx, jdouble gy, jdouble gz, jlong ts) {

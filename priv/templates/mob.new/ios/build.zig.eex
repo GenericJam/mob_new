@@ -307,11 +307,20 @@ pub fn build(b: *std.Build) void {
         while (p_it.next()) |path| {
             if (path.len == 0) continue;
             const base = std.fs.path.basename(path);
-            const name = if (std.mem.endsWith(u8, base, ".c")) base[0 .. base.len - 2] else base;
-            const flags = b.allocator.alloc([]const u8, c_flags.len + 2) catch unreachable;
+            // .m sources (manifest lang: :objc) are Objective-C — an iOS plugin
+            // NIF driving an Apple framework (CoreLocation, etc.). Compiled as
+            // ObjC by extension; add -fobjc-arc + -fmodules. ".c"/".m" are both 2.
+            const is_objc = std.mem.endsWith(u8, base, ".m");
+            const name = if (std.mem.endsWith(u8, base, ".c") or is_objc) base[0 .. base.len - 2] else base;
+            const extra: usize = if (is_objc) 4 else 2;
+            const flags = b.allocator.alloc([]const u8, c_flags.len + extra) catch unreachable;
             @memcpy(flags[0..c_flags.len], c_flags);
             flags[c_flags.len] = "-DSTATIC_ERLANG_NIF";
             flags[c_flags.len + 1] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name});
+            if (is_objc) {
+                flags[c_flags.len + 2] = "-fobjc-arc";
+                flags[c_flags.len + 3] = "-fmodules";
+            }
 
             installAndCollect(b, objects_step, &objs, addCObject(b, .{
                 .name = name,

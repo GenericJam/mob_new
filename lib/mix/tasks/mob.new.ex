@@ -107,10 +107,15 @@ defmodule Mix.Tasks.Mob.New do
 
   """
 
+  # NOTE: do NOT add `no_ios:`/`no_android:` boolean switches here. OptionParser
+  # auto-derives the `--no-<flag>` form of every boolean switch, so `--no-ios`
+  # already parses as `ios: false` (the negation of the `ios:` switch) and
+  # `--no-android` as `android: false`. Declaring separate `no_ios:`/`no_android:`
+  # switches makes those `--no-*` forms route to the negation of `ios:`/`android:`
+  # instead, leaving the dedicated switches permanently unset — which silently
+  # broke platform skipping. See `resolve_platforms/1`.
   @switches [
     no_install: :boolean,
-    no_ios: :boolean,
-    no_android: :boolean,
     ios: :boolean,
     android: :boolean,
     dest: :string,
@@ -161,22 +166,45 @@ defmodule Mix.Tasks.Mob.New do
     {dest_dir, liveview, gen_opts}
   end
 
-  # Resolves the four platform-related flags into {no_ios?, no_android?}.
-  # Positive flags (--ios, --android) and negative flags (--no-ios, --no-android)
-  # are accepted; --ios is sugar for --no-android and vice versa.
   defp resolve_platforms!(opts) do
-    ios? = opts[:ios] == true
-    android? = opts[:android] == true
-    no_ios? = opts[:no_ios] == true or android?
-    no_android? = opts[:no_android] == true or ios?
+    case resolve_platforms(opts) do
+      {:ok, result} ->
+        result
+
+      {:error, msg} ->
+        Mix.raise(msg)
+    end
+  end
+
+  @doc """
+  Resolves the platform-selection flags into `{:ok, {no_ios?, no_android?}}`
+  or `{:error, message}`.
+
+  Only `ios:`/`android:` switches exist (see `@switches`). OptionParser maps:
+
+    * `--ios`        → `ios: true`        → iOS only (skip android)
+    * `--android`    → `android: true`    → Android only (skip ios)
+    * `--no-ios`     → `ios: false`       → skip iOS (keep android)
+    * `--no-android` → `android: false`   → skip Android (keep ios)
+
+  Positive flags (`--ios`/`--android`) are "this platform only"; negative
+  flags (`--no-ios`/`--no-android`) drop the named platform. Passing flags
+  that exclude both platforms is an error. Public for testing.
+  """
+  @spec resolve_platforms(keyword()) ::
+          {:ok, {boolean(), boolean()}} | {:error, String.t()}
+  def resolve_platforms(opts) do
+    # `--ios` ⇒ iOS only ⇒ no android. `--no-android` ⇒ android: false ⇒ no android.
+    no_android? = opts[:ios] == true or opts[:android] == false
+    # `--android` ⇒ Android only ⇒ no ios. `--no-ios` ⇒ ios: false ⇒ no ios.
+    no_ios? = opts[:android] == true or opts[:ios] == false
 
     if no_ios? and no_android? do
-      Mix.raise(
-        "Cannot exclude both platforms. Pass at most one of --ios, --android, --no-ios, --no-android."
-      )
+      {:error,
+       "Cannot exclude both platforms. Pass at most one of --ios, --android, --no-ios, --no-android."}
+    else
+      {:ok, {no_ios?, no_android?}}
     end
-
-    {no_ios?, no_android?}
   end
 
   defp log_flags(gen_opts, liveview) do

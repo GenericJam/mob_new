@@ -2353,7 +2353,7 @@ private fun MobText(node: MobNode, modifier: Modifier) {
     val textAlign     = textAlignProp(node.props)
     val letterSpacing = floatProp(node.props, "letter_spacing")
     val lineHeightMul = floatProp(node.props, "line_height")
-    val fontFamily    = fontFamilyProp(node.props)
+    val fontFamily    = fontFamilyProp(node.props, LocalContext.current)
     val tapHandle     = intProp(node.props, "on_tap")
 
     val resolvedLineHeight = if (lineHeightMul != null && fontSize != TextUnit.Unspecified)
@@ -3572,8 +3572,23 @@ private fun jsonValueToKotlin(v: Any?): Any? = when (v) {
     else -> v
 }
 
-private fun fontFamilyProp(props: Map<String, Any?>): FontFamily? {
+private fun fontFamilyProp(props: Map<String, Any?>, context: android.content.Context?): FontFamily? {
     val name = props["font"] as? String ?: return null
+    // Custom fonts ship uncompressed in res/font/<normalized>.ttf (build-copied
+    // from priv/fonts/ + plugin assets.fonts). Normalise the prop the same way
+    // the build named the resource, look it up by id, and load it as a Typeface.
+    // Fall back to a system family name (sans-serif, monospace, …), then null.
+    if (context != null) {
+        var resName = name.lowercase().replace(Regex("[^a-z0-9_]"), "_")
+        if (!resName.matches(Regex("^[a-z].*"))) resName = "f_$resName"
+        val resId = context.resources.getIdentifier(resName, "font", context.packageName)
+        if (resId != 0) {
+            try {
+                val tf = androidx.core.content.res.ResourcesCompat.getFont(context, resId)
+                if (tf != null) return FontFamily(tf)
+            } catch (_: Exception) { }
+        }
+    }
     return try { FontFamily(Typeface.create(name, Typeface.NORMAL)) }
     catch (_: Exception) { null }
 }

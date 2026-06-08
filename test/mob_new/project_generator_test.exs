@@ -348,6 +348,7 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/CMakeLists.txt"))
       assert content =~ "${OTP_RELEASE}"
+      assert content =~ "${OTP_RELEASE_X86_64}"
       assert content =~ "${MOB_DIR}"
       refute content =~ "${OTP_BUILD}"
       refute content =~ "/Users/"
@@ -608,6 +609,8 @@ defmodule MobNew.ProjectGeneratorTest do
       content = File.read!(Path.join(dir, "android/app/build.gradle"))
       assert content =~ "local.properties"
       assert content =~ "mob.otp_release"
+      assert content =~ "mob.otp_release_x86_64"
+      assert content =~ "abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'"
       refute content =~ "mob.otp_build"
       refute content =~ "MOB_OTP_SRC"
     end

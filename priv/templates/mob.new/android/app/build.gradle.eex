@@ -20,6 +20,7 @@ if (keystorePropsFile.exists()) keystoreProps.load(keystorePropsFile.newDataInpu
 
 def mobOtpRelease     = localProps.getProperty('mob.otp_release',      System.getenv('MOB_ANDROID_OTP_RELEASE')      ?: '')
 def mobOtpReleaseArm32 = localProps.getProperty('mob.otp_release_arm32', System.getenv('MOB_ANDROID_OTP_RELEASE_ARM32') ?: mobOtpRelease)
+def mobOtpReleaseX86_64 = localProps.getProperty('mob.otp_release_x86_64', System.getenv('MOB_ANDROID_OTP_RELEASE_X86_64') ?: mobOtpRelease)
 def mobDir             = localProps.getProperty('mob.mob_dir',           System.getenv('MOB_DIR')                       ?: '')
 
 // Auto-detect ERTS version from the OTP release directory (arm64 is canonical).
@@ -44,13 +45,14 @@ android {
         versionCode 1
         versionName "1.0"
 
-        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
+        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64' }
 
         externalNativeBuild {
             cmake {
                 arguments "-DANDROID_STL=c++_static",
                           "-DOTP_RELEASE=${mobOtpRelease}",
                           "-DOTP_RELEASE_ARM32=${mobOtpReleaseArm32}",
+                          "-DOTP_RELEASE_X86_64=${mobOtpReleaseX86_64}",
                           "-DERTS_VSN=${ertsVsn}",
                           "-DMOB_DIR=${mobDir}"
             }

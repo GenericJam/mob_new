@@ -640,8 +640,6 @@ object MobBridge {
     var pendingPermissionPid:  Long = 0
     var pendingPermissionCap:  String = ""
     @Volatile var notifyPid:   Long = 0
-    var pendingCameraPid:      Long = 0
-    var pendingCameraIsVideo:  Boolean = false
     var pendingPhotosPid:      Long = 0
     var pendingFilesPid:       Long = 0
     var pendingScanPid:        Long = 0
@@ -710,57 +708,6 @@ object MobBridge {
                 .setNegativeButtonText("Cancel")
                 .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK).build())
         }
-    }
-
-    // ── Camera ────────────────────────────────────────────────────────────
-    @JvmStatic
-    fun camera_capture_photo(pid: Long, quality: String) {
-        pendingCameraPid = pid
-        pendingCameraIsVideo = false
-        activityRef?.get()?.let { (it as? MainActivity)?.launchCameraPhoto() }
-            ?: nativeDeliverAtom2(pid, "camera", "cancelled")
-    }
-
-    @JvmStatic
-    fun camera_capture_video(pid: Long, maxDuration: String) {
-        pendingCameraPid = pid
-        pendingCameraIsVideo = true
-        activityRef?.get()?.let { (it as? MainActivity)?.launchCameraVideo() }
-            ?: nativeDeliverAtom2(pid, "camera", "cancelled")
-    }
-
-    @JvmStatic
-    fun handleCameraPhotoResult(uri: Uri?) {
-        val pid = pendingCameraPid
-        if (uri == null) { nativeDeliverAtom2(pid, "camera", "cancelled"); return }
-        val activity = activityRef?.get() ?: return
-        Thread {
-            try {
-                val tmp = File(activity.cacheDir, "mob_photo_${System.currentTimeMillis()}.jpg")
-                activity.contentResolver.openInputStream(uri)?.use { it.copyTo(tmp.outputStream()) }
-                val json = """[{"path":"${tmp.absolutePath}","width":0,"height":0}]"""
-                nativeDeliverFileResult(pid, "camera", "photo", json)
-            } catch (e: Exception) {
-                nativeDeliverAtom2(pid, "camera", "cancelled")
-            }
-        }.start()
-    }
-
-    @JvmStatic
-    fun handleCameraVideoResult(uri: Uri?) {
-        val pid = pendingCameraPid
-        if (uri == null) { nativeDeliverAtom2(pid, "camera", "cancelled"); return }
-        val activity = activityRef?.get() ?: return
-        Thread {
-            try {
-                val tmp = File(activity.cacheDir, "mob_video_${System.currentTimeMillis()}.mp4")
-                activity.contentResolver.openInputStream(uri)?.use { it.copyTo(tmp.outputStream()) }
-                val json = """[{"path":"${tmp.absolutePath}","duration":0.0}]"""
-                nativeDeliverFileResult(pid, "camera", "video", json)
-            } catch (e: Exception) {
-                nativeDeliverAtom2(pid, "camera", "cancelled")
-            }
-        }.start()
     }
 
     // ── Photos picker ─────────────────────────────────────────────────────

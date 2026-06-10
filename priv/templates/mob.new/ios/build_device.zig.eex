@@ -360,15 +360,35 @@ pub fn build(b: *std.Build) void {
             // ObjC by extension; add -fobjc-arc + -fmodules. ".c"/".m" are both 2.
             const is_objc = std.mem.endsWith(u8, base, ".m");
             const name = if (std.mem.endsWith(u8, base, ".c") or is_objc) base[0 .. base.len - 2] else base;
-            const extra: usize = if (is_objc) 4 else 2;
-            const flags = b.allocator.alloc([]const u8, c_flags_base.len + extra) catch unreachable;
+
+            if (is_objc) {
+                // ObjC plugin NIFs that import heavy framework modules (UIKit,
+                // Accelerate/vImage — e.g. mob_camera) must be built by Apple's
+                // clang via xcrun, NOT zig's bundled clang: zig clang fails to
+                // build those system framework modules against current Xcode SDKs
+                // ("umbrella header for module 'Accelerate.vecLib' does not include
+                // 'lapack.h'", UIKit missing 'UIUtilities/UIDefines.h'). This is
+                // exactly why core's own mob_nif.m goes through addObjcObject. The
+                // STATIC_ERLANG_NIF defines ride along as extra_flags.
+                installAndCollect(b, objects_step, &objs, addObjcObject(b, .{
+                    .name = name,
+                    .source = path,
+                    .extra_flags = &.{
+                        "-DSTATIC_ERLANG_NIF",
+                        b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name}),
+                    },
+                    .mob_dir = mob_dir,
+                    .otp_root = otp_root,
+                    .erts_vsn = erts_vsn,
+                    .sdkroot = sdkroot,
+                }), b.fmt("{s}.o", .{name}));
+                continue;
+            }
+
+            const flags = b.allocator.alloc([]const u8, c_flags_base.len + 2) catch unreachable;
             @memcpy(flags[0..c_flags_base.len], c_flags_base);
             flags[c_flags_base.len] = "-DSTATIC_ERLANG_NIF";
             flags[c_flags_base.len + 1] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name});
-            if (is_objc) {
-                flags[c_flags_base.len + 2] = "-fobjc-arc";
-                flags[c_flags_base.len + 3] = "-fmodules";
-            }
 
             installAndCollect(b, objects_step, &objs, addCObject(b, .{
                 .name = name,

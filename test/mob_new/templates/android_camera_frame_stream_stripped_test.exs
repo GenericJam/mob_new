@@ -3,6 +3,7 @@ defmodule MobNew.Templates.AndroidCameraFrameStreamStrippedTest do
 
   @android Path.expand("../../../priv/templates/mob.new/android/app/src/main", __DIR__)
   @bridge Path.join(@android, "java/MobBridge.kt.eex")
+  @main_activity Path.join(@android, "java/MainActivity.kt.eex")
   @beam_jni Path.join(@android, "jni/beam_jni.c.eex")
 
   # Drift guard. The live-camera frame stream moved to the mob_camera plugin. The
@@ -39,5 +40,22 @@ defmodule MobNew.Templates.AndroidCameraFrameStreamStrippedTest do
     assert src =~ "MobCameraPreview", "the camera preview composable must stay"
     assert src =~ ~s("camera_preview" -> MobCameraPreview),
            "the camera_preview render case must stay"
+  end
+
+  # The host camera CAPTURE path is dead once core's camera NIF is stripped (the
+  # mob_camera plugin owns capture via its own bridge). It must not linger in the
+  # host template's MobBridge.kt (capture methods) or MainActivity.kt (launchers).
+  test "host templates drop the dead camera capture path" do
+    bridge = File.read!(@bridge)
+    main = File.read!(@main_activity)
+
+    for gone <- ~w(camera_capture_photo camera_capture_video handleCameraPhotoResult
+                   handleCameraVideoResult pendingCameraPid) do
+      refute bridge =~ gone, "MobBridge.kt.eex must not keep dead capture method `#{gone}`"
+    end
+
+    for gone <- ~w(launchCameraPhoto launchCameraVideo cameraPhotoLauncher cameraVideoLauncher) do
+      refute main =~ gone, "MainActivity.kt.eex must not keep dead camera launcher `#{gone}`"
+    end
   end
 end

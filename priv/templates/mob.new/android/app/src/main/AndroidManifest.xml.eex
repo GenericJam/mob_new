@@ -20,8 +20,7 @@
          plugin's plain-string permission list can't express maxSdkVersion="32"
          on the legacy one — harmless (no-op on API 33+). -->
 
-    <!-- Notifications (Android 13+) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- POST_NOTIFICATIONS moved to the mob_notify plugin manifest. -->
 
     <!-- AlarmManager for scheduled local notifications -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

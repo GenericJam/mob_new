@@ -48,21 +48,6 @@ class MainActivity : ComponentActivity() {
         filePickerLauncher.launch(arrayOf("*/*"))
     }
 
-    // ── QR scanner launcher ───────────────────────────────────────────────
-    // For QR scanning we use an intent to a helper activity (MobScannerActivity)
-    // that uses CameraX + ML Kit. It returns the scanned value as a result string.
-    private val scannerLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val value = result.data?.getStringExtra("scan_value")
-            val type  = result.data?.getStringExtra("scan_type") ?: "qr"
-            MobBridge.handleScanResult(value, type)
-        }
-
-    fun launchQrScanner() {
-        val intent = android.content.Intent(this, MobScannerActivity::class.java)
-        scannerLauncher.launch(intent)
-    }
-
     // ── Permission result ─────────────────────────────────────────────────
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)

@@ -14,6 +14,10 @@
       # "default" is used.
       #
       name: "default",
+      # ex_slop is a credo PLUGIN (registers its whole check bundle), not a
+      # check — listing it under checks.enabled was silently ignored
+      # ("Ignoring an undefined check: ExSlop").
+      plugins: [{ExSlop, []}],
       #
       # These are the files included in the analysis:
       files: %{
@@ -66,8 +70,6 @@
       #
       checks: %{
         enabled: [
-          # ex_slop — recommended bundle of AI-slop checks.
-          {ExSlop, []},
           #
           ## Consistency Checks
           #

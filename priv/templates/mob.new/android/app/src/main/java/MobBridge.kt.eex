@@ -636,7 +636,6 @@ object MobBridge {
     var pendingPermissionPid:  Long = 0
     var pendingPermissionCap:  String = ""
     var pendingFilesPid:       Long = 0
-    var pendingScanPid:        Long = 0
 
     // ── Permissions ────────────────────────────────────────────────────────
     @JvmStatic
@@ -1356,23 +1355,9 @@ object MobBridge {
         sensorListener = null
     }
 
-    // ── QR scanner ────────────────────────────────────────────────────────
-    @JvmStatic
-    fun scanner_scan(pid: Long, formatsJson: String) {
-        pendingScanPid = pid
-        activityRef?.get()?.let { (it as? MainActivity)?.launchQrScanner() }
-            ?: nativeDeliverAtom2(pid, "scan", "cancelled")
-    }
+    // scanner_scan / handleScanResult moved to the mob_scanner plugin
+    // (io.mob.scanner.MobScannerBridge + MobScannerActivity).
 
-    @JvmStatic
-    fun handleScanResult(value: String?, type: String?) {
-        val pid = pendingScanPid
-        if (value == null) { nativeDeliverAtom2(pid, "scan", "cancelled"); return }
-        val safeValue = value.replace("\"", "\\\"")
-        val safeType  = (type ?: "qr").replace("\"", "\\\"")
-        val json = """[{"type":"$safeType","value":"$safeValue"}]"""
-        nativeDeliverFileResult(pid, "scan", "result", json)
-    }
 
     // notify_schedule / notify_cancel / notify_register_push moved to the
     // mob_notify plugin (io.mob.notify.MobNotifyBridge); shared delivery state

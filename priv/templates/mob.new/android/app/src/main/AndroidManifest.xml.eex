@@ -15,12 +15,10 @@
          per-device access is gated by the runtime ACTION_USB_PERMISSION dialog. -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
-    <!-- Media library (Android 13+) -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <!-- Legacy media read for Android 12 and below -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
+    <!-- Media-library read permissions moved to the mob_photos plugin manifest
+         (READ_MEDIA_IMAGES / READ_MEDIA_VIDEO / READ_EXTERNAL_STORAGE). NOTE the
+         plugin's plain-string permission list can't express maxSdkVersion="32"
+         on the legacy one — harmless (no-op on API 33+). -->
 
     <!-- Notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

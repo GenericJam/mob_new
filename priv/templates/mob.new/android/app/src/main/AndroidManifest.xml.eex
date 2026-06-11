@@ -74,17 +74,8 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-
-        <!-- Full-screen QR / barcode scanner.
-             Theme override is required: MobScannerActivity extends
-             AppCompatActivity (CameraX + ML Kit need it), and that
-             throws IllegalStateException at setContentView when the
-             activity's theme isn't AppCompat-derived. AppTheme is
-             Theme.NoTitleBar to keep the main Compose surface clean,
-             so the scanner activity declares its own AppCompat theme. -->
-        <activity android:name=".MobScannerActivity"
-            android:exported="false"
-            android:theme="@style/Theme.AppCompat.NoActionBar" />
+    <!-- The QR-scanner <activity> moved to the mob_scanner plugin
+         (io.mob.scanner.MobScannerActivity; see its host_requirements). -->
 
         <!-- Scheduled local notification delivery -->
         <receiver android:name=".NotificationReceiver"

@@ -38,20 +38,6 @@ class MainActivity : ComponentActivity() {
     external fun nativeSetActivity(activity: Activity)
     external fun nativeStartBeam()
 
-    // ── Photo picker launcher ─────────────────────────────────────────────
-    private val photosPickerLauncher =
-        registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
-            MobBridge.handlePhotosResult(uris)
-        }
-
-    fun launchPhotosPicker(max: Int) {
-        photosPickerLauncher.launch(
-            androidx.activity.result.PickVisualMediaRequest(
-                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageAndVideo
-            )
-        )
-    }
-
     // ── File picker launcher ──────────────────────────────────────────────
     private val filePickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->

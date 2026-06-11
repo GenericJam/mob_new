@@ -635,7 +635,6 @@ object MobBridge {
     // ── Pending callback PIDs ──────────────────────────────────────────────
     var pendingPermissionPid:  Long = 0
     var pendingPermissionCap:  String = ""
-    @Volatile var notifyPid:   Long = 0
     var pendingFilesPid:       Long = 0
     var pendingScanPid:        Long = 0
 
@@ -1375,72 +1374,11 @@ object MobBridge {
         nativeDeliverFileResult(pid, "scan", "result", json)
     }
 
-    // ── Local notifications ────────────────────────────────────────────────
-    const val NOTIF_CHANNEL_ID = "mob_notifications"
+    // notify_schedule / notify_cancel / notify_register_push moved to the
+    // mob_notify plugin (io.mob.notify.MobNotifyBridge); shared delivery state
+    // lives in the generated io.mob.plugin.MobNotifyHub. The channel id +
+    // delivery thunks/receiver stay host-side (delivery is core/host-owned).
     private const val PERM_REQUEST_CODE = 9001
-
-    @JvmStatic
-    fun notify_schedule(pid: Long, optsJson: String) {
-        val activity = activityRef?.get() ?: return
-        try {
-            val opts = org.json.JSONObject(optsJson)
-            val id      = opts.getString("id")
-            val title   = opts.getString("title")
-            val body    = opts.getString("body")
-            val triggerAt = opts.getLong("trigger_at") * 1000L // to ms
-
-            // Ensure channel exists
-            val nm = activity.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
-            if (android.os.Build.VERSION.SDK_INT >= 26) {
-                nm.createNotificationChannel(
-                    NotificationChannel(NOTIF_CHANNEL_ID, "Notifications", NotificationManager.IMPORTANCE_DEFAULT))
-            }
-
-            val intent = android.content.Intent(activity, NotificationReceiver::class.java).apply {
-                putExtra("title", title)
-                putExtra("body",  body)
-                putExtra("id",    id)
-                putExtra("data",  opts.optJSONObject("data")?.toString() ?: "{}")
-            }
-            val pi = PendingIntent.getBroadcast(activity, id.hashCode(), intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val am = activity.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
-            if (android.os.Build.VERSION.SDK_INT >= 23) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
-            } else {
-                am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("MobBridge", "notify_schedule failed: ${e.message}")
-        }
-    }
-
-    @JvmStatic
-    fun notify_cancel(id: String) {
-        val activity = activityRef?.get() ?: return
-        val intent = android.content.Intent(activity, NotificationReceiver::class.java)
-        val pi = PendingIntent.getBroadcast(activity, id.hashCode(), intent,
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
-        pi?.let {
-            val am = activity.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
-            am.cancel(it)
-        }
-    }
-
-    @JvmStatic
-    fun notify_register_push(pid: Long, arg: String?) {
-        notifyPid = pid
-        // Deliver any token that refreshed while no screen was active.
-        MobFirebaseService.pendingToken?.let { token ->
-            MobFirebaseService.pendingToken = null
-            nativeDeliverPushToken(pid, token)
-            return
-        }
-        com.google.firebase.messaging.FirebaseMessaging.getInstance().token
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) nativeDeliverPushToken(pid, task.result)
-            }
-    }
 
     @JvmStatic
     fun setLaunchNotification(json: String?) {
@@ -3426,7 +3364,7 @@ class NotificationReceiver : BroadcastReceiver() {
         val dataStr = intent.getStringExtra("data")  ?: "{}"
 
         val nm = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
-        val notif = NotificationCompat.Builder(context, MobBridge.NOTIF_CHANNEL_ID)
+        val notif = NotificationCompat.Builder(context, io.mob.plugin.MobNotifyHub.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(body)

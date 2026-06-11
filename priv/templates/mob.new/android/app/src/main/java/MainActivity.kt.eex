@@ -262,7 +262,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         intent.extras?.getString("mob_notification_json")?.let { json ->
-            val pid = MobBridge.notifyPid
+            val pid = io.mob.plugin.MobNotifyHub.notifyPid
             if (pid != 0L) {
                 MobBridge.nativeDeliverNotification(pid, json)
             } else {

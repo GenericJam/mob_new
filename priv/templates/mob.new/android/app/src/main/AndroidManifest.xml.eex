@@ -5,11 +5,9 @@
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Camera + microphone -->
-    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Microphone (audio recording). CAMERA + the camera uses-features are
+         declared by the mob_camera plugin's manifest and merged at build. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <!-- USB host (Mob.Peripheral.VendorUsb). required=false so the Play Store
          doesn't filter the app off devices without USB host support; apps

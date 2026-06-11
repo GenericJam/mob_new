@@ -3,7 +3,6 @@ package <%= java_package %>
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -27,7 +26,6 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.core.content.FileProvider
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -39,31 +37,6 @@ class MainActivity : ComponentActivity() {
 
     external fun nativeSetActivity(activity: Activity)
     external fun nativeStartBeam()
-
-    // ── Camera launchers ──────────────────────────────────────────────────
-    private var cameraPhotoUri: Uri? = null
-
-    private val cameraPhotoLauncher =
-        registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-            MobBridge.handleCameraPhotoResult(if (success) cameraPhotoUri else null)
-        }
-
-    private val cameraVideoLauncher =
-        registerForActivityResult(ActivityResultContracts.CaptureVideo()) { success ->
-            MobBridge.handleCameraVideoResult(if (success) cameraPhotoUri else null)
-        }
-
-    fun launchCameraPhoto() {
-        val file = File(cacheDir, "mob_cam_${System.currentTimeMillis()}.jpg")
-        cameraPhotoUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-        cameraPhotoLauncher.launch(cameraPhotoUri!!)
-    }
-
-    fun launchCameraVideo() {
-        val file = File(cacheDir, "mob_cam_${System.currentTimeMillis()}.mp4")
-        cameraPhotoUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-        cameraVideoLauncher.launch(cameraPhotoUri!!)
-    }
 
     // ── Photo picker launcher ─────────────────────────────────────────────
     private val photosPickerLauncher =

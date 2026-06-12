@@ -375,7 +375,7 @@ defmodule MobNew.ProjectGenerator do
     #
     # OTP 29 matches the device runtime tarballs. Java 17 LTS is required for Gradle.
     erlang 29.0
-    elixir 1.20.0-rc.5-otp-29
+    elixir 1.20.0-otp-29
     java temurin-17.0.18
     """,
     ".formatter.exs" => """
@@ -602,8 +602,6 @@ defmodule MobNew.ProjectGenerator do
 
       cond do
         rel == "mix.exs.eex" -> true
-        rel == ".gitignore.eex" -> true
-        rel == ".tool-versions.eex" -> true
         String.starts_with?(rel, "config/") -> true
         # Native-template `lib/app_name/` includes sample screens (audio, camera,
         # webview, etc.) that are Mob-native UI — they don't make sense in a
@@ -1218,6 +1216,10 @@ defmodule MobNew.ProjectGenerator do
   # Replace `app_name` placeholder in directory segments and strip .eex extension.
   defp expand_path(rel, assigns) do
     rel
+    # Dotfile templates can't ship in the archive (mix archive.build's
+    # wildcard drops dotfiles), so they live under non-dot names and are
+    # renamed here — the escape hatch the @dotfiles comment documents.
+    |> String.replace("dot_credo.exs", ".credo.exs")
     |> String.replace("app_name", assigns.app_name)
     |> String.replace("java/", "java/#{assigns.java_path}/")
     |> strip_eex()

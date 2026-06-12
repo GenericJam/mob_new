@@ -36,8 +36,6 @@ defmodule <%= module_name %>.HomeScreen do
         <Row fill_width={true}>
           {theme_tab("Obsidian", :obsidian, assigns.theme)}
           <Spacer size={8} />
-          {theme_tab("Citrus",   :citrus,   assigns.theme)}
-          <Spacer size={8} />
           {theme_tab("Birch",    :birch,    assigns.theme)}
         </Row>
       </Column>
@@ -79,12 +77,6 @@ defmodule <%= module_name %>.HomeScreen do
     {:noreply, Mob.Socket.assign(socket, :theme, :obsidian)}
   end
 
-  def handle_info({:tap, :theme_citrus}, socket) do
-    Mob.Theme.set(Mob.Theme.Citrus)
-    Mob.State.put(:theme, :citrus)
-    {:noreply, Mob.Socket.assign(socket, :theme, :citrus)}
-  end
-
   def handle_info({:tap, :theme_birch}, socket) do
     Mob.Theme.set(Mob.Theme.Birch)
     Mob.State.put(:theme, :birch)
@@ -104,7 +96,6 @@ defmodule <%= module_name %>.HomeScreen do
     ~MOB(<Button text={label} background={bg} text_color={fg} text_size={:sm} padding={:space_sm} weight={1} on_tap={tap} />)
   end
 
-  defp theme_to_module(:citrus), do: Mob.Theme.Citrus
   defp theme_to_module(:birch),  do: Mob.Theme.Birch
   defp theme_to_module(_),       do: Mob.Theme.Obsidian
 

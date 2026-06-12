@@ -1119,8 +1119,8 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
     else
-      mob_dep = ~s({:mob,     "~> 0.5"})
-      mob_dev_dep = ~s({:mob_dev, "~> 0.3", only: :dev, runtime: false})
+      mob_dep = ~s({:mob,     "~> 0.7"})
+      mob_dev_dep = ~s({:mob_dev, "~> 0.6", only: :dev, runtime: false})
       mob_exs_mob_dir = "Path.join(File.cwd!(), \"deps/mob\")"
 
       # Default to the running Elixir's actual lib dir — `:code.lib_dir(:elixir)`

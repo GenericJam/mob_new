@@ -8,6 +8,17 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.0] - 2026-06-12
+
+### Changed
+- **Generated apps target mob 0.7 / mob_dev 0.6** (the plugin-extraction majors).
+- **Templates stripped of the extracted capabilities** — camera capture/frame-stream Kotlin, camera/scanner/notify code, media-read + notification permissions, the scanner `<activity>`, and the preset-theme switcher (now Light/Dark baseline; presets ship in the `mob_themes` style package). The plugins re-supply each via their manifests on activation.
+- iOS plugin objc NIFs build with Apple clang (`addObjcObject`); Android `build.zig` gains the `plugin_zig_nifs`/`plugin_jni_sources` options.
+- Notification delivery state rides the generated `io.mob.plugin.MobNotifyHub` (host code and the `mob_notify` plugin share it without cross-package references).
+
+### Fixed
+- Dead dotfile templates deleted (byte-diff-proven); `.credo.exs` now actually ships in archive-generated apps (it was silently dropped by the archive's dotfile-excluding wildcard); the inline `.tool-versions` pins Elixir 1.20.0 final (was rc.5 — the on-device stdlib-skew version).
+
 ## [0.3.16]
 
 ### Fixed

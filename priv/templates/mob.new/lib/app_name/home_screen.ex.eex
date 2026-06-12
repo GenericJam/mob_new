@@ -27,8 +27,6 @@ defmodule <%= module_name %>.HomeScreen do
         <Spacer size={12} />
         {nav_button("Audio",               :open_audio)}
         <Spacer size={12} />
-        {nav_button("Camera",              :open_camera)}
-        <Spacer size={12} />
         {nav_button("Storage",             :open_storage)}
         <Spacer size={32} />
         <Text text="Theme" text_size={:sm} text_color={:muted} padding={4} />
@@ -73,10 +71,6 @@ defmodule <%= module_name %>.HomeScreen do
 
   def handle_info({:tap, :open_audio}, socket) do
     {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.AudioScreen)}
-  end
-
-  def handle_info({:tap, :open_camera}, socket) do
-    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.CameraScreen)}
   end
 
   def handle_info({:tap, :open_storage}, socket) do

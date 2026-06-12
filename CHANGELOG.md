@@ -8,6 +8,14 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.1] - 2026-06-12
+
+### Fixed
+- The sample `CameraScreen` template survived the 0.4.0 capability strip while
+  its native half didn't — generated apps warned on the removed `Mob.Camera`
+  core API and would crash on that screen. Removed the screen and its home
+  nav entry (caught by the published-archive smoke test).
+
 ## [0.4.0] - 2026-06-12
 
 ### Changed

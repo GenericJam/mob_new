@@ -6,7 +6,7 @@ import org.json.JSONObject
 
 // Receives FCM messages and token refreshes.
 // Token refreshes are cached and delivered to Elixir the next time a screen
-// calls Mob.Notify.register_push/0.
+// calls MobNotify.register_push/1 (mob_notify plugin).
 // Foreground data pushes are forwarded immediately to the registered screen.
 class MobFirebaseService : FirebaseMessagingService() {
 

@@ -38,6 +38,7 @@ defmodule MobNew.Templates.AndroidCameraFrameStreamStrippedTest do
     # Preview stays in the host (descope: camera_preview component remains in core
     # until a plugin Compose native-view capability exists).
     assert src =~ "MobCameraPreview", "the camera preview composable must stay"
+
     assert src =~ ~s("camera_preview" -> MobCameraPreview),
            "the camera_preview render case must stay"
   end

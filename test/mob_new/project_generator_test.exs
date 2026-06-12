@@ -101,13 +101,9 @@ defmodule MobNew.ProjectGeneratorTest do
       assert owned?("mix.exs.eex")
     end
 
-    test "blocks .gitignore.eex (Phoenix has its own)" do
-      assert owned?(".gitignore.eex")
-    end
-
-    test "blocks .tool-versions.eex (Phoenix has its own)" do
-      assert owned?(".tool-versions.eex")
-    end
+    # .gitignore.eex/.tool-versions.eex template files were deleted as dead:
+    # the inline @dotfiles map supersedes them in BOTH --local and archive
+    # modes (byte-diff-proven), so there is nothing for LiveView mode to block.
 
     test "blocks anything under config/" do
       assert owned?("config/config.exs.eex")

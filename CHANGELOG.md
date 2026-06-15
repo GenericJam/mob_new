@@ -8,6 +8,22 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.2] - 2026-06-15
+
+### Added
+- **Showcase plugins by default.** Generated apps now depend on `mob_camera`,
+  `mob_location`, `mob_biometric`, and `mob_themes`, activate them in `mob.exs`
+  (`config :mob, :plugins` / `:styles` / `:default_style`), and the home screen
+  enumerates `Mob.Plugins.screens/0` to auto-list each plugin's demo screen — so
+  a fresh app demonstrates real device capabilities out of the box (the mob
+  analogue of `mix phx.new` shipping Ecto). Remove any plugin from `mix.exs` +
+  `mob.exs` to drop it; the home list and native build adjust with no other edits.
+
+### Fixed
+- `--local` (path-dep) generation now marks the `:mob` path dep `override: true`,
+  so a local mob checkout satisfies the `mob ~> 0.7` requirement the Hex showcase
+  plugins declare (Mix won't otherwise use a path dep for a Hex sub-requirement).
+
 ## [0.4.1] - 2026-06-12
 
 ### Fixed

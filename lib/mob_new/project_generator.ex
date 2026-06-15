@@ -1112,7 +1112,11 @@ defmodule MobNew.ProjectGenerator do
       mob_dev_dir = resolve_local_path("MOB_DEV_DIR", "mob_dev")
       elixir_lib = :code.lib_dir(:elixir) |> to_string() |> Path.dirname() |> Path.expand()
 
-      mob_dep = ~s({:mob,     path: "#{mob_dir}"})
+      # override: true so the local checkout satisfies the `mob ~> 0.7`
+      # requirement that the Hex showcase plugins (mob_camera, mob_themes, …)
+      # declare — Mix won't otherwise use a path dep to resolve a Hex
+      # sub-dependency requirement.
+      mob_dep = ~s({:mob,     path: "#{mob_dir}", override: true})
       mob_dev_dep = ~s({:mob_dev, path: "#{mob_dev_dir}", only: :dev, runtime: false})
       mob_exs_mob_dir = inspect(mob_dir)
       mob_exs_elixir_lib = inspect(elixir_lib)

@@ -22,6 +22,15 @@ defmodule <%= module_name %>.MixProject do
       <%= mob_dep %>,
       <%= mob_dev_dep %>,
       {:ecto_sqlite3, "~> 0.18"},
+      # Showcase plugins — each ships a demo screen the home auto-lists, so a
+      # fresh app demonstrates real device capabilities out of the box. Remove
+      # any you don't need (and drop it from config :mob, :plugins in mob.exs);
+      # the native build shrinks accordingly. Browse more at
+      # https://hexdocs.pm/mob/packages.html.
+      {:mob_camera, "~> 0.1"},
+      {:mob_location, "~> 0.1"},
+      {:mob_biometric, "~> 0.1"},
+      {:mob_themes, "~> 0.1"},
       # Code quality — Credo + ex_slop (catches AI-generated patterns
       # like blanket rescue, narrator docs, redundant Enum chains, etc).
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

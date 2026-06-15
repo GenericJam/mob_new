@@ -8,6 +8,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.3] - 2026-06-15
+
+### Fixed
+- **Android `build.zig`: wire `erts`/`jni` imports for plugin zig NIFs.** The
+  plugin-zig-NIF compile path passed `.mob_dir` to `addZigObject`, but the
+  `ZigObjectOptions` struct had no such field and the helper never wired the
+  `@import("erts")` / `@import("jni")` named modules a plugin NIF needs — so any
+  app activating a zig-NIF plugin (camera/location/biometric all ship one)
+  failed to build for Android. Added the field + module wiring (mob_erts.zig /
+  mob_zig.zig, std-only + PIC). Found + fixed verifying the showcase on a
+  physical Android phone.
+
 ## [0.4.2] - 2026-06-15
 
 ### Added

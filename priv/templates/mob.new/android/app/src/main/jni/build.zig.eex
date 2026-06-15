@@ -491,6 +491,10 @@ const ZigObjectOptions = struct {
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     build_options: ?*std.Build.Step.Options = null,
+    // When set, wire the `erts`/`jni` named imports a plugin .zig NIF needs.
+    // mob core's own .zig (mob_nif/mob_beam) leaves this null and uses
+    // sibling-relative @import instead, since it builds from mob/android/jni/.
+    mob_dir: ?[]const u8 = null,
 };
 
 // addZigObject compiles a single .zig source file into a relocatable
@@ -514,6 +518,28 @@ fn addZigObject(b: *std.Build, opts: ZigObjectOptions) std.Build.LazyPath {
 
     if (opts.build_options) |build_opts| {
         mod.addOptions("build_options", build_opts);
+    }
+
+    // Plugin .zig NIFs live outside mob/android/jni/, so they can't use the
+    // sibling-relative @import("mob_erts.zig") that mob's own .zig uses. When
+    // mob_dir is set, wire the `erts` (mob_erts.zig) and `jni` (mob_zig.zig)
+    // named modules so the plugin reaches mob-core bindings. Both hand-declare
+    // their FFI (no @cImport / OTP headers) and depend only on std.
+    if (opts.mob_dir) |md| {
+        const erts_mod = b.createModule(.{
+            .root_source_file = .{ .cwd_relative = b.fmt("{s}/android/jni/mob_erts.zig", .{md}) },
+            .target = opts.target,
+            .optimize = opts.optimize,
+            .pic = true,
+        });
+        const jni_mod = b.createModule(.{
+            .root_source_file = .{ .cwd_relative = b.fmt("{s}/android/jni/mob_zig.zig", .{md}) },
+            .target = opts.target,
+            .optimize = opts.optimize,
+            .pic = true,
+        });
+        mod.addImport("erts", erts_mod);
+        mod.addImport("jni", jni_mod);
     }
 
     const obj = b.addObject(.{

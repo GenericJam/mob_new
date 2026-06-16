@@ -8,6 +8,15 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.4] - 2026-06-16
+
+### Added
+- Generated `mob.exs` ships `config :mob, :trusted_plugins` with the shared mob
+  first-party signing-key fingerprint for all official plugins. The bundled
+  showcase plugins (now signed on Hex) clear the signature gate out of the box —
+  no `acknowledge_unsafe_plugins` needed — and any other first-party plugin a
+  user activates is pre-trusted.
+
 ## [0.4.3] - 2026-06-15
 
 ### Fixed

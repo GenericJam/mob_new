@@ -1,4 +1,4 @@
-defmodule Mix.Tasks.Mob.Install do
+defmodule Mix.Tasks.Mob.Adopt do
   @shortdoc "Installs Mob into an existing Phoenix project"
 
   @moduledoc """
@@ -11,7 +11,7 @@ defmodule Mix.Tasks.Mob.Install do
 
   ## Usage
 
-      mix mob.install [OPTIONS]
+      mix mob.adopt [OPTIONS]
 
   Run from inside an existing Mix project. The target project must
   declare `{:igniter, "~> 0.7", only: [:dev, :test]}` in its mix.exs
@@ -62,18 +62,18 @@ defmodule Mix.Tasks.Mob.Install do
 
   Every sub-installer is invokable independently:
 
-      mix mob.install.deps          # just bump mix.exs
-      mix mob.install.bridge        # just patch app.js + root.html.heex
-      mix mob.install.screen        # just generate mob_screen.ex
-      mix mob.install.mob_app       # just generate mob_app.ex + .erl bootstrap
-      mix mob.install.mob_exs       # just write mob.exs + .gitignore
-      mix mob.install.native        # both native trees
-      mix mob.install.native.android
-      mix mob.install.native.ios
-      mix mob.install.finalize      # post-install notice (no file changes)
+      mix mob.adopt.deps          # just bump mix.exs
+      mix mob.adopt.bridge        # just patch app.js + root.html.heex
+      mix mob.adopt.screen        # just generate mob_screen.ex
+      mix mob.adopt.mob_app       # just generate mob_app.ex + .erl bootstrap
+      mix mob.adopt.mob_exs       # just write mob.exs + .gitignore
+      mix mob.adopt.native        # both native trees
+      mix mob.adopt.native.android
+      mix mob.adopt.native.ios
+      mix mob.adopt.finalize      # post-install notice (no file changes)
 
-  Each accepts the same flags as `mob.install` and respects them
-  individually. Run `mix help mob.install.<sub>` for sub-task docs.
+  Each accepts the same flags as `mob.adopt` and respects them
+  individually. Run `mix help mob.adopt.<sub>` for sub-task docs.
 
   On-device runtime services (`Mob.ComponentRegistry`,
   `Mob.NativeLogger`, etc.) start imperatively inside
@@ -82,7 +82,7 @@ defmodule Mix.Tasks.Mob.Install do
   """
   use Igniter.Mix.Task
 
-  alias Mix.Tasks.Mob.Install.{Bridge, Deps, Finalize, MobApp, MobExs, Native, Screen}
+  alias Mix.Tasks.Mob.Adopt.{Bridge, Deps, Finalize, MobApp, MobExs, Native, Screen}
 
   @schema [
     ios: :boolean,
@@ -104,17 +104,17 @@ defmodule Mix.Tasks.Mob.Install do
   def info(_argv, _composing_task) do
     %Igniter.Mix.Task.Info{
       group: :mob,
-      example: "mix mob.install --host-url https://my-app.fly.dev/",
+      example: "mix mob.adopt --host-url https://my-app.fly.dev/",
       schema: @schema,
       defaults: @defaults,
       composes: [
-        "mob.install.deps",
-        "mob.install.bridge",
-        "mob.install.screen",
-        "mob.install.mob_app",
-        "mob.install.mob_exs",
-        "mob.install.native",
-        "mob.install.finalize"
+        "mob.adopt.deps",
+        "mob.adopt.bridge",
+        "mob.adopt.screen",
+        "mob.adopt.mob_app",
+        "mob.adopt.mob_exs",
+        "mob.adopt.native",
+        "mob.adopt.finalize"
       ]
     }
   end

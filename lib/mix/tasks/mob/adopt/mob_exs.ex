@@ -1,4 +1,4 @@
-defmodule Mix.Tasks.Mob.Install.MobExs do
+defmodule Mix.Tasks.Mob.Adopt.MobExs do
   @shortdoc "Generates mob.exs and adds it to .gitignore"
 
   @moduledoc """
@@ -20,7 +20,7 @@ defmodule Mix.Tasks.Mob.Install.MobExs do
     overwrite an edited mob.exs.
   - `.gitignore` patch checks for `mob.exs` before appending.
 
-  Typically called by `mix mob.install`, not directly.
+  Typically called by `mix mob.adopt`, not directly.
   """
   use Igniter.Mix.Task
 
@@ -38,7 +38,7 @@ defmodule Mix.Tasks.Mob.Install.MobExs do
   def info(_argv, _composing_task) do
     %Igniter.Mix.Task.Info{
       group: :mob,
-      example: "mix mob.install.mob_exs",
+      example: "mix mob.adopt.mob_exs",
       schema: @common_schema,
       defaults: @common_defaults
     }

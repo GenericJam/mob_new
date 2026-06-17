@@ -1,4 +1,4 @@
-defmodule Mix.Tasks.Mob.Install.Native.Android do
+defmodule Mix.Tasks.Mob.Adopt.Native.Android do
   @shortdoc "Generates the android/ native tree from mob_new templates"
 
   @moduledoc """
@@ -33,7 +33,7 @@ defmodule Mix.Tasks.Mob.Install.Native.Android do
   def info(_argv, _composing_task) do
     %Igniter.Mix.Task.Info{
       group: :mob,
-      example: "mix mob.install.native.android",
+      example: "mix mob.adopt.native.android",
       schema: @common_schema,
       defaults: @common_defaults
     }

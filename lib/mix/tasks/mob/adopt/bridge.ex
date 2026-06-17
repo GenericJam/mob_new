@@ -1,4 +1,4 @@
-defmodule Mix.Tasks.Mob.Install.Bridge do
+defmodule Mix.Tasks.Mob.Adopt.Bridge do
   @shortdoc "Installs the Mob LiveView bridge (MobHook + bridge div)"
 
   @moduledoc """
@@ -23,7 +23,7 @@ defmodule Mix.Tasks.Mob.Install.Bridge do
 
   Other orchestrator flags (`--no-ios`, `--no-android`, `--local`,
   `--python`, `--host-url`) are accepted but inert here — declared in
-  the schema only so `mix mob.install` can forward its full argv
+  the schema only so `mix mob.adopt` can forward its full argv
   without Igniter rejecting unknown options.
 
   ## Idempotency
@@ -32,10 +32,10 @@ defmodule Mix.Tasks.Mob.Install.Bridge do
   `inject_mob_bridge_element/1` short-circuit when their markers
   (`MobHook` / `mob-bridge`) are already present in the file. Safe to
   re-run. If a target file can't be located, a warning is emitted with
-  the snippet to add manually; the rest of `mix mob.install` still
+  the snippet to add manually; the rest of `mix mob.adopt` still
   completes.
 
-  Typically called by `mix mob.install`, not directly.
+  Typically called by `mix mob.adopt`, not directly.
   """
   use Igniter.Mix.Task
 
@@ -56,7 +56,7 @@ defmodule Mix.Tasks.Mob.Install.Bridge do
   def info(_argv, _composing_task) do
     %Igniter.Mix.Task.Info{
       group: :mob,
-      example: "mix mob.install.bridge",
+      example: "mix mob.adopt.bridge",
       schema: @common_schema,
       defaults: @common_defaults
     }
@@ -70,7 +70,7 @@ defmodule Mix.Tasks.Mob.Install.Bridge do
       |> patch_root_html()
     else
       Igniter.add_notice(igniter, """
-      `mob.install.bridge` skipped (--no-live-view). The native shell
+      `mob.adopt.bridge` skipped (--no-live-view). The native shell
       will inject `window.mob` directly; no LiveView hook needed.
       """)
     end

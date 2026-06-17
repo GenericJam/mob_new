@@ -1,4 +1,4 @@
-defmodule Mix.Tasks.Mob.Install.Screen do
+defmodule Mix.Tasks.Mob.Adopt.Screen do
   @shortdoc "Generates the MobScreen (WebView wrapper) module"
 
   @moduledoc """
@@ -22,7 +22,7 @@ defmodule Mix.Tasks.Mob.Install.Screen do
 
   Other orchestrator flags (`--no-ios`, `--no-android`, `--local`,
   `--python`, `--no-live-view`) are accepted but inert here — declared
-  in the schema only so `mix mob.install` can forward its full argv
+  in the schema only so `mix mob.adopt` can forward its full argv
   to this sub-installer without Igniter rejecting unknown options.
 
   ## Idempotency
@@ -34,7 +34,7 @@ defmodule Mix.Tasks.Mob.Install.Screen do
     which is idempotent: the key is set to the new value, or left as
     is if the same value is already present.
 
-  Typically called by `mix mob.install`, not directly.
+  Typically called by `mix mob.adopt`, not directly.
   """
   use Igniter.Mix.Task
 
@@ -43,7 +43,7 @@ defmodule Mix.Tasks.Mob.Install.Screen do
   alias MobNew.LiveViewPatcher
 
   # Common schema — every install sub-task accepts the full orchestrator
-  # flag set so `mix mob.install` can forward its argv unchanged.
+  # flag set so `mix mob.adopt` can forward its argv unchanged.
   # Sub-tasks ignore options that don't apply to them.
   @common_schema [
     ios: :boolean,
@@ -59,7 +59,7 @@ defmodule Mix.Tasks.Mob.Install.Screen do
   def info(_argv, _composing_task) do
     %Igniter.Mix.Task.Info{
       group: :mob,
-      example: "mix mob.install.screen --host-url https://my-app.fly.dev/",
+      example: "mix mob.adopt.screen --host-url https://my-app.fly.dev/",
       schema: @common_schema,
       defaults: @common_defaults
     }

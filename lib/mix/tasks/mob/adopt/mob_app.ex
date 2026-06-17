@@ -1,4 +1,4 @@
-defmodule Mix.Tasks.Mob.Install.MobApp do
+defmodule Mix.Tasks.Mob.Adopt.MobApp do
   @shortdoc "Generates lib/<app>/mob_app.ex + src/<app>.erl (on-device BEAM entry)"
 
   @moduledoc """
@@ -42,7 +42,7 @@ defmodule Mix.Tasks.Mob.Install.MobApp do
   - `erlc_paths` / `erlc_options` injection checks string presence in
     `mix.exs` before patching.
 
-  Typically called by `mix mob.install`, not directly.
+  Typically called by `mix mob.adopt`, not directly.
   """
   use Igniter.Mix.Task
 
@@ -63,7 +63,7 @@ defmodule Mix.Tasks.Mob.Install.MobApp do
   def info(_argv, _composing_task) do
     %Igniter.Mix.Task.Info{
       group: :mob,
-      example: "mix mob.install.mob_app",
+      example: "mix mob.adopt.mob_app",
       schema: @common_schema,
       defaults: @common_defaults
     }

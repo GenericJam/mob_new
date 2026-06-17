@@ -1,4 +1,4 @@
-defmodule Mix.Tasks.Mob.Install.Native.Ios do
+defmodule Mix.Tasks.Mob.Adopt.Native.Ios do
   @shortdoc "Generates the ios/ native tree from mob_new templates"
 
   @moduledoc """
@@ -16,7 +16,7 @@ defmodule Mix.Tasks.Mob.Install.Native.Ios do
   use Igniter.Mix.Task
 
   alias Igniter.Project.Application, as: ProjectApplication
-  alias Mix.Tasks.Mob.Install.Native.Android, as: AndroidInstaller
+  alias Mix.Tasks.Mob.Adopt.Native.Android, as: AndroidInstaller
   alias MobNew.ProjectGenerator
 
   @common_schema [
@@ -33,7 +33,7 @@ defmodule Mix.Tasks.Mob.Install.Native.Ios do
   def info(_argv, _composing_task) do
     %Igniter.Mix.Task.Info{
       group: :mob,
-      example: "mix mob.install.native.ios --python",
+      example: "mix mob.adopt.native.ios --python",
       schema: @common_schema,
       defaults: @common_defaults
     }

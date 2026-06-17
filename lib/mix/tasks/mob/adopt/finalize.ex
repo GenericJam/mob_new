@@ -1,5 +1,5 @@
-defmodule Mix.Tasks.Mob.Install.Finalize do
-  @shortdoc "Prints next-steps after mob.install"
+defmodule Mix.Tasks.Mob.Adopt.Finalize do
+  @shortdoc "Prints next-steps after mob.adopt"
 
   @moduledoc """
   Emits a post-install notice with the next steps for the user.
@@ -25,7 +25,7 @@ defmodule Mix.Tasks.Mob.Install.Finalize do
   def info(_argv, _composing_task) do
     %Igniter.Mix.Task.Info{
       group: :mob,
-      example: "mix mob.install.finalize",
+      example: "mix mob.adopt.finalize",
       schema: @common_schema,
       defaults: @common_defaults
     }
@@ -63,10 +63,8 @@ defmodule Mix.Tasks.Mob.Install.Finalize do
     2. Edit android/local.properties with your Android SDK path.
     3. First-time setup (icon generation, OTP runtime, signing):
 
-           mix mob.install   # one-time setup
-                             # (different from the install you just ran —
-                             #  that's the project-side post-install task
-                             #  shipped by `mob_dev`, runs once per device)
+           mix mob.install   # mob_dev's first-run task — different from the
+                             # `mix mob.adopt` you just ran. Runs once per device.
 
     4. iOS only — if targeting a physical iPhone:
 

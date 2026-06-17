@@ -1,9 +1,9 @@
-defmodule Mix.Tasks.Mob.Install.Native do
+defmodule Mix.Tasks.Mob.Adopt.Native do
   @shortdoc "Installs the native (Android + iOS) build trees"
 
   @moduledoc """
-  Dispatcher — composes `mob.install.native.android` and
-  `mob.install.native.ios`.
+  Dispatcher — composes `mob.adopt.native.android` and
+  `mob.adopt.native.ios`.
 
   ## Options
 
@@ -12,7 +12,7 @@ defmodule Mix.Tasks.Mob.Install.Native do
   - `--local` — forwarded to the platform sub-installers for path-dep
     resolution.
   - `--python` — iOS-only: pre-configure embedded CPython via Pythonx
-    (forwarded to `mob.install.native.ios`).
+    (forwarded to `mob.adopt.native.ios`).
 
   Other orchestrator flags accepted but inert.
 
@@ -21,7 +21,7 @@ defmodule Mix.Tasks.Mob.Install.Native do
   """
   use Igniter.Mix.Task
 
-  alias Mix.Tasks.Mob.Install.Native.{Android, Ios}
+  alias Mix.Tasks.Mob.Adopt.Native.{Android, Ios}
 
   @common_schema [
     ios: :boolean,
@@ -37,10 +37,10 @@ defmodule Mix.Tasks.Mob.Install.Native do
   def info(_argv, _composing_task) do
     %Igniter.Mix.Task.Info{
       group: :mob,
-      example: "mix mob.install.native",
+      example: "mix mob.adopt.native",
       schema: @common_schema,
       defaults: @common_defaults,
-      composes: ["mob.install.native.android", "mob.install.native.ios"]
+      composes: ["mob.adopt.native.android", "mob.adopt.native.ios"]
     }
   end
 
@@ -59,7 +59,7 @@ defmodule Mix.Tasks.Mob.Install.Native do
   defp maybe_compose(igniter, module, true),
     do: Igniter.compose_task(igniter, module, igniter.args.argv)
 
-  # See `Mix.Tasks.Mob.Install.ensure_archive_path_loaded/0`.
+  # See `Mix.Tasks.Mob.Adopt.ensure_archive_path_loaded/0`.
   defp ensure_archive_path_loaded do
     case :code.which(__MODULE__) do
       path when is_list(path) ->

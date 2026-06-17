@@ -51,18 +51,10 @@ defmodule Mix.Tasks.Mob.Adopt.Deps do
   @impl Igniter.Mix.Task
   def igniter(igniter) do
     opts = igniter.args.options
-    {_mob_dep, _mob_dev_dep, _mob_dir_expr, _elixir_lib_expr} = ProjectGenerator.resolve_deps(opts)
     {mob_dep_str, mob_dev_dep_str, _, _} = ProjectGenerator.resolve_deps(opts)
 
-    # We patch mix.exs via raw-text update + `LiveViewPatcher.inject_deps/3`
-    # rather than `Igniter.Project.Deps.add_dep/3`. The Sourceror-based
-    # injector handles 3-tuple deps with trailing keyword options
-    # (`{:mob_dev, "~> 0.3", only: :dev, runtime: false}`) cleanly, while
-    # Igniter 0.8.1's `add_dep` renders that shape as a map literal
-    # (`:only => :dev, ...`) inside the tuple, producing invalid Elixir
-    # that crashes the next re-parse. Same patcher is used by
-    # `mix mob.new --liveview`, so deps round-trip identically across
-    # the two paths.
+    # Not `Igniter.Project.Deps.add_dep/3`: 0.8.1 renders 3-tuples with
+    # trailing keyword opts as `:k => v` map syntax — invalid Elixir.
     Igniter.update_file(igniter, "mix.exs", fn source ->
       content = Rewrite.Source.get(source, :content)
       patched = LiveViewPatcher.inject_deps(content, mob_dep_str, mob_dev_dep_str)

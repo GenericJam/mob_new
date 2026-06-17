@@ -79,6 +79,10 @@ defmodule Mix.Tasks.Mob.Adopt do
   `Mob.NativeLogger`, etc.) start imperatively inside
   `<App>.MobApp.start/0` — `Mob.App` is the *behaviour* the device
   entry uses (via `use Mob.App`), never a supervision-tree child.
+
+  All generated content comes from `priv/templates/mob.new/` (native
+  trees) or `MobNew.LiveViewPatcher` (Elixir source), both shared
+  with `mix mob.new --liveview`. Adopt never forks.
   """
   use Igniter.Mix.Task
 

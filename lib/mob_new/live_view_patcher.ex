@@ -1,7 +1,9 @@
 defmodule MobNew.LiveViewPatcher do
   @moduledoc """
   Pure helpers for applying the Mob LiveView bridge patches to a freshly
-  generated Phoenix project.
+  generated Phoenix project. Also the shared source for every
+  Elixir-source content generator used by `mix mob.new --liveview` and
+  `mix mob.adopt` — neither path is allowed to fork its own copy.
 
   These are duplicated from `MobDev.Enable` (which lives in mob_dev, a separate
   package) to keep mob_new self-contained as a Mix archive with no runtime deps

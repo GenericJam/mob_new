@@ -1671,6 +1671,106 @@ defmodule MobNew.ProjectGeneratorTest do
     end
   end
 
+  # ── --blank flag (minimal app) ────────────────────────────────────────────
+
+  describe "blank_excluded?/3" do
+    @root "/tmpl"
+
+    test "skips demo screens only when blank: true" do
+      assert ProjectGenerator.blank_excluded?("/tmpl/lib/app_name/dice_screen.ex.eex", @root,
+               blank: true
+             )
+
+      refute ProjectGenerator.blank_excluded?("/tmpl/lib/app_name/dice_screen.ex.eex", @root, [])
+    end
+
+    test "keeps core files even when blank: true" do
+      for core <- ~w(app home_screen repo) do
+        refute ProjectGenerator.blank_excluded?(
+                 "/tmpl/lib/app_name/#{core}.ex.eex",
+                 @root,
+                 blank: true
+               ),
+               "#{core} must survive --blank"
+      end
+    end
+
+    test "does not touch files outside lib/app_name/ under blank" do
+      refute ProjectGenerator.blank_excluded?("/tmpl/mix.exs.eex", @root, blank: true)
+
+      refute ProjectGenerator.blank_excluded?("/tmpl/android/app/build.gradle.eex", @root,
+               blank: true
+             )
+    end
+  end
+
+  describe "generate/3 with blank: true" do
+    setup do
+      tmp =
+        Path.join(System.tmp_dir!(), "mob_new_blank_test_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp)
+      on_exit(fn -> File.rm_rf!(tmp) end)
+      {:ok, tmp: tmp}
+    end
+
+    test "keeps core screens, drops demo screens", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("blank_app", tmp, blank: true)
+      lib = Path.join(dir, "lib/blank_app")
+
+      assert File.exists?(Path.join(lib, "app.ex"))
+      assert File.exists?(Path.join(lib, "home_screen.ex"))
+      assert File.exists?(Path.join(lib, "repo.ex"))
+
+      for demo <-
+            ~w(audio_screen dice_screen list_screen round storage_screen text_screen webview_screen) do
+        refute File.exists?(Path.join(lib, "#{demo}.ex")), "#{demo}.ex must not be generated"
+      end
+    end
+
+    test "mix.exs drops the showcase plugins", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("blank_app", tmp, blank: true)
+      content = File.read!(Path.join(dir, "mix.exs"))
+
+      refute content =~ "mob_camera"
+      refute content =~ "mob_location"
+      refute content =~ "mob_biometric"
+      refute content =~ "mob_themes"
+      # Core deps still present.
+      assert content =~ "ecto_sqlite3"
+      assert content =~ "aliases: aliases()"
+    end
+
+    test "mob.exs has empty plugins and no styles", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("blank_app", tmp, blank: true)
+      content = File.read!(Path.join(dir, "mob.exs"))
+
+      assert content =~ "config :mob, :plugins, []"
+      refute content =~ ":styles"
+      refute content =~ ":default_style"
+    end
+
+    test "home_screen drops demo nav buttons but keeps plugin_section + theme", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("blank_app", tmp, blank: true)
+      content = File.read!(Path.join(dir, "lib/blank_app/home_screen.ex"))
+
+      refute content =~ "TextScreen"
+      refute content =~ "DiceScreen"
+      refute content =~ ":open_audio"
+      # Plugin auto-listing + theme toggle survive (work with zero plugins).
+      assert content =~ "Mob.Plugins.screens()"
+      assert content =~ "plugin_section"
+      assert content =~ "Mob.Theme.Dark"
+    end
+
+    test "default (non-blank) still ships demo screens + plugins (regression guard)", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("full_app", tmp)
+      assert File.exists?(Path.join(dir, "lib/full_app/dice_screen.ex"))
+      assert File.read!(Path.join(dir, "mix.exs")) =~ "mob_camera"
+      assert File.read!(Path.join(dir, "mob.exs")) =~ ":mob_camera"
+    end
+  end
+
   # ── --python flag (apply_python_patches) ──────────────────────────────────
 
   describe "generate/3 with python: true" do

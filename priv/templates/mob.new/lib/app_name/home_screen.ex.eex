@@ -18,7 +18,7 @@ defmodule <%= module_name %>.HomeScreen do
         <Spacer size={16} />
         <Text text="<%= display_name %>" text_size={:xl} text_color={:on_surface} padding={:space_sm} />
         <Text text="BEAM running on device" text_size={:sm} text_color={:primary} padding={4} />
-        <Spacer size={40} />
+        <Spacer size={40} /><%= unless blank do %>
         {nav_button("Text Input",          :open_text)}
         <Spacer size={12} />
         {nav_button("Rock Paper Scissors", :open_list)}
@@ -29,7 +29,7 @@ defmodule <%= module_name %>.HomeScreen do
         <Spacer size={12} />
         {nav_button("Audio",               :open_audio)}
         <Spacer size={12} />
-        {nav_button("Storage",             :open_storage)}
+        {nav_button("Storage",             :open_storage)}<% end %>
         {plugin_section(assigns.plugin_screens)}
         <Spacer size={32} />
         <Text text="Theme" text_size={:sm} text_color={:muted} padding={4} />
@@ -56,7 +56,7 @@ defmodule <%= module_name %>.HomeScreen do
     {:noreply, Mob.Socket.assign(socket, :theme, :dark)}
   end
 
-  def handle_info({:tap, :open_text}, socket) do
+<%= unless blank do %>  def handle_info({:tap, :open_text}, socket) do
     {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.TextScreen)}
   end
 
@@ -80,7 +80,7 @@ defmodule <%= module_name %>.HomeScreen do
     {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.StorageScreen)}
   end
 
-  # Plugin demo screens are tagged by their route string (see plugin_section/1).
+<% end %>  # Plugin demo screens are tagged by their route string (see plugin_section/1).
   def handle_info({:tap, route}, socket) when is_binary(route) do
     case Enum.find(socket.assigns.plugin_screens, &(&1.default_route == route)) do
       %{module: mod} -> {:noreply, Mob.Socket.push_screen(socket, mod)}

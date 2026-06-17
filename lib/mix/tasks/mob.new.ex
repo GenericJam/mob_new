@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mob.New do
   @moduledoc """
   Creates a new Mob project with Android and iOS boilerplate.
 
-      mix mob.new APP_NAME [--liveview] [--python] [--ios | --android] [--no-install] [--dest DIR] [--local]
+      mix mob.new APP_NAME [--liveview] [--python] [--blank] [--ios | --android] [--no-install] [--dest DIR] [--local]
 
   ## Platform selection
 
@@ -42,6 +42,14 @@ defmodule Mix.Tasks.Mob.New do
                          post-scaffold. Bundle size ~70 MB; iOS only —
                          Android Python is intentionally out of scope. See
                          the `Embedded CPython` guide in mob_dev's docs.
+    * `--blank`        — minimal native app: just `app.ex`, `home_screen.ex`,
+                         and `repo.ex`. Skips the demo/sample screens (text,
+                         dice, audio, webview, storage, list) and the showcase
+                         plugins (`mob_camera`/`mob_location`/`mob_biometric`/
+                         `mob_themes`), leaving `config :mob, :plugins, []`. The
+                         home screen still auto-lists any plugins you add later.
+                         Ignored in `--liveview` mode (which has no native demo
+                         screens to begin with).
     * `--no-install`   — skip running `mix deps.get` after generation
     * `--dest DIR`     — create project in DIR (default: current directory)
     * `--local`        — use `path:` deps pointing to local mob/mob_dev repos
@@ -121,7 +129,8 @@ defmodule Mix.Tasks.Mob.New do
     dest: :string,
     local: :boolean,
     liveview: :boolean,
-    python: :boolean
+    python: :boolean,
+    blank: :boolean
   ]
 
   @impl Mix.Task
@@ -160,7 +169,8 @@ defmodule Mix.Tasks.Mob.New do
       local: opts[:local] || false,
       no_ios: no_ios,
       no_android: no_android,
-      python: opts[:python] || false
+      python: opts[:python] || false,
+      blank: opts[:blank] || false
     ]
 
     {dest_dir, liveview, gen_opts}
@@ -236,6 +246,14 @@ defmodule Mix.Tasks.Mob.New do
       Mix.shell().info([
         :cyan,
         "* --python: enabling embedded CPython (iOS only). See python_embedding guide.",
+        :reset
+      ])
+    end
+
+    if gen_opts[:blank] do
+      Mix.shell().info([
+        :cyan,
+        "* --blank: minimal app (no demo screens or showcase plugins)",
         :reset
       ])
     end

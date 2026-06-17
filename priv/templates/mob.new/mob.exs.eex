@@ -17,7 +17,7 @@ config :mob_dev,
 # its native code, permissions, and any demo screens at build time. Drop a name
 # here to deactivate a plugin without removing the dep; remove both to drop it
 # entirely (the native build shrinks and a clean rebuild prunes its artifacts).
-config :mob, :plugins, [:mob_camera, :mob_location, :mob_biometric]
+config :mob, :plugins, [<%= unless blank do %>:mob_camera, :mob_location, :mob_biometric<% end %>]
 
 # Trust gate for the first-party plugins. Each is signed in CI with the shared
 # mob release key; this is that key's public fingerprint. The build refuses an
@@ -39,6 +39,7 @@ config :mob, :trusted_plugins, %{
   mob_ash: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg="
 }
 
-# Style packages (theming). :default_style selects the theme applied at boot.
+<%= unless blank do %># Style packages (theming). :default_style selects the theme applied at boot.
 config :mob, :styles, [:mob_themes]
 config :mob, :default_style, :mob_themes
+<% end %>

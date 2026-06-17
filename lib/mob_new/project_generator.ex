@@ -130,7 +130,8 @@ defmodule MobNew.ProjectGenerator do
       mob_exs_mob_dir: mob_exs_mob_dir,
       mob_exs_elixir_lib: mob_exs_elixir_lib,
       ndk_version: MobNew.NdkVersion.recommended(),
-      python: Keyword.get(opts, :python, false)
+      python: Keyword.get(opts, :python, false),
+      blank: Keyword.get(opts, :blank, false)
     }
   end
 
@@ -1173,6 +1174,34 @@ defmodule MobNew.ProjectGenerator do
   # attribute that used to live here was triggering Elixir 1.20's
   # type checker on a known-always-false `in` check.
 
+  # Demo/sample screens shipped in the native template's lib/<app>/ tree.
+  # `--blank` skips these (and their plugins/nav buttons) so the generated app
+  # is just app.ex, home_screen.ex, and repo.ex. Keep this list in sync with
+  # the home_screen.ex.eex nav buttons that are gated behind `unless blank`.
+  @demo_screens ~w(
+    audio_screen dice_screen list_screen round storage_screen text_screen webview_screen
+  )
+
+  @doc """
+  Whether a template should be skipped because `--blank` was requested.
+
+  Only the demo/sample screens under `lib/app_name/` are skipped; the core
+  files (`app.ex`, `home_screen.ex`, `repo.ex`) and everything else are kept.
+  Returns false when `blank` is not set. Public for testing — a new demo screen
+  landing in the tree without being added to `@demo_screens` is a regression
+  this guards.
+  """
+  @spec blank_excluded?(String.t(), String.t(), keyword()) :: boolean()
+  def blank_excluded?(path, root, opts) do
+    if Keyword.get(opts, :blank, false) do
+      rel = Path.relative_to(path, root)
+      base = rel |> Path.basename(".ex.eex") |> Path.basename(".ex")
+      String.starts_with?(rel, "lib/app_name/") and base in @demo_screens
+    else
+      false
+    end
+  end
+
   defp render_templates(assigns, project_dir, opts) do
     no_ios = Keyword.get(opts, :no_ios, false)
     no_android = Keyword.get(opts, :no_android, false)
@@ -1182,6 +1211,7 @@ defmodule MobNew.ProjectGenerator do
     t_root
     |> find_templates()
     |> Enum.filter(&platform_included?(&1, t_root, no_ios, no_android))
+    |> Enum.reject(&blank_excluded?(&1, t_root, opts))
     |> Enum.each(fn template_path ->
       rel = Path.relative_to(template_path, t_root)
       dest_rel = expand_path(rel, assigns)

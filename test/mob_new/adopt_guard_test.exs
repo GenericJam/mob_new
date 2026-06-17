@@ -10,6 +10,34 @@ defmodule MobNew.AdoptGuardTest do
     use Mix.Project
     def project, do: [app: :test, version: "0.1.0", elixir: "~> 1.15", deps: deps()]
     def application, do: [extra_applications: [:logger]]
+    defp deps,
+      do: [
+        {:phoenix, "~> 1.7"},
+        {:ecto_sql, "~> 3.10"},
+        {:ecto_sqlite3, "~> 0.18"}
+      ]
+  end
+  """
+
+  @phx_postgres_mix_exs """
+  defmodule Test.MixProject do
+    use Mix.Project
+    def project, do: [app: :test, version: "0.1.0", elixir: "~> 1.15", deps: deps()]
+    def application, do: [extra_applications: [:logger]]
+    defp deps,
+      do: [
+        {:phoenix, "~> 1.7"},
+        {:ecto_sql, "~> 3.10"},
+        {:postgrex, ">= 0.0.0"}
+      ]
+  end
+  """
+
+  @phx_no_ecto_mix_exs """
+  defmodule Test.MixProject do
+    use Mix.Project
+    def project, do: [app: :test, version: "0.1.0", elixir: "~> 1.15", deps: deps()]
+    def application, do: [extra_applications: [:logger]]
     defp deps, do: [{:phoenix, "~> 1.7"}]
   end
   """
@@ -108,6 +136,25 @@ defmodule MobNew.AdoptGuardTest do
       assert Enum.any?(igniter.issues, &String.contains?(&1, "requires a `<body>` tag"))
     end
 
+    test "refused when host has no Ecto Repo (no :ecto_sql in deps)" do
+      igniter =
+        blessed_project(%{"mix.exs" => @phx_no_ecto_mix_exs})
+        |> AdoptGuard.check(:live_view)
+
+      assert Enum.any?(igniter.issues, &String.contains?(&1, "no Ecto Repo"))
+    end
+
+    test "refused when host Repo uses Postgres (not SQLite)" do
+      igniter =
+        blessed_project(%{"mix.exs" => @phx_postgres_mix_exs})
+        |> AdoptGuard.check(:live_view)
+
+      assert Enum.any?(
+               igniter.issues,
+               &(String.contains?(&1, "assumes SQLite") and String.contains?(&1, "Postgres"))
+             )
+    end
+
     test "blessed shape passes" do
       igniter = blessed_project() |> AdoptGuard.check(:live_view)
       assert igniter.issues == []
@@ -118,6 +165,22 @@ defmodule MobNew.AdoptGuardTest do
     test "passes without app.js / root.html.heex when project has :phoenix" do
       igniter =
         test_project(files: %{"mix.exs" => @phx_mix_exs})
+        |> AdoptGuard.check(:thin)
+
+      assert igniter.issues == []
+    end
+
+    test "passes against a Postgres host (no on-device DB in thin mode)" do
+      igniter =
+        test_project(files: %{"mix.exs" => @phx_postgres_mix_exs})
+        |> AdoptGuard.check(:thin)
+
+      assert igniter.issues == []
+    end
+
+    test "passes against a no-Ecto host (thin mode doesn't need a Repo)" do
+      igniter =
+        test_project(files: %{"mix.exs" => @phx_no_ecto_mix_exs})
         |> AdoptGuard.check(:thin)
 
       assert igniter.issues == []

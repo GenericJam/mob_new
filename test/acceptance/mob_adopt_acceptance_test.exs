@@ -36,9 +36,14 @@ defmodule MobAdoptAcceptanceTest do
     {:ok, tmp: tmp}
   end
 
-  test "mob.adopt against a fresh phx.new project produces a usable mob app", %{tmp: tmp} do
+  test "LV mode against a phx.new --database sqlite3 project produces a usable mob app", %{
+    tmp: tmp
+  } do
     app_dir = Path.join(tmp, "test_mob_app")
 
+    # SQLite-shaped Phoenix project — adopt's LV mob_app.ex assumes the
+    # host Repo is SQLite. `mix phx.new --database sqlite3` is the only
+    # blessed shape today.
     {output, code} =
       System.cmd(
         "mix",
@@ -46,7 +51,8 @@ defmodule MobAdoptAcceptanceTest do
           "phx.new",
           "test_mob_app",
           "--no-install",
-          "--no-ecto",
+          "--database",
+          "sqlite3",
           "--no-mailer",
           "--no-dashboard"
         ],
@@ -78,7 +84,7 @@ defmodule MobAdoptAcceptanceTest do
 
     assert code == 0, "mob.adopt failed:\n#{output}"
 
-    # 5. Adopt-output assertions.
+    # Adopt-output assertions.
     mix_exs = File.read!(Path.join(app_dir, "mix.exs"))
     assert mix_exs =~ ":mob", "mob.adopt didn't add :mob to mix.exs"
     assert mix_exs =~ ":mob_dev", "mob.adopt didn't add :mob_dev to mix.exs"
@@ -95,7 +101,7 @@ defmodule MobAdoptAcceptanceTest do
              "mob.adopt didn't emit #{relative}"
     end
 
-    # Compile check
+    # Compile check.
     {output, code} = System.cmd("mix", ["deps.get"], cd: app_dir, stderr_to_stdout: true)
     assert code == 0, "deps.get failed after adopt:\n#{output}"
 
@@ -105,6 +111,85 @@ defmodule MobAdoptAcceptanceTest do
            "DRIFT: mix compile failed after mob.adopt — adopt's generated " <>
              "code likely references a Phoenix or Mob module that has moved.\n\n" <>
              output
+
+    # Runtime smoke check — `mix compile` only catches missing modules at
+    # the syntactic level (`Ecto.Migrator.run(SomeUndefined.Repo, ...)`
+    # compiles to a runtime call against an atom). `Application.ensure_all_started`
+    # actually validates that every declared application is installed and
+    # loadable. Catches the "adopt forgot to add :ecto_sqlite3" class of bug
+    # the @moduledoc explicitly warns about.
+    {output, code} =
+      System.cmd(
+        "mix",
+        ["run", "--no-start", "-e", "{:ok, _} = Application.ensure_all_started(:ecto_sqlite3)"],
+        cd: app_dir,
+        stderr_to_stdout: true
+      )
+
+    assert code == 0,
+           "Runtime smoke check failed — `:ecto_sqlite3` is not installed/loadable. " <>
+             "adopt.deps should have added it for the LV-flavoured mob_app.ex.\n\n" <>
+             output
+  end
+
+  test "thin-client mode (--no-live-view) against a --no-ecto phx.new project works",
+       %{tmp: tmp} do
+    app_dir = Path.join(tmp, "test_thin_app")
+
+    # No-ecto Phoenix project — thin-client mode has no Repo dependency.
+    {output, code} =
+      System.cmd(
+        "mix",
+        [
+          "phx.new",
+          "test_thin_app",
+          "--no-install",
+          "--no-ecto",
+          "--no-mailer",
+          "--no-dashboard"
+        ],
+        cd: tmp,
+        stderr_to_stdout: true
+      )
+
+    assert code == 0, "mix phx.new failed:\n#{output}"
+
+    patch_mix_exs_add_igniter!(app_dir)
+
+    {output, code} = System.cmd("mix", ["deps.get"], cd: app_dir, stderr_to_stdout: true)
+    assert code == 0, "deps.get failed:\n#{output}"
+
+    local_args = if both_local_checkouts_present?(), do: ["--local"], else: []
+
+    {output, code} =
+      System.cmd(
+        "mix",
+        ["mob.adopt", "--yes", "--no-live-view", "--host-url", "https://example.fly.dev/"] ++
+          local_args,
+        cd: app_dir,
+        stderr_to_stdout: true
+      )
+
+    assert code == 0, "mob.adopt --no-live-view failed:\n#{output}"
+
+    # Thin mode generates the same set of files as LV mode, minus the
+    # bridge patches (which no-op without LV). mob_app.ex should be the
+    # thin variant (`use Mob.App`, no `ensure_all_started(:test_thin_app)`).
+    mob_app = File.read!(Path.join(app_dir, "lib/test_thin_app/mob_app.ex"))
+    assert mob_app =~ "use Mob.App"
+    refute mob_app =~ "{:ok, _} = Application.ensure_all_started(:test_thin_app)"
+    refute mob_app =~ "Ecto.Migrator.run"
+
+    # config/config.exs should have host_url for the WebView.
+    config = File.read!(Path.join(app_dir, "config/config.exs"))
+    assert config =~ ~s(host_url: "https://example.fly.dev/")
+
+    # Compile + boot smoke check.
+    {output, code} = System.cmd("mix", ["deps.get"], cd: app_dir, stderr_to_stdout: true)
+    assert code == 0, "deps.get failed after adopt:\n#{output}"
+
+    {output, code} = System.cmd("mix", ["compile"], cd: app_dir, stderr_to_stdout: true)
+    assert code == 0, "compile failed:\n#{output}"
   end
 
   defp assert_phoenix_shape_stable!(app_dir) do

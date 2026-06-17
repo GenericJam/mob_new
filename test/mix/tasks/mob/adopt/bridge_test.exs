@@ -8,7 +8,12 @@ defmodule Mix.Tasks.Mob.Adopt.BridgeTest do
     use Mix.Project
     def project, do: [app: :test, version: "0.1.0", elixir: "~> 1.15", deps: deps()]
     def application, do: [extra_applications: [:logger]]
-    defp deps, do: [{:phoenix, "~> 1.7"}]
+    defp deps,
+      do: [
+        {:phoenix, "~> 1.7"},
+        {:ecto_sql, "~> 3.10"},
+        {:ecto_sqlite3, "~> 0.18"}
+      ]
   end
   """
 

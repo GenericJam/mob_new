@@ -191,6 +191,31 @@ defmodule MobNew.LiveViewPatcher do
   defp append_to_list_node(other, _new_items), do: other
 
   @doc """
+  Adds `{:ecto_sqlite3, "~> 0.18"}` to the deps list in `mix.exs` content
+  if not already present. The generated `mob_app.ex` (LiveView flavour)
+  calls `Application.ensure_all_started(:ecto_sqlite3)` and runs
+  `Ecto.Migrator` on-device, so the dep is required whenever that
+  template is emitted.
+
+  Shared between `mix mob.new --liveview` and `mix mob.adopt` (default LV
+  mode). Idempotent — no-op when `ecto_sqlite3` is already in the deps
+  string.
+  """
+  @spec inject_ecto_sqlite3(String.t()) :: String.t()
+  def inject_ecto_sqlite3(content) do
+    if String.contains?(content, "ecto_sqlite3") do
+      content
+    else
+      Regex.replace(
+        ~r/(defp deps do\s*\[)/,
+        content,
+        ~s[\\1\n      {:ecto_sqlite3, "~> 0.18"},],
+        global: false
+      )
+    end
+  end
+
+  @doc """
   Generates the MobScreen source file content for the given module name.
   """
   def mob_screen_content(module_name) do

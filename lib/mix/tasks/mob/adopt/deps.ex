@@ -52,13 +52,26 @@ defmodule Mix.Tasks.Mob.Adopt.Deps do
   def igniter(igniter) do
     opts = igniter.args.options
     {mob_dep_str, mob_dev_dep_str, _, _} = ProjectGenerator.resolve_deps(opts)
+    live_view? = Keyword.get(opts, :live_view, true)
 
     # Not `Igniter.Project.Deps.add_dep/3`: 0.8.1 renders 3-tuples with
     # trailing keyword opts as `:k => v` map syntax — invalid Elixir.
     Igniter.update_file(igniter, "mix.exs", fn source ->
       content = Rewrite.Source.get(source, :content)
-      patched = LiveViewPatcher.inject_deps(content, mob_dep_str, mob_dev_dep_str)
+
+      patched =
+        content
+        |> LiveViewPatcher.inject_deps(mob_dep_str, mob_dev_dep_str)
+        |> maybe_inject_ecto_sqlite3(live_view?)
+
       Rewrite.Source.update(source, :content, patched)
     end)
   end
+
+  # LV mode emits a `mob_app.ex` that calls
+  # `Application.ensure_all_started(:ecto_sqlite3)` and runs migrations
+  # on-device, so the dep is required. Thin-client mode (`--no-live-view`)
+  # doesn't run on-device DB, so we skip.
+  defp maybe_inject_ecto_sqlite3(content, true), do: LiveViewPatcher.inject_ecto_sqlite3(content)
+  defp maybe_inject_ecto_sqlite3(content, false), do: content
 end

@@ -776,16 +776,9 @@ defmodule MobNew.ProjectGenerator do
 
     if File.exists?(path) do
       content = File.read!(path)
+      patched = MobNew.LiveViewPatcher.inject_ecto_sqlite3(content)
 
-      unless String.contains?(content, "ecto_sqlite3") do
-        patched =
-          Regex.replace(
-            Regex.compile!("(defp deps do\\s*\\[)"),
-            content,
-            ~s[\\1\n      {:ecto_sqlite3, "~> 0.18"},],
-            global: false
-          )
-
+      if patched != content do
         File.write!(path, patched)
         Mix.shell().info([:green, "* patch ", :reset, path, " (added ecto_sqlite3)"])
       end

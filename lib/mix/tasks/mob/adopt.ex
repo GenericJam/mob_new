@@ -6,18 +6,39 @@ defmodule Mix.Tasks.Mob.Adopt do
 
   ## ⚠ Experimental (pre-1.0)
 
-  `mix mob.adopt` is experimental and supports a narrow shape:
+  `mix mob.adopt` is experimental. On anything outside the supported
+  shapes the task refuses with a clear message rather than risk
+  breaking your app. The supported surface will widen as we stabilise.
+
+  ### Supported (default — LV bridge)
 
   - Single (non-umbrella) Phoenix project.
   - Stock `assets/js/app.js` (contains `new LiveSocket(...)`).
   - Stock root layout (`lib/<app>_web/components/layouts/root.html.heex`
     or the legacy `templates/layout/root.html.heex`) with a `<body>`
     tag.
-  - Default LV bridge, or `--host-url` thin-client mode.
+  - **Ecto Repo uses the SQLite adapter** (`:ecto_sqlite3` in deps).
+    The generated `mob_app.ex` migrates `<App>.Repo` on-device; the
+    SQLite assumption is hard-coded. A `mix phx.new --database sqlite3`
+    project matches.
 
-  On anything else the task refuses with a clear message rather than
-  risk breaking your app. The supported shape will widen as we
-  stabilise.
+  ### Supported (`--no-live-view` — thin-client)
+
+  Same Phoenix-shape requirements but **no Ecto/Repo constraint** —
+  the phone opens a deployed Phoenix server via WebView and runs no DB
+  on-device. Works against Postgres / MySQL / `--no-ecto` hosts.
+
+  ### Refused (loud, with guidance)
+
+  - Umbrella applications.
+  - Non-Phoenix projects (no `:phoenix` dep).
+  - Heavily customised `app.js` (no recognisable `new LiveSocket(`).
+  - Heavily customised root layout (no recognisable `<body>` tag, or
+    no layout file at all).
+  - **LV mode** + host Repo uses Postgres / MySQL / MSSQL (or no Repo
+    at all). Use `--no-live-view` instead, or wait for the future
+    `--with-local-repo` mode that handles non-SQLite hosts via a
+    separate on-device LocalRepo.
 
   Composable, [Igniter](https://hex.pm/packages/igniter)-based — mirrors
   the architecture of [team-alembic/phx_install](https://github.com/team-alembic/phx_install).

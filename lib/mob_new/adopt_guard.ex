@@ -67,6 +67,54 @@ defmodule MobNew.AdoptGuard do
     igniter
     |> check_app_js()
     |> check_root_html()
+    |> check_repo_shape()
+  end
+
+  # The LV-flavoured `mob_app.ex` calls `Application.ensure_all_started(:ecto_sqlite3)`
+  # and runs `Ecto.Migrator.run(<App>.Repo, ...)` on-device. That assumes
+  # the host has an Ecto Repo using the SQLite adapter (the `mix mob.new`
+  # shape). Refuse loudly when the host doesn't match — silently emitting
+  # a mob_app.ex that tries to migrate Postgres on a phone would crash at
+  # boot.
+  defp check_repo_shape(igniter) do
+    cond do
+      not has_any_ecto_repo?(igniter) ->
+        Igniter.add_issue(igniter, """
+        mob.adopt (LiveView mode) generates a `mob_app.ex` that boots Ecto
+        and runs migrations on-device. Your project has no Ecto Repo
+        (no `:ecto_sql` in deps).
+
+        Options:
+          - Add an Ecto Repo before adopting (e.g. start from a phx.new
+            project with `--database sqlite3`).
+          - Or use `--no-live-view` for the thin-client path — the phone
+            opens a deployed Phoenix server; no on-device DB needed.
+        """)
+
+      has_non_sqlite_adapter?(igniter) and not has_sqlite_adapter?(igniter) ->
+        Igniter.add_issue(igniter, """
+        mob.adopt (LiveView mode) generates a `mob_app.ex` that migrates the
+        host's `<App>.Repo` on-device — assumes SQLite. Your project looks
+        like it uses Postgres / MySQL / MSSQL, which won't run on a phone.
+
+        Options:
+          - Use `--no-live-view` for the thin-client path (server hosts
+            Phoenix + your existing DB; phone is just a WebView shell).
+          - Switch the host Repo to SQLite (matches `mix mob.new --liveview`).
+          - Wait for the upcoming `--with-local-repo` mode that generates a
+            separate SQLite LocalRepo + target-aware Repo selection.
+        """)
+
+      true ->
+        igniter
+    end
+  end
+
+  defp has_any_ecto_repo?(igniter), do: ProjectDeps.has_dep?(igniter, :ecto_sql)
+  defp has_sqlite_adapter?(igniter), do: ProjectDeps.has_dep?(igniter, :ecto_sqlite3)
+
+  defp has_non_sqlite_adapter?(igniter) do
+    Enum.any?([:postgrex, :myxql, :tds], &ProjectDeps.has_dep?(igniter, &1))
   end
 
   defp check_app_js(igniter) do

@@ -8,6 +8,14 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.5] - 2026-06-16
+
+### Added
+- **Android x86_64 emulator slice in generated apps** (resolves GenericJam/mob#20).
+  `build.gradle` abiFilters gains `x86_64` + `OTP_RELEASE_X86_64`; `CMakeLists.txt`
+  and `build.zig` handle the x86_64 ABI. Pairs with mob_dev 0.6.4's x86_64 OTP
+  runtime, so generated apps run on x86_64 emulators (Intel / CI hosts).
+
 ## [0.4.4] - 2026-06-16
 
 ### Added

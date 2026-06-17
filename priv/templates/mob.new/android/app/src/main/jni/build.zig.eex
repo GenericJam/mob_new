@@ -73,6 +73,11 @@ pub fn build(b: *std.Build) void {
     // the app .so so a plugin's Java_<pkg>_<Class>_* thunks resolve. No NIF
     // init libname (these aren't NIFs).
     const plugin_jni_sources = b.option([]const u8, "plugin_jni_sources", "Comma-separated absolute paths to plugin JNI-thunk C sources; empty if none") orelse "";
+    // Plugin cpp_archive NIFs: absolute paths to per-ABI lib<mod>.a archives
+    // mob_dev cross-compiled (MobDev.Plugin.CppArchive). Each is static-linked
+    // like project_rust_libs — its <mod>_nif_init is referenced by driver_tab so
+    // the linker pulls it in. The generic replacement for the nxeigen_lib hook.
+    const plugin_static_libs = b.option([]const u8, "plugin_static_libs", "Comma-separated absolute paths to plugin cpp_archive .a files (pre-built by mob_dev); empty if none") orelse "";
     // NxEigen (Eigen-backed Nx backend, C++ NIF). mob_dev cross-compiles
     // libnx_eigen.a per arch and threads the per-abi path through nxeigen_lib.
     const nxeigen_static = b.option(bool, "nxeigen_static", "NxEigen NIF statically linked (-DMOB_STATIC_NX_EIGEN_NIF on driver_tab)") orelse false;
@@ -363,6 +368,7 @@ pub fn build(b: *std.Build) void {
         .app_name = app_name,
         .project_root = project_root,
         .project_rust_libs = project_rust_libs,
+        .plugin_static_libs = plugin_static_libs,
         .nxeigen_static = nxeigen_static,
         .nxeigen_lib = nxeigen_lib,
     });
@@ -571,6 +577,9 @@ const LinkOptions = struct {
     // by mob_dev's Rust/Zig cross-compile (`cross_compile_rust_nifs/2`,
     // `cross_compile_zig_nifs/2`). Empty if none.
     project_rust_libs: []const u8 = "",
+    // Plugin cpp_archive `.a` archives (comma-separated abs paths). Same link
+    // shape as project_rust_libs. Empty if no cpp_archive plugin is active.
+    plugin_static_libs: []const u8 = "",
     // NxEigen — set by `mix mob.enable nxeigen`. Empty nxeigen_lib =
     // NxEigen not in this build.
     nxeigen_static: bool = false,
@@ -641,6 +650,19 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) *std.Build.S
             // contents of the .a, not just its path. Otherwise the link
             // step is reported UP-TO-DATE after rebuilding a project-side
             // rust crate — the new .a sits unused in jniLibs.
+            const lp: std.Build.LazyPath = .{ .cwd_relative = a_path };
+            run.addFileArg(lp);
+        }
+    }
+
+    // Plugin cpp_archive NIFs (e.g. an Nx CPU backend). Each lib<mod>.a
+    // exports <mod>_nif_init, referenced by driver_tab_android, so the linker
+    // pulls it in via the strong undefined — same mechanism as project_rust_libs.
+    // addFileArg so the cache key tracks archive contents, not just the path.
+    if (opts.plugin_static_libs.len > 0) {
+        var ps_it = std.mem.splitScalar(u8, opts.plugin_static_libs, ',');
+        while (ps_it.next()) |a_path| {
+            if (a_path.len == 0) continue;
             const lp: std.Build.LazyPath = .{ .cwd_relative = a_path };
             run.addFileArg(lp);
         }

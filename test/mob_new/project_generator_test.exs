@@ -739,6 +739,16 @@ defmodule MobNew.ProjectGeneratorTest do
       refute content =~ ~s({:image,)
     end
 
+    test "mix.exs wires convenience aliases for the common mob tasks", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "mix.exs"))
+      assert content =~ "aliases: aliases()"
+      assert content =~ "defp aliases do"
+      assert content =~ ~s(deploy: ["mob.deploy"])
+      assert content =~ ~s(connect: ["mob.connect"])
+      assert content =~ ~s("android.native": ["mob.deploy --native --android"])
+    end
+
     # ── Android icon ───────────────────────────────────────────────────────────
 
     test "AndroidManifest.xml has android:icon attribute", %{tmp: tmp} do

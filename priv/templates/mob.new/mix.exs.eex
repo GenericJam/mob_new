@@ -8,6 +8,7 @@ defmodule <%= module_name %>.MixProject do
       elixir: "~> 1.18",
       start_permanent: false,
       deps: deps(),
+      aliases: aliases(),
       erlc_paths: ["src"],
       erlc_options: [:debug_info]
     ]
@@ -35,6 +36,22 @@ defmodule <%= module_name %>.MixProject do
       # like blanket rescue, narrator docs, redundant Enum chains, etc).
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4.2", only: [:dev, :test], runtime: false}
+    ]
+  end
+
+  # Shorthands for the common mob workflows — `mix deploy` is `mix mob.deploy`,
+  # etc. Extra args pass through to the underlying task, so `mix deploy
+  # --device <udid>` works as expected.
+  defp aliases do
+    [
+      connect: ["mob.connect"],
+      deploy: ["mob.deploy"],
+      watch: ["mob.watch"],
+      icon: ["mob.icon"],
+      ios: ["mob.deploy --ios"],
+      "ios.native": ["mob.deploy --native --ios"],
+      android: ["mob.deploy --android"],
+      "android.native": ["mob.deploy --native --android"]
     ]
   end
 end

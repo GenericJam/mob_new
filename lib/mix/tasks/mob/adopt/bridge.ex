@@ -18,29 +18,33 @@ defmodule Mix.Tasks.Mob.Adopt.Bridge do
   ## Options
 
   - `--no-live-view` — skip the patches entirely with a notice. For
-    Hologram-only or non-Phoenix hosts. Equivalent to deleting any
-    accidentally-applied `MobHook` + bridge div afterward.
+    Hologram-only or non-Phoenix hosts.
 
   Other orchestrator flags (`--no-ios`, `--no-android`, `--local`,
   `--python`, `--host-url`) are accepted but inert here — declared in
   the schema only so `mix mob.adopt` can forward its full argv
   without Igniter rejecting unknown options.
 
+  ## Refusal (LV mode)
+
+  Refuses (via `Igniter.add_issue/2`) when `assets/js/app.js` is missing
+  or doesn't contain a `new LiveSocket(...)` call, or when the
+  `root.html.heex` layout is missing or has no `<body>` tag. The pre-1.0
+  contract is "blessed shape only" — `--no-live-view` is the escape
+  hatch for everything else.
+
   ## Idempotency
 
   Both `MobNew.LiveViewPatcher.inject_mob_hook/1` and
   `inject_mob_bridge_element/1` short-circuit when their markers
-  (`MobHook` / `mob-bridge`) are already present in the file. Safe to
-  re-run. If a target file can't be located, a warning is emitted with
-  the snippet to add manually; the rest of `mix mob.adopt` still
-  completes.
+  (`MobHook` / `mob-bridge`) are already present.
 
   Typically called by `mix mob.adopt`, not directly.
   """
   use Igniter.Mix.Task
 
   alias Igniter.Project.Application, as: ProjectApplication
-  alias MobNew.LiveViewPatcher
+  alias MobNew.{AdoptGuard, LiveViewPatcher}
 
   @common_schema [
     ios: :boolean,
@@ -64,30 +68,31 @@ defmodule Mix.Tasks.Mob.Adopt.Bridge do
 
   @impl Igniter.Mix.Task
   def igniter(igniter) do
-    if Keyword.get(igniter.args.options, :live_view, true) do
-      igniter
-      |> patch_app_js()
-      |> patch_root_html()
-    else
-      Igniter.add_notice(igniter, """
-      `mob.adopt.bridge` skipped (--no-live-view). The native shell
-      will inject `window.mob` directly; no LiveView hook needed.
-      """)
+    mode = AdoptGuard.mode_from(igniter.args.options)
+
+    # Guard call is idempotent — orchestrator runs the same checks but
+    # `prepare_for_write` dedupes issues. Defends direct invocation.
+    igniter = AdoptGuard.check(igniter, mode)
+
+    cond do
+      igniter.issues != [] ->
+        igniter
+
+      mode == :thin ->
+        Igniter.add_notice(igniter, """
+        `mob.adopt.bridge` skipped (--no-live-view). The native shell
+        will inject `window.mob` directly; no LiveView hook needed.
+        """)
+
+      true ->
+        igniter
+        |> patch_app_js()
+        |> patch_root_html()
     end
   end
 
   defp patch_app_js(igniter) do
-    path = "assets/js/app.js"
-
-    if Igniter.exists?(igniter, path) do
-      Igniter.update_file(igniter, path, &update_app_js/1)
-    else
-      Igniter.add_warning(igniter, """
-      Could not find assets/js/app.js. Add the MobHook manually:
-
-      #{LiveViewPatcher.mob_hook_js()}
-      """)
-    end
+    Igniter.update_file(igniter, "assets/js/app.js", &update_app_js/1)
   end
 
   defp update_app_js(source) do
@@ -104,16 +109,8 @@ defmodule Mix.Tasks.Mob.Adopt.Bridge do
     ]
 
     case Enum.find(candidates, &Igniter.exists?(igniter, &1)) do
-      nil ->
-        Igniter.add_warning(igniter, """
-        Could not find a root.html.heex layout. Add the Mob bridge element
-        manually inside the <body> tag:
-
-            #{LiveViewPatcher.mob_bridge_element()}
-        """)
-
-      path ->
-        Igniter.update_file(igniter, path, &update_root_html/1)
+      nil -> igniter
+      path -> Igniter.update_file(igniter, path, &update_root_html/1)
     end
   end
 

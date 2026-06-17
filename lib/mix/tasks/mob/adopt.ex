@@ -4,6 +4,21 @@ defmodule Mix.Tasks.Mob.Adopt do
   @moduledoc """
   Adds Mob (mobile framework) to an existing Phoenix-based Elixir project.
 
+  ## ⚠ Experimental (pre-1.0)
+
+  `mix mob.adopt` is experimental and supports a narrow shape:
+
+  - Single (non-umbrella) Phoenix project.
+  - Stock `assets/js/app.js` (contains `new LiveSocket(...)`).
+  - Stock root layout (`lib/<app>_web/components/layouts/root.html.heex`
+    or the legacy `templates/layout/root.html.heex`) with a `<body>`
+    tag.
+  - Default LV bridge, or `--host-url` thin-client mode.
+
+  On anything else the task refuses with a clear message rather than
+  risk breaking your app. The supported shape will widen as we
+  stabilise.
+
   Composable, [Igniter](https://hex.pm/packages/igniter)-based — mirrors
   the architecture of [team-alembic/phx_install](https://github.com/team-alembic/phx_install).
   This is the install-into-existing counterpart to `mix mob.new`, which
@@ -87,6 +102,7 @@ defmodule Mix.Tasks.Mob.Adopt do
   use Igniter.Mix.Task
 
   alias Mix.Tasks.Mob.Adopt.{Bridge, Deps, Finalize, MobApp, MobExs, Native, Screen}
+  alias MobNew.AdoptGuard
 
   @schema [
     ios: :boolean,
@@ -127,16 +143,27 @@ defmodule Mix.Tasks.Mob.Adopt do
   def igniter(igniter) do
     ensure_archive_path_loaded()
     validate_platforms!(igniter.args.options)
+
+    igniter = AdoptGuard.check(igniter, AdoptGuard.mode_from(igniter.args.options))
+
+    if igniter.issues == [] do
+      compose_pipeline(igniter)
+    else
+      igniter
+    end
+  end
+
+  # Sub-tasks are dispatched by module atom rather than by task-name
+  # string. `Igniter.compose_task/4` accepts either, but the atom form
+  # uses `Code.ensure_compiled!/1` directly instead of routing through
+  # `Mix.Task.get/1` — which is what lets this orchestrator work when
+  # `mob_new` is installed as a Mix archive. (Archive-resident task
+  # modules aren't findable through `Mix.Task.get/1`, but they ARE
+  # findable through the code path once we've put the archive's ebin
+  # on it via `ensure_archive_path_loaded/0`.)
+  defp compose_pipeline(igniter) do
     argv = igniter.args.argv || []
 
-    # Sub-tasks are dispatched by module atom rather than by task-name
-    # string. `Igniter.compose_task/4` accepts either, but the atom form
-    # uses `Code.ensure_compiled!/1` directly instead of routing through
-    # `Mix.Task.get/1` — which is what lets this orchestrator work when
-    # `mob_new` is installed as a Mix archive. (Archive-resident task
-    # modules aren't findable through `Mix.Task.get/1`, but they ARE
-    # findable through the code path once we've put the archive's ebin
-    # on it via `ensure_archive_path_loaded/0` above.)
     igniter
     |> Igniter.compose_task(Deps, argv)
     |> Igniter.compose_task(Bridge, argv)

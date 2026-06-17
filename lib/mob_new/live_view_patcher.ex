@@ -447,13 +447,9 @@ defmodule MobNew.LiveViewPatcher do
           secret_key_base: "#{secret_key_base}",
           pubsub_server: #{module_name}.PubSub,
           live_view: [signing_salt: "#{signing_salt}"],
-          # Disable Phoenix LiveReload + code reloader on-device. The host
-          # `mac_listener` binary isn't bundled (and couldn't watch a host
-          # filesystem from inside an iOS sandbox anyway). Without these
-          # flags the boot log gets a warning per missing tool.
           code_reloader: false,
           watchers: [],
-          live_reload: false
+          live_reload: [patterns: []]
         )
 
         # esbuild + tailwind are dev-time asset compilers. They get pulled in

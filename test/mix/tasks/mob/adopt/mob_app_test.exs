@@ -20,6 +20,24 @@ defmodule Mix.Tasks.Mob.Adopt.MobAppTest do
       assert content =~ "Ecto.Migrator.run"
     end
 
+    test "endpoint config uses a safe `live_reload` value (regression)" do
+      # `live_reload: false` crashes `Phoenix.LiveReloader.call/2` because
+      # it does `config[:patterns]` on the value, and `Access` has no
+      # clause for booleans. Phoenix's contract is keyword-list-or-unset,
+      # so we ship `[patterns: []]` (active plug, no patterns to match).
+      igniter =
+        test_project()
+        |> Igniter.compose_task("mob.adopt.mob_app")
+        |> apply_igniter!()
+
+      content =
+        Rewrite.source!(igniter.rewrite, "lib/test/mob_app.ex")
+        |> Rewrite.Source.get(:content)
+
+      assert content =~ "live_reload: [patterns: []]"
+      refute content =~ "live_reload: false"
+    end
+
     test "writes src/<app>.erl bootstrap" do
       igniter =
         test_project()

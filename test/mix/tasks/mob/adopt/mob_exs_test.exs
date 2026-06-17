@@ -1,19 +1,19 @@
-defmodule Mix.Tasks.Mob.Install.MobExsTest do
+defmodule Mix.Tasks.Mob.Adopt.MobExsTest do
   use ExUnit.Case, async: true
 
   import Igniter.Test
 
-  describe "mob.install.mob_exs" do
+  describe "mob.adopt.mob_exs" do
     test "creates mob.exs" do
       test_project()
-      |> Igniter.compose_task("mob.install.mob_exs")
+      |> Igniter.compose_task("mob.adopt.mob_exs")
       |> assert_creates("mob.exs")
     end
 
     test "mob.exs content has the expected structure" do
       igniter =
         test_project()
-        |> Igniter.compose_task("mob.install.mob_exs")
+        |> Igniter.compose_task("mob.adopt.mob_exs")
         |> apply_igniter!()
 
       source = Rewrite.source!(igniter.rewrite, "mob.exs")
@@ -28,7 +28,7 @@ defmodule Mix.Tasks.Mob.Install.MobExsTest do
     test "patches .gitignore to ignore mob.exs" do
       igniter =
         test_project(files: %{".gitignore" => "/_build\n/deps\n"})
-        |> Igniter.compose_task("mob.install.mob_exs")
+        |> Igniter.compose_task("mob.adopt.mob_exs")
         |> apply_igniter!()
 
       # Dotfiles are filtered out by the post-apply `**/*.*` include_glob
@@ -41,14 +41,14 @@ defmodule Mix.Tasks.Mob.Install.MobExsTest do
     test "is idempotent on .gitignore patches" do
       base =
         test_project(files: %{".gitignore" => "/_build\n/deps\n"})
-        |> Igniter.compose_task("mob.install.mob_exs")
+        |> Igniter.compose_task("mob.adopt.mob_exs")
         |> apply_igniter!()
 
       first_content = base.assigns[:test_files][".gitignore"]
 
       after_second =
         base
-        |> Igniter.compose_task("mob.install.mob_exs")
+        |> Igniter.compose_task("mob.adopt.mob_exs")
         |> apply_igniter!()
 
       assert after_second.assigns[:test_files][".gitignore"] == first_content

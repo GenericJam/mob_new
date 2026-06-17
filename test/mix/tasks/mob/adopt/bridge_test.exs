@@ -1,9 +1,9 @@
-defmodule Mix.Tasks.Mob.Install.BridgeTest do
+defmodule Mix.Tasks.Mob.Adopt.BridgeTest do
   use ExUnit.Case, async: true
 
   import Igniter.Test
 
-  describe "mob.install.bridge" do
+  describe "mob.adopt.bridge" do
     test "injects MobHook into assets/js/app.js when present" do
       app_js = """
       import {Socket} from "phoenix"
@@ -12,7 +12,7 @@ defmodule Mix.Tasks.Mob.Install.BridgeTest do
 
       igniter =
         test_project(files: %{"assets/js/app.js" => app_js})
-        |> Igniter.compose_task("mob.install.bridge")
+        |> Igniter.compose_task("mob.adopt.bridge")
         |> apply_igniter!()
 
       source = Rewrite.source!(igniter.rewrite, "assets/js/app.js")
@@ -31,7 +31,7 @@ defmodule Mix.Tasks.Mob.Install.BridgeTest do
 
       igniter =
         test_project(files: %{"lib/test_web/components/layouts/root.html.heex" => root_heex})
-        |> Igniter.compose_task("mob.install.bridge")
+        |> Igniter.compose_task("mob.adopt.bridge")
         |> apply_igniter!()
 
       source = Rewrite.source!(igniter.rewrite, "lib/test_web/components/layouts/root.html.heex")
@@ -42,7 +42,7 @@ defmodule Mix.Tasks.Mob.Install.BridgeTest do
     test "warns when no app.js exists" do
       igniter =
         test_project()
-        |> Igniter.compose_task("mob.install.bridge")
+        |> Igniter.compose_task("mob.adopt.bridge")
 
       assert Enum.any?(igniter.warnings, &String.contains?(&1, "MobHook"))
     end
@@ -67,7 +67,7 @@ defmodule Mix.Tasks.Mob.Install.BridgeTest do
             "lib/test_web/components/layouts/root.html.heex" => root_heex
           }
         )
-        |> Igniter.compose_task("mob.install.bridge", ["--no-live-view"])
+        |> Igniter.compose_task("mob.adopt.bridge", ["--no-live-view"])
 
       # Notice emitted.
       assert Enum.any?(igniter.notices, &String.contains?(&1, "skipped (--no-live-view)"))

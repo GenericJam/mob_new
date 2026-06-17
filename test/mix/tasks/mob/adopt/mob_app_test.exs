@@ -1,13 +1,13 @@
-defmodule Mix.Tasks.Mob.Install.MobAppTest do
+defmodule Mix.Tasks.Mob.Adopt.MobAppTest do
   use ExUnit.Case, async: true
 
   import Igniter.Test
 
-  describe "mob.install.mob_app (default — LiveView flavour)" do
+  describe "mob.adopt.mob_app (default — LiveView flavour)" do
     test "generates LV-flavoured mob_app.ex that boots the host Phoenix app" do
       igniter =
         test_project()
-        |> Igniter.compose_task("mob.install.mob_app")
+        |> Igniter.compose_task("mob.adopt.mob_app")
         |> apply_igniter!()
 
       content =
@@ -23,7 +23,7 @@ defmodule Mix.Tasks.Mob.Install.MobAppTest do
     test "writes src/<app>.erl bootstrap" do
       igniter =
         test_project()
-        |> Igniter.compose_task("mob.install.mob_app")
+        |> Igniter.compose_task("mob.adopt.mob_app")
         |> apply_igniter!()
 
       erl = Rewrite.source!(igniter.rewrite, "src/test.erl") |> Rewrite.Source.get(:content)
@@ -33,7 +33,7 @@ defmodule Mix.Tasks.Mob.Install.MobAppTest do
     test "patches mix.exs with erlc_paths and erlc_options" do
       igniter =
         test_project()
-        |> Igniter.compose_task("mob.install.mob_app")
+        |> Igniter.compose_task("mob.adopt.mob_app")
         |> apply_igniter!()
 
       content = Rewrite.source!(igniter.rewrite, "mix.exs") |> Rewrite.Source.get(:content)
@@ -42,11 +42,11 @@ defmodule Mix.Tasks.Mob.Install.MobAppTest do
     end
   end
 
-  describe "mob.install.mob_app --no-live-view (thin-client flavour)" do
+  describe "mob.adopt.mob_app --no-live-view (thin-client flavour)" do
     test "generates thin mob_app.ex using `use Mob.App` without ensure_all_started" do
       igniter =
         test_project()
-        |> Igniter.compose_task("mob.install.mob_app", ["--no-live-view"])
+        |> Igniter.compose_task("mob.adopt.mob_app", ["--no-live-view"])
         |> apply_igniter!()
 
       content =

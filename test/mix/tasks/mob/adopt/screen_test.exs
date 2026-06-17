@@ -1,13 +1,13 @@
-defmodule Mix.Tasks.Mob.Install.ScreenTest do
+defmodule Mix.Tasks.Mob.Adopt.ScreenTest do
   use ExUnit.Case, async: true
 
   import Igniter.Test
 
-  describe "mob.install.screen" do
+  describe "mob.adopt.screen" do
     test "creates lib/<app>/mob_screen.ex reading host URL from app config" do
       igniter =
         test_project()
-        |> Igniter.compose_task("mob.install.screen")
+        |> Igniter.compose_task("mob.adopt.screen")
         |> apply_igniter!()
 
       source = Rewrite.source!(igniter.rewrite, "lib/test/mob_screen.ex")
@@ -22,9 +22,9 @@ defmodule Mix.Tasks.Mob.Install.ScreenTest do
     test "is idempotent" do
       igniter =
         test_project()
-        |> Igniter.compose_task("mob.install.screen")
+        |> Igniter.compose_task("mob.adopt.screen")
         |> apply_igniter!()
-        |> Igniter.compose_task("mob.install.screen")
+        |> Igniter.compose_task("mob.adopt.screen")
 
       assert_unchanged(igniter)
     end
@@ -32,7 +32,7 @@ defmodule Mix.Tasks.Mob.Install.ScreenTest do
     test "--host-url writes `config :mob, host_url: URL` to config/config.exs" do
       igniter =
         test_project()
-        |> Igniter.compose_task("mob.install.screen", ["--host-url", "https://my.fly.dev/"])
+        |> Igniter.compose_task("mob.adopt.screen", ["--host-url", "https://my.fly.dev/"])
         |> apply_igniter!()
 
       # The mob_screen.ex itself remains URL-agnostic — it reads the config.

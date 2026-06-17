@@ -1,13 +1,13 @@
-defmodule Mix.Tasks.Mob.Install.DepsTest do
+defmodule Mix.Tasks.Mob.Adopt.DepsTest do
   use ExUnit.Case, async: true
 
   import Igniter.Test
 
-  describe "mob.install.deps" do
+  describe "mob.adopt.deps" do
     test "adds :mob and :mob_dev to mix.exs" do
       igniter =
         test_project()
-        |> Igniter.compose_task("mob.install.deps")
+        |> Igniter.compose_task("mob.adopt.deps")
         |> apply_igniter!()
 
       source = Rewrite.source!(igniter.rewrite, "mix.exs")
@@ -21,9 +21,9 @@ defmodule Mix.Tasks.Mob.Install.DepsTest do
     test "is idempotent on a second run" do
       igniter =
         test_project()
-        |> Igniter.compose_task("mob.install.deps")
+        |> Igniter.compose_task("mob.adopt.deps")
         |> apply_igniter!()
-        |> Igniter.compose_task("mob.install.deps")
+        |> Igniter.compose_task("mob.adopt.deps")
 
       assert_unchanged(igniter)
     end

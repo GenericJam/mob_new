@@ -1,7 +1,7 @@
 defmodule MobInstallAcceptanceTest do
   @moduledoc """
   End-to-end check: generate a real `mix phx.new` project, run
-  `mix mob.install` against it via Igniter compose, assert the resulting
+  `mix mob.adopt` against it via Igniter compose, assert the resulting
   tree has the expected mob bits and compiles.
 
   Slow (60s+) — tagged `@tag :acceptance` and excluded from the default
@@ -31,7 +31,7 @@ defmodule MobInstallAcceptanceTest do
     {:ok, tmp: tmp}
   end
 
-  test "mob.install against a fresh phx.new project produces a usable mob app", %{tmp: tmp} do
+  test "mob.adopt against a fresh phx.new project produces a usable mob app", %{tmp: tmp} do
     app_dir = Path.join(tmp, "test_mob_app")
 
     # Generate a minimal Phoenix project.
@@ -50,15 +50,15 @@ defmodule MobInstallAcceptanceTest do
         stderr_to_stdout: true
       )
 
-    # Run mob.install in the generated project.
+    # Run mob.adopt in the generated project.
     cwd = File.cwd!()
     File.cd!(app_dir)
 
     try do
       {output, code} =
-        System.cmd("mix", ["mob.install", "--yes", "--no-install"], stderr_to_stdout: true)
+        System.cmd("mix", ["mob.adopt", "--yes", "--no-install"], stderr_to_stdout: true)
 
-      assert code == 0, "mob.install failed:\n#{output}"
+      assert code == 0, "mob.adopt failed:\n#{output}"
 
       # mix.exs has the mob deps
       mix_exs = File.read!(Path.join(app_dir, "mix.exs"))

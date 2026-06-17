@@ -1,21 +1,26 @@
-defmodule MobInstallAcceptanceTest do
+defmodule MobAdoptAcceptanceTest do
   @moduledoc """
-  End-to-end check: generate a real `mix phx.new` project, run
-  `mix mob.adopt` against it via Igniter compose, assert the resulting
-  tree has the expected mob bits and compiles.
+  End-to-end + Phoenix drift check.
 
-  Slow (60s+) — tagged `@tag :acceptance` and excluded from the default
-  test suite. Run with:
+  Generates a real `mix phx.new` project, verifies Phoenix's output
+  still matches the shape `mob.adopt` patches, adds `:igniter` to
+  the project's deps, runs `mix mob.adopt --yes`, asserts the
+  resulting tree, then runs `mix compile` to catch downstream drift.
+
+  Tagged `@tag :acceptance` and excluded from the default test suite. Run with:
 
       mix test --only acceptance
 
-  Requires `phx_new` archive on the system. Skipped if `mix phx.new --help`
-  exits non-zero.
+  Set `MOB_DIR` / `MOB_DEV_DIR` to use local path: deps for `:mob`
+  and `:mob_dev`. Otherwise the test fetches them from Hex.
+
+  Requires `phx_new` archive on the system.
+  Skipped if `mix phx.new --help` exits non-zero.
   """
   use ExUnit.Case, async: false
 
   @moduletag :acceptance
-  @moduletag timeout: 180_000
+  @moduletag timeout: 300_000
 
   setup_all do
     case System.cmd("mix", ["help", "phx.new"], stderr_to_stdout: true) do
@@ -34,8 +39,7 @@ defmodule MobInstallAcceptanceTest do
   test "mob.adopt against a fresh phx.new project produces a usable mob app", %{tmp: tmp} do
     app_dir = Path.join(tmp, "test_mob_app")
 
-    # Generate a minimal Phoenix project.
-    {_, 0} =
+    {output, code} =
       System.cmd(
         "mix",
         [
@@ -50,30 +54,121 @@ defmodule MobInstallAcceptanceTest do
         stderr_to_stdout: true
       )
 
-    # Run mob.adopt in the generated project.
-    cwd = File.cwd!()
-    File.cd!(app_dir)
+    assert code == 0, "mix phx.new failed:\n#{output}"
 
-    try do
-      {output, code} =
-        System.cmd("mix", ["mob.adopt", "--yes", "--no-install"], stderr_to_stdout: true)
+    # Drift check
+    assert_phoenix_shape_stable!(app_dir)
 
-      assert code == 0, "mob.adopt failed:\n#{output}"
+    # phx.new doesn't include :igniter
+    patch_mix_exs_add_igniter!(app_dir)
 
-      # mix.exs has the mob deps
-      mix_exs = File.read!(Path.join(app_dir, "mix.exs"))
-      assert mix_exs =~ ":mob"
-      assert mix_exs =~ ":mob_dev"
+    {output, code} = System.cmd("mix", ["deps.get"], cd: app_dir, stderr_to_stdout: true)
+    assert code == 0, "deps.get (initial, with :igniter) failed:\n#{output}"
 
-      # Bridge files exist
-      assert File.exists?(Path.join(app_dir, "lib/test_mob_app/mob_screen.ex"))
-      assert File.exists?(Path.join(app_dir, "mob.exs"))
+    # Run mob.adopt
+    local_args = if both_local_checkouts_present?(), do: ["--local"], else: []
 
-      # Native trees emitted
-      assert File.exists?(Path.join(app_dir, "android/build.gradle"))
-      assert File.exists?(Path.join(app_dir, "ios/Info.plist"))
-    after
-      File.cd!(cwd)
+    {output, code} =
+      System.cmd(
+        "mix",
+        ["mob.adopt", "--yes"] ++ local_args,
+        cd: app_dir,
+        stderr_to_stdout: true
+      )
+
+    assert code == 0, "mob.adopt failed:\n#{output}"
+
+    # 5. Adopt-output assertions.
+    mix_exs = File.read!(Path.join(app_dir, "mix.exs"))
+    assert mix_exs =~ ":mob", "mob.adopt didn't add :mob to mix.exs"
+    assert mix_exs =~ ":mob_dev", "mob.adopt didn't add :mob_dev to mix.exs"
+
+    for relative <- [
+          "lib/test_mob_app/mob_screen.ex",
+          "lib/test_mob_app/mob_app.ex",
+          "src/test_mob_app.erl",
+          "mob.exs",
+          "android/build.gradle",
+          "ios/Info.plist"
+        ] do
+      assert File.exists?(Path.join(app_dir, relative)),
+             "mob.adopt didn't emit #{relative}"
     end
+
+    # Compile check
+    {output, code} = System.cmd("mix", ["deps.get"], cd: app_dir, stderr_to_stdout: true)
+    assert code == 0, "deps.get failed after adopt:\n#{output}"
+
+    {output, code} = System.cmd("mix", ["compile"], cd: app_dir, stderr_to_stdout: true)
+
+    assert code == 0,
+           "DRIFT: mix compile failed after mob.adopt — adopt's generated " <>
+             "code likely references a Phoenix or Mob module that has moved.\n\n" <>
+             output
+  end
+
+  defp assert_phoenix_shape_stable!(app_dir) do
+    app_js_path = Path.join(app_dir, "assets/js/app.js")
+
+    assert File.exists?(app_js_path),
+           "DRIFT: assets/js/app.js not at the expected path. Phoenix may have " <>
+             "moved the JS entry point — mob.adopt's MobHook patcher targets " <>
+             "that exact location."
+
+    app_js = File.read!(app_js_path)
+
+    assert app_js =~ "new LiveSocket(",
+           "DRIFT: assets/js/app.js no longer contains `new LiveSocket(`. " <>
+             "mob.adopt's MobHook patcher targets that exact substring. " <>
+             "Either Phoenix changed conventions (check phx.new's release notes) " <>
+             "or this acceptance test needs updating."
+
+    root_candidates = [
+      "lib/test_mob_app_web/components/layouts/root.html.heex",
+      "lib/test_mob_app_web/templates/layout/root.html.heex"
+    ]
+
+    root_relative = Enum.find(root_candidates, &File.exists?(Path.join(app_dir, &1)))
+
+    assert root_relative,
+           "DRIFT: root.html.heex not at any of:\n  - " <>
+             Enum.join(root_candidates, "\n  - ") <>
+             "\nmob.adopt's bridge `<div>` injection targets these paths."
+
+    root = File.read!(Path.join(app_dir, root_relative))
+
+    assert root =~ ~r/<body[^>]*>/,
+           "DRIFT: #{root_relative} no longer contains a `<body>` tag. " <>
+             "mob.adopt injects the bridge `<div>` right after `<body>`."
+  end
+
+  defp both_local_checkouts_present? do
+    with mob_dir when is_binary(mob_dir) <- System.get_env("MOB_DIR"),
+         mob_dev_dir when is_binary(mob_dev_dir) <- System.get_env("MOB_DEV_DIR"),
+         true <- File.dir?(mob_dir),
+         true <- File.dir?(mob_dev_dir) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp patch_mix_exs_add_igniter!(app_dir) do
+    path = Path.join(app_dir, "mix.exs")
+    content = File.read!(path)
+
+    patched =
+      Regex.replace(
+        ~r/(defp deps do\s*\[)/,
+        content,
+        "\\1\n      {:igniter, \"~> 0.7\", only: [:dev, :test]},",
+        global: false
+      )
+
+    assert patched != content,
+           "DRIFT: could not patch mix.exs to add :igniter. The " <>
+             "`defp deps do [` shape may have changed in phx.new."
+
+    File.write!(path, patched)
   end
 end

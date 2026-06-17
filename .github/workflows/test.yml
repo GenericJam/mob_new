@@ -88,6 +88,59 @@ jobs:
         run: mix test
         timeout-minutes: 10
 
+  drift_check:
+    name: Phoenix drift / mob.adopt acceptance
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout mob (for --local path resolution)
+        uses: actions/checkout@v4
+        with:
+          repository: GenericJam/mob
+          path: mob-checkout
+
+      - name: Checkout mob_dev (for --local path resolution)
+        uses: actions/checkout@v4
+        with:
+          repository: GenericJam/mob_dev
+          path: mob_dev-checkout
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.19'
+          otp-version: '28'
+
+      - name: Cache deps + _build (reuse test job's key)
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-1.19-28-${{ hashFiles('**/mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-1.19-28-
+
+      - run: mix deps.get
+      - run: mix deps.compile
+
+      - name: Install Phoenix project generator (latest from Hex)
+        run: mix archive.install hex phx_new --force
+
+      - name: Build + install local mob_new archive
+        run: |
+          mix archive.build
+          mix archive.install mob_new-*.ez --force
+
+      - name: Acceptance + drift check
+        env:
+          MOB_DIR: ${{ github.workspace }}/mob-checkout
+          MOB_DEV_DIR: ${{ github.workspace }}/mob_dev-checkout
+        run: mix test --only acceptance
+        timeout-minutes: 15
+
   security_scan:
     name: Security scan (mix_audit)
     needs: test

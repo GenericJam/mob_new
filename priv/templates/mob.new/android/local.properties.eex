@@ -5,4 +5,5 @@
 # Mob build paths — configured by `mix mob.install`:
 mob.otp_release=/path/to/otp
 mob.otp_release_arm32=/path/to/otp-arm32
+mob.otp_release_x86_64=/path/to/otp-x86_64
 mob.mob_dir=/path/to/mob

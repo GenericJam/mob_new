@@ -4,9 +4,10 @@ defmodule MobNew.MixProject do
   def project do
     [
       app: :mob_new,
-      version: "0.3.10",
+      version: "0.4.8",
       elixir: "~> 1.19",
       deps: deps(),
+      aliases: aliases(),
       description: "Project generator for the Mob mobile framework",
       source_url: "https://github.com/genericjam/mob_new",
       package: package(),
@@ -18,6 +19,13 @@ defmodule MobNew.MixProject do
     [extra_applications: [:logger, :eex]]
   end
 
+  defp aliases do
+    # `mix setup` after cloning installs deps and activates the shared git
+    # hooks (.githooks): format / Credo --strict / compile run on every push
+    # and the full suite when mix.exs changes — the same gate CI enforces.
+    [setup: ["deps.get", "cmd git config core.hooksPath .githooks"]]
+  end
+
   defp deps do
     [
       {:jason, "~> 1.4"},
@@ -27,12 +35,7 @@ defmodule MobNew.MixProject do
       # migration replaced the regex-on-Elixir-source approach that had
       # been the main fragility in the LV generator.
       {:sourceror, "~> 1.0"},
-      # Igniter — composable code-mod framework. Powers `mix mob.install`,
-      # which adds Mob to an existing Phoenix project (analogous to how
-      # team-alembic/phx_install adds Phoenix to a vanilla Elixir project).
-      # Bundled into the archive so users don't need it as a target-project
-      # dep. `mix mob.new --liveview` does not use Igniter — that path
-      # continues to use Sourceror directly via `LiveViewPatcher`.
+      # Igniter — composable code-mod framework. Powers `mix mob.install`.
       {:igniter, "~> 0.7"},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

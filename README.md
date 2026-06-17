@@ -162,3 +162,15 @@ mix mob.connect       # open IEx connected to the running device node
 ## Documentation
 
 Full guide at [hexdocs.pm/mob](https://hexdocs.pm/mob), including [Getting Started](https://hexdocs.pm/mob/getting_started.html), screen lifecycle, components, navigation, and live debugging.
+
+## Development
+
+Clone, then run once:
+
+```bash
+mix setup
+```
+
+That fetches deps and activates the repo's git hooks (`.githooks/pre-push`):
+`mix format --check`, `mix credo --strict` (incl. ExSlop), and `mix compile --warnings-as-errors` run on every push, plus the full test
+suite when `mix.exs` changes — the same gate CI enforces before publishing.

@@ -135,7 +135,8 @@ defmodule MobNew.ProjectGenerator do
       mob_exs_mob_dir: mob_exs_mob_dir,
       mob_exs_elixir_lib: mob_exs_elixir_lib,
       ndk_version: MobNew.NdkVersion.recommended(),
-      python: Keyword.get(opts, :python, false)
+      python: Keyword.get(opts, :python, false),
+      blank: Keyword.get(opts, :blank, false)
     }
   end
 
@@ -380,7 +381,7 @@ defmodule MobNew.ProjectGenerator do
     #
     # OTP 29 matches the device runtime tarballs. Java 17 LTS is required for Gradle.
     erlang 29.0
-    elixir 1.20.0-rc.5-otp-29
+    elixir 1.20.0-otp-29
     java temurin-17.0.18
     """,
     ".formatter.exs" => """
@@ -396,10 +397,29 @@ defmodule MobNew.ProjectGenerator do
     /.fetch
     *.ez
     *.beam
+    *.o
+    *.so
+    *.a
+    erl_crash.dump
     mob.exs
+
+    # Signing secrets — NEVER commit
+    android/keystore.properties
+    android/*.keystore
+
+    # Native build caches / outputs
+    android/app/src/main/assets/otp.zip
     android/local.properties
     android/.gradle/
     android/app/build/
+    android/app/.cxx/
+    ios/zig-out/
+    ios/.zig-cache/
+    **/.zig-cache/
+    _build/mob_release/
+
+    # macOS
+    .DS_Store
     """
   }
 
@@ -588,8 +608,6 @@ defmodule MobNew.ProjectGenerator do
 
       cond do
         rel == "mix.exs.eex" -> true
-        rel == ".gitignore.eex" -> true
-        rel == ".tool-versions.eex" -> true
         String.starts_with?(rel, "config/") -> true
         # Native-template `lib/app_name/` includes sample screens (audio, camera,
         # webview, etc.) that are Mob-native UI — they don't make sense in a
@@ -1060,11 +1078,42 @@ defmodule MobNew.ProjectGenerator do
     if File.exists?(path) do
       content = File.read!(path)
 
-      unless String.contains?(content, "mob.exs") do
-        File.write!(path, content <> "\n# Mob local config\nmob.exs\n")
-        Mix.shell().info([:green, "* patch ", :reset, path, " (added mob.exs)"])
+      # Phoenix ships its own .gitignore (so the native template's is blocked
+      # by liveview_phoenix_owned?/3), but it knows nothing about Mob's native
+      # build: the bundled OTP zip, .cxx/.zig-cache outputs, and Android signing
+      # keystores would all be committed on `git add -A`. Append what's missing,
+      # each guarded by a sentinel so re-running the generator stays idempotent.
+      additions =
+        [
+          {"mob.exs", "# Mob local config\nmob.exs\n"},
+          {"android/app/.cxx/", mob_native_gitignore_block()}
+        ]
+        |> Enum.reject(fn {sentinel, _} -> String.contains?(content, sentinel) end)
+        |> Enum.map_join("\n", fn {_sentinel, block} -> block end)
+
+      unless additions == "" do
+        File.write!(path, content <> "\n" <> additions)
+        Mix.shell().info([:green, "* patch ", :reset, path, " (mob excludes)"])
       end
     end
+  end
+
+  defp mob_native_gitignore_block do
+    """
+    # Mob native build caches / outputs and signing secrets
+    *.o
+    *.so
+    *.a
+    erl_crash.dump
+    android/keystore.properties
+    android/*.keystore
+    android/app/src/main/assets/otp.zip
+    android/app/.cxx/
+    ios/zig-out/
+    ios/.zig-cache/
+    **/.zig-cache/
+    _build/mob_release/
+    """
   end
 
   # ── Dep resolution ────────────────────────────────────────────────────────────
@@ -1077,15 +1126,19 @@ defmodule MobNew.ProjectGenerator do
       mob_dev_dir = resolve_local_path("MOB_DEV_DIR", "mob_dev")
       elixir_lib = :code.lib_dir(:elixir) |> to_string() |> Path.dirname() |> Path.expand()
 
-      mob_dep = ~s({:mob,     path: "#{mob_dir}"})
+      # override: true so the local checkout satisfies the `mob ~> 0.7`
+      # requirement that the Hex showcase plugins (mob_camera, mob_themes, …)
+      # declare — Mix won't otherwise use a path dep to resolve a Hex
+      # sub-dependency requirement.
+      mob_dep = ~s({:mob,     path: "#{mob_dir}", override: true})
       mob_dev_dep = ~s({:mob_dev, path: "#{mob_dev_dir}", only: :dev, runtime: false})
       mob_exs_mob_dir = inspect(mob_dir)
       mob_exs_elixir_lib = inspect(elixir_lib)
 
       {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
     else
-      mob_dep = ~s({:mob,     "~> 0.5"})
-      mob_dev_dep = ~s({:mob_dev, "~> 0.3", only: :dev, runtime: false})
+      mob_dep = ~s({:mob,     "~> 0.7"})
+      mob_dev_dep = ~s({:mob_dev, "~> 0.6", only: :dev, runtime: false})
       mob_exs_mob_dir = "Path.join(File.cwd!(), \"deps/mob\")"
 
       # Default to the running Elixir's actual lib dir — `:code.lib_dir(:elixir)`
@@ -1136,6 +1189,34 @@ defmodule MobNew.ProjectGenerator do
   # attribute that used to live here was triggering Elixir 1.20's
   # type checker on a known-always-false `in` check.
 
+  # Demo/sample screens shipped in the native template's lib/<app>/ tree.
+  # `--blank` skips these (and their plugins/nav buttons) so the generated app
+  # is just app.ex, home_screen.ex, and repo.ex. Keep this list in sync with
+  # the home_screen.ex.eex nav buttons that are gated behind `unless blank`.
+  @demo_screens ~w(
+    audio_screen dice_screen list_screen round storage_screen text_screen webview_screen
+  )
+
+  @doc """
+  Whether a template should be skipped because `--blank` was requested.
+
+  Only the demo/sample screens under `lib/app_name/` are skipped; the core
+  files (`app.ex`, `home_screen.ex`, `repo.ex`) and everything else are kept.
+  Returns false when `blank` is not set. Public for testing — a new demo screen
+  landing in the tree without being added to `@demo_screens` is a regression
+  this guards.
+  """
+  @spec blank_excluded?(String.t(), String.t(), keyword()) :: boolean()
+  def blank_excluded?(path, root, opts) do
+    if Keyword.get(opts, :blank, false) do
+      rel = Path.relative_to(path, root)
+      base = rel |> Path.basename(".ex.eex") |> Path.basename(".ex")
+      String.starts_with?(rel, "lib/app_name/") and base in @demo_screens
+    else
+      false
+    end
+  end
+
   defp render_templates(assigns, project_dir, opts) do
     no_ios = Keyword.get(opts, :no_ios, false)
     no_android = Keyword.get(opts, :no_android, false)
@@ -1145,6 +1226,7 @@ defmodule MobNew.ProjectGenerator do
     t_root
     |> find_templates()
     |> Enum.filter(&platform_included?(&1, t_root, no_ios, no_android))
+    |> Enum.reject(&blank_excluded?(&1, t_root, opts))
     |> Enum.each(fn template_path ->
       rel = Path.relative_to(template_path, t_root)
       dest_rel = expand_path(rel, assigns)
@@ -1185,6 +1267,10 @@ defmodule MobNew.ProjectGenerator do
   @spec expand_path(String.t(), map()) :: String.t()
   def expand_path(rel, assigns) do
     rel
+    # Dotfile templates can't ship in the archive (mix archive.build's
+    # wildcard drops dotfiles), so they live under non-dot names and are
+    # renamed here — the escape hatch the @dotfiles comment documents.
+    |> String.replace("dot_credo.exs", ".credo.exs")
     |> String.replace("app_name", assigns.app_name)
     |> String.replace("java/", "java/#{assigns.java_path}/")
     |> strip_eex()

@@ -12,3 +12,34 @@ config :mob_dev,
 
   # Path to your Elixir lib dir (e.g. ~/.local/share/mise/installs/elixir/1.18.4-otp-28/lib).
   elixir_lib: <%= mob_exs_elixir_lib %>
+
+# Activated capability plugins (the packages added in mix.exs). Each contributes
+# its native code, permissions, and any demo screens at build time. Drop a name
+# here to deactivate a plugin without removing the dep; remove both to drop it
+# entirely (the native build shrinks and a clean rebuild prunes its artifacts).
+config :mob, :plugins, [<%= unless blank do %>:mob_camera, :mob_location, :mob_biometric<% end %>]
+
+# Trust gate for the first-party plugins. Each is signed in CI with the shared
+# mob release key; this is that key's public fingerprint. The build refuses an
+# ACTIVATED plugin whose signature doesn't verify against a trusted fingerprint
+# (tamper protection) — entries for plugins you haven't activated are simply
+# unused, so every official plugin is pre-trusted and "just works" the moment
+# you add it to deps + :plugins above. For your own/third-party plugins, run
+# `mix mob.plugin.trust <name>`, or `config :mob, :acknowledge_unsafe_plugins,
+# [...]` for an unsigned prototype.
+config :mob, :trusted_plugins, %{
+  mob_camera: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
+  mob_location: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
+  mob_biometric: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
+  mob_scanner: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
+  mob_bluetooth: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
+  mob_screencast: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
+  mob_photos: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
+  mob_notify: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
+  mob_ash: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg="
+}
+
+<%= unless blank do %># Style packages (theming). :default_style selects the theme applied at boot.
+config :mob, :styles, [:mob_themes]
+config :mob, :default_style, :mob_themes
+<% end %>

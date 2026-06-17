@@ -60,6 +60,23 @@ pub fn build(b: *std.Build) void {
     // libnx_eigen.a per arch and threads the output dir through nxeigen_dir.
     const nxeigen_static = b.option(bool, "nxeigen_static", "NxEigen NIF statically linked (-DMOB_STATIC_NX_EIGEN_NIF on driver_tab)") orelse false;
     const nxeigen_dir = b.option([]const u8, "nxeigen_dir", "Absolute path to dir containing libnx_eigen.a") orelse "";
+    // TFLite (TensorFlow Lite via nx_tflite_mob). mob_dev cross-compiles
+    // libtflite_nif.a per arch and threads the path through tflite_dir; the
+    // TensorFlowLiteC.framework comes via tflite_framework_dir. The static
+    // flag flips the comptime gate in driver_tab_ios.zig — without it the
+    // generated driver_tab (which always references build_options.tflite_static
+    // because MobDev.StaticNifs.default_nifs/0 includes :tflite_nif on :all)
+    // fails to compile with "struct 'options' has no member named 'tflite_static'".
+    const tflite_static = b.option(bool, "tflite_static", "TFLite NIF statically linked (-DMOB_STATIC_TFLITE_NIF on driver_tab)") orelse false;
+    // mob_dev's MobDev.NativeBuild.tflite_zig_args_ios/1 emits these
+    // alongside -Dtflite_static. Declared as accepted b.option values so
+    // the zig invocation doesn't reject them as unknown. Currently a
+    // placeholder for iOS TFLite link-side wiring (mirrors how the Android
+    // template declares tflite_static without yet using a per-arch tflite_lib).
+    const tflite_dir = b.option([]const u8, "tflite_dir", "Absolute path to dir containing libtflite_nif.a (iOS, when TFLite enabled)") orelse "";
+    const tflite_framework_dir = b.option([]const u8, "tflite_framework_dir", "Absolute path to TensorFlowLiteC.framework Frameworks/ dir (iOS, when TFLite enabled)") orelse "";
+    _ = tflite_dir;
+    _ = tflite_framework_dir;
     // Project-side NIFs declared in `mob.exs :static_nifs` (see issue #18).
     // mob_dev passes these comma-separated lists after resolving each entry
     // against `c_src/<name>.c` and `native/<name>/Cargo.toml`. Empty by
@@ -68,6 +85,11 @@ pub fn build(b: *std.Build) void {
     const project_c_nifs = b.option([]const u8, "project_c_nifs", "Comma-separated C NIF names (each at c_src/<name>.c); empty if none") orelse "";
     const project_rust_libs = b.option([]const u8, "project_rust_libs", "Comma-separated absolute paths to Rust NIF .a files (pre-built by mob_dev)") orelse "";
     const project_swift_sources = b.option([]const u8, "project_swift_sources", "Comma-separated absolute paths to extra project Swift sources; empty if none") orelse "";
+    // Plugin contributions gathered by mob_dev from activated plugin manifests
+    // (same shape as the sim build).
+    const plugin_swift_files = b.option([]const u8, "plugin_swift_files", "Comma-separated absolute paths to plugin Swift sources; empty if none") orelse "";
+    const plugin_frameworks = b.option([]const u8, "plugin_frameworks", "Comma-separated iOS framework names contributed by plugins; empty if none") orelse "";
+    const plugin_c_nifs = b.option([]const u8, "plugin_c_nifs", "Comma-separated absolute paths to plugin C NIF sources; basename = NIF module name; empty if none") orelse "";
 
     const objects_step = b.step("objects", "Compile C, ObjC, and Swift objects for iOS device");
     const binary_step = b.step("binary", "Compile + link the iOS device binary (default)");
@@ -93,12 +115,31 @@ pub fn build(b: *std.Build) void {
     swift_run.addArg("-I");
     swift_run.addArg(b.fmt("{s}/ios", .{mob_dir}));
     swift_run.addArgs(&.{ "-parse-as-library", "-wmo" });
-    swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobViewModel.swift", .{mob_dir}) });
-    swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobRootView.swift", .{mob_dir}) });
-    swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/MobGpuView.swift", .{mob_dir}) });
+    // Glob all mob Swift sources so a newly-added file (e.g. MobGpuView.swift,
+    // referenced by MobRootView) compiles without editing this template.
+    {
+        const glob_io = b.graph.io;
+        var mob_ios = b.build_root.handle.openDir(glob_io, b.fmt("{s}/ios", .{mob_dir}), .{ .iterate = true }) catch @panic("mob ios dir not found");
+        defer mob_ios.close(glob_io);
+        var swift_entries = mob_ios.iterate();
+        while (swift_entries.next(glob_io) catch @panic("mob ios dir iterate failed")) |entry| {
+            if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".swift")) {
+                swift_run.addFileArg(.{ .cwd_relative = b.fmt("{s}/ios/{s}", .{ mob_dir, entry.name }) });
+            }
+        }
+    }
     if (project_swift_sources.len > 0) {
         var swift_it = std.mem.splitScalar(u8, project_swift_sources, ',');
         while (swift_it.next()) |source| {
+            if (source.len == 0) continue;
+            swift_run.addFileArg(.{ .cwd_relative = source });
+        }
+    }
+    // Plugin-contributed Swift sources compile in the same step so the
+    // -emit-objc-header pass sees everything that needs to bridge to ObjC.
+    if (plugin_swift_files.len > 0) {
+        var plugin_swift_it = std.mem.splitScalar(u8, plugin_swift_files, ',');
+        while (plugin_swift_it.next()) |source| {
             if (source.len == 0) continue;
             swift_run.addFileArg(.{ .cwd_relative = source });
         }
@@ -128,6 +169,7 @@ pub fn build(b: *std.Build) void {
     if (sqlite_static) driver_tab_flags_buf.append(b.allocator, "-DMOB_STATIC_SQLITE_NIF") catch unreachable;
     if (mlx_static) driver_tab_flags_buf.append(b.allocator, "-DMOB_STATIC_EMLX_NIF") catch unreachable;
     if (nxeigen_static) driver_tab_flags_buf.append(b.allocator, "-DMOB_STATIC_NX_EIGEN_NIF") catch unreachable;
+    if (tflite_static) driver_tab_flags_buf.append(b.allocator, "-DMOB_STATIC_TFLITE_NIF") catch unreachable;
     const driver_tab_flags: []const []const u8 = driver_tab_flags_buf.items;
 
     // Auto-detect .zig vs .c on driver_tab. The .zig path threads
@@ -140,6 +182,7 @@ pub fn build(b: *std.Build) void {
         opts.addOption(bool, "sqlite_static", sqlite_static);
         opts.addOption(bool, "emlx_static", mlx_static);
         opts.addOption(bool, "nx_eigen_static", nxeigen_static);
+        opts.addOption(bool, "tflite_static", tflite_static);
         break :blk addZigObject(b, .{
             .name = "driver_tab_ios",
             .source = driver_tab,
@@ -303,6 +346,64 @@ pub fn build(b: *std.Build) void {
         }
     }
 
+    // --- Plugin-side C NIFs (tier-1 plugins; absolute paths from mob_dev) ─────
+    // Mirrors the project_c_nifs block above + the Android plugin_c_nifs path.
+    // basename minus ".c" = NIF module name = STATIC_ERLANG_NIF_LIBNAME, which
+    // must match the <module>_nif_init symbol driver_tab_ios references.
+    if (plugin_c_nifs.len > 0) {
+        var p_it = std.mem.splitScalar(u8, plugin_c_nifs, ',');
+        while (p_it.next()) |path| {
+            if (path.len == 0) continue;
+            const base = std.fs.path.basename(path);
+            // .m sources (manifest lang: :objc) are Objective-C — an iOS plugin
+            // NIF driving an Apple framework (CoreLocation, etc.). Compiled as
+            // ObjC by extension; add -fobjc-arc + -fmodules. ".c"/".m" are both 2.
+            const is_objc = std.mem.endsWith(u8, base, ".m");
+            const name = if (std.mem.endsWith(u8, base, ".c") or is_objc) base[0 .. base.len - 2] else base;
+
+            if (is_objc) {
+                // ObjC plugin NIFs that import heavy framework modules (UIKit,
+                // Accelerate/vImage — e.g. mob_camera) must be built by Apple's
+                // clang via xcrun, NOT zig's bundled clang: zig clang fails to
+                // build those system framework modules against current Xcode SDKs
+                // ("umbrella header for module 'Accelerate.vecLib' does not include
+                // 'lapack.h'", UIKit missing 'UIUtilities/UIDefines.h'). This is
+                // exactly why core's own mob_nif.m goes through addObjcObject. The
+                // STATIC_ERLANG_NIF defines ride along as extra_flags.
+                installAndCollect(b, objects_step, &objs, addObjcObject(b, .{
+                    .name = name,
+                    .source = path,
+                    .extra_flags = &.{
+                        "-DSTATIC_ERLANG_NIF",
+                        b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name}),
+                    },
+                    .mob_dir = mob_dir,
+                    .otp_root = otp_root,
+                    .erts_vsn = erts_vsn,
+                    .sdkroot = sdkroot,
+                }), b.fmt("{s}.o", .{name}));
+                continue;
+            }
+
+            const flags = b.allocator.alloc([]const u8, c_flags_base.len + 2) catch unreachable;
+            @memcpy(flags[0..c_flags_base.len], c_flags_base);
+            flags[c_flags_base.len] = "-DSTATIC_ERLANG_NIF";
+            flags[c_flags_base.len + 1] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name});
+
+            installAndCollect(b, objects_step, &objs, addCObject(b, .{
+                .name = name,
+                .source = path,
+                .target = target,
+                .optimize = optimize,
+                .c_flags = flags,
+                .mob_dir = mob_dir,
+                .otp_root = otp_root,
+                .erts_vsn = erts_vsn,
+                .sdkroot = sdkroot,
+            }), b.fmt("{s}.o", .{name}));
+        }
+    }
+
     // --- Link via xcrun swiftc -------------------------------------------------
     addLink(b, binary_step, .{
         .module_name = module_name,
@@ -314,6 +415,7 @@ pub fn build(b: *std.Build) void {
         .nxeigen_static = nxeigen_static,
         .nxeigen_dir = nxeigen_dir,
         .project_rust_libs = project_rust_libs,
+        .plugin_frameworks = plugin_frameworks,
         .objects = objs.items,
     });
 }
@@ -522,6 +624,8 @@ const LinkOptions = struct {
     // Comma-separated absolute paths to project-side Rust NIF .a files.
     // Empty if the project has no Rust NIFs.
     project_rust_libs: []const u8,
+    // Plugin-contributed extra iOS frameworks (comma-separated).
+    plugin_frameworks: []const u8 = "",
     objects: []const std.Build.LazyPath,
 };
 
@@ -609,6 +713,17 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
     };
     for (frameworks_base) |fw| {
         run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", fw });
+    }
+
+    // Plugin-contributed frameworks (gathered by mob_dev from activated
+    // manifests). ld dedups -framework args so overlap with the base list
+    // is harmless.
+    if (opts.plugin_frameworks.len > 0) {
+        var fw_it = std.mem.splitScalar(u8, opts.plugin_frameworks, ',');
+        while (fw_it.next()) |fw| {
+            if (fw.len == 0) continue;
+            run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", fw });
+        }
     }
 
     // MLX-CPU uses Apple's Accelerate framework (vectorized BLAS/LAPACK

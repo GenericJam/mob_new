@@ -101,13 +101,9 @@ defmodule MobNew.ProjectGeneratorTest do
       assert owned?("mix.exs.eex")
     end
 
-    test "blocks .gitignore.eex (Phoenix has its own)" do
-      assert owned?(".gitignore.eex")
-    end
-
-    test "blocks .tool-versions.eex (Phoenix has its own)" do
-      assert owned?(".tool-versions.eex")
-    end
+    # .gitignore.eex/.tool-versions.eex template files were deleted as dead:
+    # the inline @dotfiles map supersedes them in BOTH --local and archive
+    # modes (byte-diff-proven), so there is nothing for LiveView mode to block.
 
     test "blocks anything under config/" do
       assert owned?("config/config.exs.eex")
@@ -209,6 +205,46 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "TestApp.HomeScreen"
     end
 
+    test ".gitignore excludes native build artifacts and signing secrets", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      gi = File.read!(Path.join(dir, ".gitignore"))
+
+      # Regression: a fresh project's `git add -A` after a native build must
+      # not commit build junk or secrets. The template previously only
+      # ignored _build/deps/app-build, so .cxx/, .zig-cache/, the bundled
+      # OTP zip (~19MB), and keystores all leaked into version control.
+      for pattern <- [
+            "*.o",
+            "*.so",
+            "*.a",
+            "android/app/.cxx/",
+            "**/.zig-cache/",
+            "android/app/src/main/assets/otp.zip",
+            "android/keystore.properties",
+            "android/*.keystore",
+            "erl_crash.dump"
+          ] do
+        assert gi =~ pattern,
+               ".gitignore must exclude #{pattern} — else fresh projects commit " <>
+                 "build artifacts / secrets on `git add -A`"
+      end
+    end
+
+    test ".credo.exs registers ExSlop as a plugin, not a check", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      credo = File.read!(Path.join(dir, ".credo.exs"))
+
+      # Regression: ex_slop >= 0.4.2 is a Credo *plugin*. Registering it under
+      # checks.enabled (as the template used to) makes Credo ignore it as an
+      # "undefined check" and run zero ex_slop checks — silently. It must live
+      # in plugins:, and the dep must be pinned to the plugin-API version.
+      assert credo =~ "plugins: [{ExSlop, []}]",
+             ".credo.exs must register ExSlop as a plugin or ex_slop is a no-op"
+
+      refute credo =~ ~r/enabled:.*ExSlop/s,
+             "ExSlop under checks.enabled is the bug — Credo ignores it there"
+    end
+
     test "generates AndroidManifest.xml", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       manifest = Path.join(dir, "android/app/src/main/AndroidManifest.xml")
@@ -221,24 +257,19 @@ defmodule MobNew.ProjectGeneratorTest do
       assert manifest =~ ~s(package="com.example.test_app")
     end
 
-    test "AndroidManifest.xml declares Bluetooth Classic permissions", %{tmp: tmp} do
+    test "AndroidManifest.xml does not bake in Bluetooth permissions (plugin-provided)",
+         %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       manifest = File.read!(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
 
-      # Modern (API 31+) runtime permissions for Mob.Bt — these are the
-      # ones a user must request via Mob.Permissions.request/2 at runtime.
-      assert manifest =~ "android.permission.BLUETOOTH_SCAN"
-      assert manifest =~ "android.permission.BLUETOOTH_CONNECT"
-      assert manifest =~ "neverForLocation"
-
-      # Legacy (≤ API 30) capability permissions, install-time only.
-      assert manifest =~ "android.permission.BLUETOOTH"
-      assert manifest =~ "android.permission.BLUETOOTH_ADMIN"
-      assert manifest =~ ~s(android:maxSdkVersion="30")
-
-      # Hardware feature is declared but not required so the Play Store
-      # doesn't filter the app off devices without a BT radio.
-      assert manifest =~ ~s(<uses-feature android:name="android.hardware.bluetooth")
+      # Bluetooth moved out of core into the mob_bluetooth plugin. mob_dev
+      # merges the plugin's declared permissions into the manifest at build
+      # time (MobDev.NativeBuild merge_android_permissions), so a freshly
+      # generated app must NOT hardcode them.
+      refute manifest =~ "android.permission.BLUETOOTH_SCAN"
+      refute manifest =~ "android.permission.BLUETOOTH_CONNECT"
+      refute manifest =~ "android.permission.BLUETOOTH_ADMIN"
+      refute manifest =~ "android.hardware.bluetooth"
     end
 
     test "generates MainActivity.kt in correct package path", %{tmp: tmp} do
@@ -313,6 +344,7 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/CMakeLists.txt"))
       assert content =~ "${OTP_RELEASE}"
+      assert content =~ "${OTP_RELEASE_X86_64}"
       assert content =~ "${MOB_DIR}"
       refute content =~ "${OTP_BUILD}"
       refute content =~ "/Users/"
@@ -337,22 +369,15 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ~s("com/example/test_app/MobBridge")
     end
 
-    test "beam_jni.c emits Bluetooth Classic JNI thunks", %{tmp: tmp} do
+    test "beam_jni.c does not emit Bluetooth JNI thunks (plugin-provided)", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
 
-      # Adapter-level (no session) — discovery + pairing.
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscoveryStarted"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscoveryFinished"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtDiscovered"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtPaired"
-      assert content =~ "Java_com_example_test_1app_MobBridge_nativeDeliverBtPairFailed"
-
-      # Profile-level — at least one entry per profile so a future
-      # rename surfaces here. Full surface is exercised on-device.
-      assert content =~ "MobBridge_nativeDeliverBtHfp"
-      assert content =~ "MobBridge_nativeDeliverBtSpp"
-      assert content =~ "MobBridge_nativeDeliverBtHid"
+      # Bluetooth lives in the mob_bluetooth plugin now; its JNI thunks ship
+      # in the plugin's own jni_source. A generated app's beam_jni.c carries
+      # none of them.
+      refute content =~ "nativeDeliverBt"
+      refute content =~ "mob_deliver_bt"
     end
 
     test "generates MobBridge.kt in correct package path", %{tmp: tmp} do
@@ -361,19 +386,49 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(path)
     end
 
-    test "MobBridge.kt declares Bluetooth Classic external fns + receivers", %{tmp: tmp} do
+    test "MobBridge.kt declares ttsSpeak/ttsStop for text-to-speech", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       content =
         File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
 
-      # External JNI declarations matching the C side.
-      assert content =~ "external fun nativeDeliverBtDiscoveryStarted"
-      assert content =~ "external fun nativeDeliverBtDiscovered"
-      assert content =~ "external fun nativeDeliverBtPaired"
+      # Android side of Mob.Speech — TextToSpeech driven via JNI-cached methods.
+      assert content =~ "import android.speech.tts.TextToSpeech"
+      assert content =~ "fun ttsSpeak(text: String, optsJson: String)"
+      assert content =~ "fun ttsStop()"
+    end
 
-      # BroadcastReceiver wiring (system events arrive via Android intents).
-      assert content =~ "BroadcastReceiver"
+    test "MobBridge.kt does not declare Bluetooth external fns (plugin-provided)", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # Bluetooth lives in the mob_bluetooth plugin (MobBluetoothBridge); the
+      # app's core MobBridge no longer carries any bt externs, methods, or
+      # imports.
+      refute content =~ "nativeDeliverBt"
+      refute content =~ "fun bt_"
+      refute content =~ "import android.bluetooth"
+    end
+
+    test "MobBridge.kt WebView fills its bounds so full-viewport pages don't collapse",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # Regression: an Android WebView defaults to wrap_content, so a web app
+      # using CSS 100vh / 100% (e.g. an xterm.js terminal) measures its
+      # container as 0px and renders blank. The WebView must request
+      # MATCH_PARENT layout and honour the page viewport so vh units resolve.
+      assert content =~ "ViewGroup.LayoutParams.MATCH_PARENT",
+             "MobWebView must set MATCH_PARENT layout params, else full-viewport " <>
+               "pages collapse to 0px height and render blank"
+
+      assert content =~ "settings.useWideViewPort = true"
+      assert content =~ "settings.loadWithOverviewMode = true"
     end
 
     test "MobBridge.kt passes structural lints (no dup imports, balanced delimiters, no EEx leaks)",
@@ -550,6 +605,8 @@ defmodule MobNew.ProjectGeneratorTest do
       content = File.read!(Path.join(dir, "android/app/build.gradle"))
       assert content =~ "local.properties"
       assert content =~ "mob.otp_release"
+      assert content =~ "mob.otp_release_x86_64"
+      assert content =~ "abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'"
       refute content =~ "mob.otp_build"
       refute content =~ "MOB_OTP_SRC"
     end
@@ -573,6 +630,23 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "ios/AppDelegate.m"))
       assert content =~ ~s(#import "MobApp-Swift.h")
+    end
+
+    test "AppDelegate.m declares and calls mob_register_plugins() before mob_init_ui()",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/AppDelegate.m"))
+
+      # The extern declaration must be present so the call resolves at link
+      # time against the @_cdecl symbol the bootstrap Swift file exports.
+      assert content =~ "extern void mob_register_plugins(void);"
+
+      # The call must come before mob_init_ui() — see comment in template;
+      # plugins register their factories with MobNativeViewRegistry.shared and
+      # the registry has to be populated by the time the BEAM starts mounting.
+      register_idx = :binary.match(content, "mob_register_plugins();") |> elem(0)
+      init_idx = :binary.match(content, "mob_init_ui();") |> elem(0)
+      assert register_idx < init_idx
     end
 
     test "does NOT generate ios/build.sh — iOS sim build glue lives in mob_dev's NativeBuild as of iter 13b",
@@ -663,6 +737,16 @@ defmodule MobNew.ProjectGeneratorTest do
       content = File.read!(Path.join(dir, "mix.exs"))
       refute content =~ "avatarex"
       refute content =~ ~s({:image,)
+    end
+
+    test "mix.exs wires convenience aliases for the common mob tasks", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "mix.exs"))
+      assert content =~ "aliases: aliases()"
+      assert content =~ "defp aliases do"
+      assert content =~ ~s(deploy: ["mob.deploy"])
+      assert content =~ ~s(connect: ["mob.connect"])
+      assert content =~ ~s("android.native": ["mob.deploy --native --android"])
     end
 
     # ── Android icon ───────────────────────────────────────────────────────────
@@ -972,6 +1056,22 @@ defmodule MobNew.ProjectGeneratorTest do
         assert content =~ "std.mem.splitScalar(u8, project_swift_sources, ',')"
         assert content =~ "swift_run.addFileArg(.{ .cwd_relative = source });"
       end
+
+      test "#{@label} build.zig globs mob Swift sources (no hardcoded file list)",
+           %{tmp: tmp} do
+        {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+        content = File.read!(Path.join(dir, @path))
+
+        # mob Swift sources are globbed from $mob_dir/ios at build time so a
+        # newly-added file (e.g. MobGpuView.swift, referenced by MobRootView)
+        # compiles without a template edit — listing files by name is how a new
+        # mob Swift file broke iOS builds.
+        assert content =~ ~s|b.build_root.handle.openDir(glob_io, b.fmt("{s}/ios", .{mob_dir})|
+        assert content =~ ~s|std.mem.endsWith(u8, entry.name, ".swift")|
+
+        refute content =~ ~s|b.fmt("{s}/ios/MobGpuView.swift", .{mob_dir})|,
+               "#{@label} build.zig must glob ios/*.swift, not list mob Swift files by name"
+      end
     end
 
     # Regression: the Android jni build.zig must declare `tflite_static` as
@@ -997,6 +1097,37 @@ defmodule MobNew.ProjectGeneratorTest do
              "android build.zig must thread tflite_static into the " <>
                "driver_tab_android build_opts via o.addOption — otherwise the " <>
                "b.option flag is declared but never reaches the consuming Zig module"
+    end
+
+    # Regression: same drift as the Android case above, but for the iOS sim
+    # and iOS device templates. driver_tab_ios.zig (generated by
+    # MobDev.StaticNifs.generate(:ios, ..., format: :zig)) references
+    # `build_options.tflite_static` because the default NIF list includes
+    # :tflite_nif on `archs: [:all]`. The iOS templates declared sqlite_static,
+    # emlx_static, and nx_eigen_static via b.addOptions() but never declared
+    # tflite_static — bit the 2026-05-28 iOS smoke (had to hand-patch
+    # mob_plugin_demo/ios/build*.zig) before this fix.
+    for {path, label} <- [
+          {"ios/build.zig", "ios sim"},
+          {"ios/build_device.zig", "ios device"}
+        ] do
+      @path path
+      @label label
+      test "#{@label} build.zig declares tflite_static b.option for driver_tab parity",
+           %{tmp: tmp} do
+        {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+        content = File.read!(Path.join(dir, @path))
+
+        assert content =~ ~s|b.option(bool, "tflite_static"|,
+               "#{@label} build.zig must declare tflite_static as a b.option " <>
+                 "(symmetric to nxeigen_static) so driver_tab_ios.zig's " <>
+                 "build_options.tflite_static reference resolves at compile time"
+
+        assert content =~ ~s|opts.addOption(bool, "tflite_static", tflite_static)|,
+               "#{@label} build.zig must thread tflite_static into the " <>
+                 "driver_tab_ios build_opts via opts.addOption — otherwise the " <>
+                 "b.option flag is declared but never reaches the consuming Zig module"
+      end
     end
 
     # ── MOB_BEAMS_DIR migration path — Ecto on flat -pa directories ──────────────
@@ -1537,6 +1668,106 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(Path.join(dir, "mix.exs"))
       assert File.exists?(Path.join(dir, "lib/test_ios2/app.ex"))
       assert File.exists?(Path.join(dir, "lib/test_ios2/home_screen.ex"))
+    end
+  end
+
+  # ── --blank flag (minimal app) ────────────────────────────────────────────
+
+  describe "blank_excluded?/3" do
+    @root "/tmpl"
+
+    test "skips demo screens only when blank: true" do
+      assert ProjectGenerator.blank_excluded?("/tmpl/lib/app_name/dice_screen.ex.eex", @root,
+               blank: true
+             )
+
+      refute ProjectGenerator.blank_excluded?("/tmpl/lib/app_name/dice_screen.ex.eex", @root, [])
+    end
+
+    test "keeps core files even when blank: true" do
+      for core <- ~w(app home_screen repo) do
+        refute ProjectGenerator.blank_excluded?(
+                 "/tmpl/lib/app_name/#{core}.ex.eex",
+                 @root,
+                 blank: true
+               ),
+               "#{core} must survive --blank"
+      end
+    end
+
+    test "does not touch files outside lib/app_name/ under blank" do
+      refute ProjectGenerator.blank_excluded?("/tmpl/mix.exs.eex", @root, blank: true)
+
+      refute ProjectGenerator.blank_excluded?("/tmpl/android/app/build.gradle.eex", @root,
+               blank: true
+             )
+    end
+  end
+
+  describe "generate/3 with blank: true" do
+    setup do
+      tmp =
+        Path.join(System.tmp_dir!(), "mob_new_blank_test_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp)
+      on_exit(fn -> File.rm_rf!(tmp) end)
+      {:ok, tmp: tmp}
+    end
+
+    test "keeps core screens, drops demo screens", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("blank_app", tmp, blank: true)
+      lib = Path.join(dir, "lib/blank_app")
+
+      assert File.exists?(Path.join(lib, "app.ex"))
+      assert File.exists?(Path.join(lib, "home_screen.ex"))
+      assert File.exists?(Path.join(lib, "repo.ex"))
+
+      for demo <-
+            ~w(audio_screen dice_screen list_screen round storage_screen text_screen webview_screen) do
+        refute File.exists?(Path.join(lib, "#{demo}.ex")), "#{demo}.ex must not be generated"
+      end
+    end
+
+    test "mix.exs drops the showcase plugins", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("blank_app", tmp, blank: true)
+      content = File.read!(Path.join(dir, "mix.exs"))
+
+      refute content =~ "mob_camera"
+      refute content =~ "mob_location"
+      refute content =~ "mob_biometric"
+      refute content =~ "mob_themes"
+      # Core deps still present.
+      assert content =~ "ecto_sqlite3"
+      assert content =~ "aliases: aliases()"
+    end
+
+    test "mob.exs has empty plugins and no styles", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("blank_app", tmp, blank: true)
+      content = File.read!(Path.join(dir, "mob.exs"))
+
+      assert content =~ "config :mob, :plugins, []"
+      refute content =~ ":styles"
+      refute content =~ ":default_style"
+    end
+
+    test "home_screen drops demo nav buttons but keeps plugin_section + theme", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("blank_app", tmp, blank: true)
+      content = File.read!(Path.join(dir, "lib/blank_app/home_screen.ex"))
+
+      refute content =~ "TextScreen"
+      refute content =~ "DiceScreen"
+      refute content =~ ":open_audio"
+      # Plugin auto-listing + theme toggle survive (work with zero plugins).
+      assert content =~ "Mob.Plugins.screens()"
+      assert content =~ "plugin_section"
+      assert content =~ "Mob.Theme.Dark"
+    end
+
+    test "default (non-blank) still ships demo screens + plugins (regression guard)", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("full_app", tmp)
+      assert File.exists?(Path.join(dir, "lib/full_app/dice_screen.ex"))
+      assert File.read!(Path.join(dir, "mix.exs")) =~ "mob_camera"
+      assert File.read!(Path.join(dir, "mob.exs")) =~ ":mob_camera"
     end
   end
 

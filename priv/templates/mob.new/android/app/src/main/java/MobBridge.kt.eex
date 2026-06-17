@@ -11,8 +11,6 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.location.LocationListener
-import android.location.LocationManager as AndroidLocationManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -22,35 +20,19 @@ import android.net.Uri
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.os.SystemClock
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
+import android.speech.tts.TextToSpeech
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import android.bluetooth.BluetoothAdapter
 import android.util.Log
-import android.util.Size
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothHeadset
-import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
-import android.bluetooth.BluetoothSocket
 import android.media.AudioManager
 import java.util.UUID
-import androidx.fragment.app.FragmentActivity
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.lang.ref.WeakReference
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.concurrent.Executor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -68,7 +50,6 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.graphics.Paint
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,9 +70,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.platform.testTag
+import android.view.PixelCopy
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.draw.clip
@@ -184,10 +173,8 @@ import android.hardware.usb.UsbManager
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import org.json.JSONArray
@@ -200,8 +187,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import org.json.JSONObject
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview as CameraPreview
 import androidx.camera.core.UseCase
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -277,6 +262,214 @@ object MobBridge {
 
     fun getOrCreateLazyListState(handle: Int): LazyListState =
         lazyListStates.getOrPut(handle) { LazyListState() }
+
+    // ── Test harness: id-addressable scroll registry + in-process capture ──────
+    //
+    // Gives a remotely-connected agent (Mob.Test.screenshot/scroll_info/scroll_to)
+    // pixels and deterministic scroll over Erlang dist, with no adb/xcrun. A
+    // ScrollHandle carries whichever Compose scroll state backs the node plus its
+    // measured viewport; the :scroll / lazy-list composables register themselves
+    // here by their :id prop.
+    class ScrollHandle {
+        var scrollState: ScrollState? = null // pixel-precise vertical/horizontal scroll
+        var lazyState: LazyListState? = null // item-indexed list
+        var viewportPx: Int = 0 // measured viewport extent (for ScrollState kind)
+        var horizontal: Boolean = false
+    }
+
+    // Concurrent: written from the Compose main thread (registration), read from
+    // the NIF/binder thread (scrollInfo/scrollTo). computeIfAbsent keeps creation
+    // atomic so a registration race can't drop a handle.
+    private val scrollHandlesById = ConcurrentHashMap<String, ScrollHandle>()
+    private val mainScope = CoroutineScope(Dispatchers.Main)
+
+    fun scrollHandle(id: String): ScrollHandle =
+        scrollHandlesById.computeIfAbsent(id) { ScrollHandle() }
+
+    // ── Element frame registry (positions without a screenshot) ────────────────
+    //
+    // Any rendered node with an :id gets a frameTrackingModifier that records its
+    // window bounds (px) here and tags it with a Compose testTag. elementFrames()
+    // returns them in dp so an agent can locate/drive elements by id over dist
+    // with no image bytes. Populated by RenderNodeInner.
+    //
+    // Concurrent: written from the Compose main thread (onGloballyPositioned),
+    // iterated from the NIF/binder thread (elementFrames). ConcurrentHashMap's
+    // weakly-consistent iteration can't throw ConcurrentModificationException.
+    private val elementFramesById = ConcurrentHashMap<String, FloatArray>()
+
+    fun recordElementFrame(id: String, x: Float, y: Float, w: Float, h: Float) {
+        elementFramesById[id] = floatArrayOf(x, y, w, h)
+    }
+
+    fun frameTrackingModifier(id: String): Modifier =
+        Modifier
+            .testTag(id)
+            .onGloballyPositioned { c ->
+                val b = c.boundsInWindow()
+                recordElementFrame(id, b.left, b.top, b.width, b.height)
+            }
+
+    /** JSON {id:[x,y,w,h], ...} in dp (matches screenInfo / tap_xy units). */
+    @JvmStatic
+    fun elementFrames(): String {
+        val density = activityRef?.get()?.resources?.displayMetrics?.density ?: 1f
+        val o = JSONObject()
+        for ((id, f) in elementFramesById) {
+            val arr = org.json.JSONArray()
+            arr.put((f[0] / density).toDouble())
+            arr.put((f[1] / density).toDouble())
+            arr.put((f[2] / density).toDouble())
+            arr.put((f[3] / density).toDouble())
+            o.put(id, arr)
+        }
+        return o.toString()
+    }
+
+    /**
+     * Capture the activity window in-process and return PNG/JPEG bytes.
+     * Called from nif_screenshot/3 via JNI. `scale` is a multiplier of native
+     * resolution (1.0 = full, 0.5 = half). Returns null when there is no live
+     * window (e.g. backgrounded) so the NIF can report {:error, :no_window}.
+     */
+    @JvmStatic
+    fun screenshot(format: String, quality: Int, scale: Double): ByteArray? {
+        val activity = activityRef?.get() ?: return null
+        val window = activity.window ?: return null
+        val decor = window.decorView
+        val w = decor.width
+        val h = decor.height
+        if (w <= 0 || h <= 0) return null
+
+        val src = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var ok = false
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            PixelCopy.request(window, src, { result ->
+                ok = result == PixelCopy.SUCCESS
+                latch.countDown()
+            }, handler)
+        } else {
+            // Pre-O fallback: draw the decor view (misses SurfaceView/GL layers).
+            handler.post {
+                ok =
+                    try {
+                        decor.draw(android.graphics.Canvas(src)); true
+                    } catch (e: Throwable) {
+                        false
+                    }
+                latch.countDown()
+            }
+        }
+
+        if (!latch.await(2, java.util.concurrent.TimeUnit.SECONDS) || !ok) return null
+
+        val bmp =
+            if (scale > 0.0 && scale != 1.0) {
+                Bitmap.createScaledBitmap(
+                    src,
+                    (w * scale).toInt().coerceAtLeast(1),
+                    (h * scale).toInt().coerceAtLeast(1),
+                    true
+                )
+            } else {
+                src
+            }
+
+        val out = java.io.ByteArrayOutputStream()
+        if (format == "jpeg") {
+            bmp.compress(Bitmap.CompressFormat.JPEG, quality.coerceIn(0, 100), out)
+        } else {
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+        return out.toByteArray()
+    }
+
+    /**
+     * Read a scroll view's offset/extent as a flat JSON object (the shape
+     * Mob.Test.scroll_info/2 decodes). Returns null when no scroll view is
+     * registered under `id`. `kind` is "pixel" for ScrollState (px units) or
+     * "index" for LazyListState (item-index units; viewport = visible items).
+     */
+    @JvmStatic
+    fun scrollInfo(id: String): String? {
+        val h = scrollHandlesById[id] ?: return null
+
+        h.scrollState?.let { s ->
+            val vp = h.viewportPx.toDouble()
+            val maxV = s.maxValue.toDouble()
+            val content = maxV + vp
+            val off = s.value.toDouble()
+            val o = JSONObject()
+            if (h.horizontal) {
+                o.put("offset_x", off); o.put("offset_y", 0.0)
+                o.put("content_w", content); o.put("content_h", vp)
+                o.put("viewport_w", vp); o.put("viewport_h", vp)
+                o.put("max_x", maxV); o.put("max_y", 0.0)
+            } else {
+                o.put("offset_x", 0.0); o.put("offset_y", off)
+                o.put("content_w", vp); o.put("content_h", content)
+                o.put("viewport_w", vp); o.put("viewport_h", vp)
+                o.put("max_x", 0.0); o.put("max_y", maxV)
+            }
+            o.put("kind", "pixel")
+            return o.toString()
+        }
+
+        h.lazyState?.let { ls ->
+            val li = ls.layoutInfo
+            val total = li.totalItemsCount.toDouble()
+            val visible = li.visibleItemsInfo.size.toDouble()
+            val first = ls.firstVisibleItemIndex.toDouble()
+            val maxIdx = (total - visible).coerceAtLeast(0.0)
+            val o = JSONObject()
+            o.put("offset_x", 0.0); o.put("offset_y", first)
+            o.put("content_w", 0.0); o.put("content_h", total)
+            o.put("viewport_w", 0.0); o.put("viewport_h", visible)
+            o.put("max_x", 0.0); o.put("max_y", maxIdx)
+            o.put("kind", "index")
+            return o.toString()
+        }
+
+        return null
+    }
+
+    /**
+     * Scroll the view registered under `id` to absolute (x, y). Pixel views use
+     * the relevant axis; index lists use y as an item index. Runs the suspend
+     * scroll on the main thread and blocks the NIF thread until it completes.
+     */
+    @JvmStatic
+    fun scrollTo(id: String, x: Double, y: Double): Boolean {
+        val h = scrollHandlesById[id] ?: return false
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var ok = false
+        mainScope.launch {
+            try {
+                val s = h.scrollState
+                val ls = h.lazyState
+                when {
+                    s != null -> {
+                        val target = (if (h.horizontal) x else y).toInt()
+                        s.scrollTo(target.coerceIn(0, s.maxValue))
+                        ok = true
+                    }
+                    ls != null -> {
+                        ls.scrollToItem(y.toInt().coerceAtLeast(0))
+                        ok = true
+                    }
+                }
+            } catch (e: Throwable) {
+                ok = false
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+        return ok
+    }
 
     private var activityRef: WeakReference<Activity>? = null
 
@@ -398,6 +591,8 @@ object MobBridge {
         // is no longer relevant and would scroll the wrong list to a stale position.
         val newKey = if (transition != "none") {
             lazyListStates.clear()
+            scrollHandlesById.clear()
+            elementFramesById.clear()
             _rootState.value.navKey + 1
         } else {
             _rootState.value.navKey
@@ -427,12 +622,9 @@ object MobBridge {
     // ── Native delivery stubs — implemented in beam_jni.c ────────────────────
     @JvmStatic external fun nativeDeliverAtom2(pid: Long, a1: String, a2: String)
     @JvmStatic external fun nativeDeliverAtom3(pid: Long, a1: String, a2: String, a3: String)
-    @JvmStatic external fun nativeDeliverLocation(pid: Long, lat: Double, lon: Double, acc: Double, alt: Double)
     @JvmStatic external fun nativeDeliverMotion(pid: Long, ax: Double, ay: Double, az: Double,
                                                   gx: Double, gy: Double, gz: Double, ts: Long)
     @JvmStatic external fun nativeDeliverFileResult(pid: Long, event: String, sub: String, json: String?)
-    @JvmStatic external fun nativeDeliverCameraFrame(pid: Long, bytes: ByteArray, width: Int, height: Int,
-                                                     format: String, timestampMs: Long, dropped: Long)
     @JvmStatic external fun nativeDeliverPushToken(pid: Long, token: String)
     @JvmStatic external fun nativeDeliverNotification(pid: Long, json: String)
     @JvmStatic external fun nativeSetLaunchNotification(json: String?)
@@ -440,49 +632,10 @@ object MobBridge {
     @JvmStatic external fun nativeDeliverWebViewBlocked(pid: Long, url: String)
     @JvmStatic external fun nativeDeliverAlertAction(action: String)
 
-  // ── Mob.Bt — typed delivery externs (Phase 2 B-pure) ─────────────────────
-  @JvmStatic external fun nativeDeliverBtDiscoveryStarted(pid: Long)
-  @JvmStatic external fun nativeDeliverBtDiscoveryFinished(pid: Long)
-  @JvmStatic external fun nativeDeliverBtDiscoveryCancelled(pid: Long)
-  @JvmStatic external fun nativeDeliverBtDiscovered(pid: Long, address: String, name: String, bonded: Boolean)
-  @JvmStatic external fun nativeDeliverBtPaired(pid: Long, address: String, name: String, bonded: Boolean)
-  @JvmStatic external fun nativeDeliverBtPairFailed(pid: Long, address: String, reason: String)
-  @JvmStatic external fun nativeDeliverBtUnpaired(pid: Long, address: String)
-  @JvmStatic external fun nativeDeliverBtError(pid: Long, reason: String)
-  @JvmStatic external fun nativeDeliverBtPairedListBegin(pid: Long)
-  @JvmStatic external fun nativeDeliverBtPairedListEntry(pid: Long, address: String, name: String, bonded: Boolean)
-  @JvmStatic external fun nativeDeliverBtPairedListFinish(pid: Long)
-  @JvmStatic external fun nativeDeliverBtHfpConnecting(pid: Long, session: Int, address: String)
-  @JvmStatic external fun nativeDeliverBtHfpConnected(pid: Long, session: Int, address: String, name: String)
-  @JvmStatic external fun nativeDeliverBtHfpConnectFailed(pid: Long, address: String, reason: String)
-  @JvmStatic external fun nativeDeliverBtHfpDisconnected(pid: Long, session: Int, reason: String)
-  @JvmStatic external fun nativeDeliverBtHfpVendorSubscribed(pid: Long, session: Int)
-  @JvmStatic external fun nativeDeliverBtHfpVendorAt(pid: Long, session: Int, cmd: String, cmdType: Int, args: String, address: String)
-  @JvmStatic external fun nativeDeliverBtHfpScoStarted(pid: Long, session: Int, address: String)
-  @JvmStatic external fun nativeDeliverBtHfpScoStopped(pid: Long, session: Int)
-  @JvmStatic external fun nativeDeliverBtHfpScoAudio(pid: Long, session: Int, pcm: ByteArray)
-  @JvmStatic external fun nativeDeliverBtHfpError(pid: Long, session: Int, reason: String)
-  @JvmStatic external fun nativeDeliverBtSppConnected(pid: Long, session: Int, address: String, name: String)
-  @JvmStatic external fun nativeDeliverBtSppConnectFailed(pid: Long, address: String, reason: String)
-  @JvmStatic external fun nativeDeliverBtSppDisconnected(pid: Long, session: Int, reason: String)
-  @JvmStatic external fun nativeDeliverBtSppData(pid: Long, session: Int, data: ByteArray)
-  @JvmStatic external fun nativeDeliverBtSppWritten(pid: Long, session: Int, size: Int)
-  @JvmStatic external fun nativeDeliverBtSppError(pid: Long, session: Int, reason: String)
-  @JvmStatic external fun nativeDeliverBtHidConnected(pid: Long, session: Int, address: String)
-  @JvmStatic external fun nativeDeliverBtHidConnectFailed(pid: Long, address: String, reason: String)
-  @JvmStatic external fun nativeDeliverBtHidDisconnected(pid: Long, session: Int, reason: String)
-  @JvmStatic external fun nativeDeliverBtHidInput(pid: Long, session: Int, type: Int, code: Int, value: Int)
-  @JvmStatic external fun nativeDeliverBtHidRawReport(pid: Long, session: Int, report: ByteArray)
-
     // ── Pending callback PIDs ──────────────────────────────────────────────
     var pendingPermissionPid:  Long = 0
     var pendingPermissionCap:  String = ""
-    @Volatile var notifyPid:   Long = 0
-    var pendingCameraPid:      Long = 0
-    var pendingCameraIsVideo:  Boolean = false
-    var pendingPhotosPid:      Long = 0
     var pendingFilesPid:       Long = 0
-    var pendingScanPid:        Long = 0
 
     // ── Permissions ────────────────────────────────────────────────────────
     @JvmStatic
@@ -498,11 +651,13 @@ object MobBridge {
             "photo_library" -> if (android.os.Build.VERSION.SDK_INT >= 33)
                 arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO)
             else arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
-            "location"      -> arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
             "notifications" -> if (android.os.Build.VERSION.SDK_INT >= 33)
                 arrayOf(android.Manifest.permission.POST_NOTIFICATIONS)
             else { nativeDeliverAtom3(pid, "permission", "notifications", "granted"); return }
-            else -> { nativeDeliverAtom3(pid, "permission", cap, "denied"); return }
+            // Fall through to a plugin-supplied capability (e.g. mob_location
+            // once :location leaves core). Unknown -> denied.
+            else -> io.mob.plugin.MobPluginBootstrap.permissionsFor(cap)
+                ?: run { nativeDeliverAtom3(pid, "permission", cap, "denied"); return }
         }
         if (perms.all { ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED }) {
             nativeDeliverAtom3(pid, "permission", cap, "granted")
@@ -514,184 +669,6 @@ object MobBridge {
     @JvmStatic
     fun onPermissionResult(granted: Boolean) {
         nativeDeliverAtom3(pendingPermissionPid, "permission", pendingPermissionCap, if (granted) "granted" else "denied")
-    }
-
-    // ── Biometric ─────────────────────────────────────────────────────────
-    @JvmStatic
-    fun biometric_authenticate(pid: Long, reason: String) {
-        val activity = activityRef?.get() as? FragmentActivity ?: run {
-            nativeDeliverAtom2(pid, "biometric", "not_available"); return
-        }
-        val mgr = BiometricManager.from(activity)
-        if (mgr.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK)
-                != BiometricManager.BIOMETRIC_SUCCESS) {
-            nativeDeliverAtom2(pid, "biometric", "not_available"); return
-        }
-        val executor: Executor = ContextCompat.getMainExecutor(activity)
-        val prompt = BiometricPrompt(activity, executor, object : BiometricPrompt.AuthenticationCallback() {
-            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                nativeDeliverAtom2(pid, "biometric", "success")
-            }
-            override fun onAuthenticationFailed() {
-                nativeDeliverAtom2(pid, "biometric", "failure")
-            }
-            override fun onAuthenticationError(code: Int, msg: CharSequence) {
-                nativeDeliverAtom2(pid, "biometric", if (code == BiometricPrompt.ERROR_CANCELED ||
-                    code == BiometricPrompt.ERROR_USER_CANCELED) "failure" else "not_available")
-            }
-        })
-        activity.runOnUiThread {
-            prompt.authenticate(BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Authenticate").setSubtitle(reason)
-                .setNegativeButtonText("Cancel")
-                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK).build())
-        }
-    }
-
-    // ── Location ──────────────────────────────────────────────────────────
-    private var locationClient: FusedLocationProviderClient? = null
-    private var locationCallback: LocationCallback? = null
-
-    @JvmStatic
-    fun location_get_once(pid: Long, accuracy: String) {
-        val activity = activityRef?.get() ?: run {
-            nativeDeliverAtom3(pid, "location", "error", "unavailable"); return
-        }
-        if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED) {
-            nativeDeliverAtom3(pid, "location", "error", "permission_denied"); return
-        }
-        val client = LocationServices.getFusedLocationProviderClient(activity)
-        client.lastLocation.addOnSuccessListener { loc ->
-            if (loc != null) {
-                nativeDeliverLocation(pid, loc.latitude, loc.longitude,
-                    loc.accuracy.toDouble(), loc.altitude)
-            } else {
-                val req = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 1000).setMaxUpdates(1).build()
-                val cb = object : LocationCallback() {
-                    override fun onLocationResult(result: LocationResult) {
-                        result.lastLocation?.let { l ->
-                            nativeDeliverLocation(pid, l.latitude, l.longitude, l.accuracy.toDouble(), l.altitude)
-                        }
-                        client.removeLocationUpdates(this)
-                    }
-                }
-                client.requestLocationUpdates(req, cb, activity.mainLooper)
-            }
-        }
-    }
-
-    @JvmStatic
-    fun location_start(pid: Long, accuracy: String) {
-        val activity = activityRef?.get() ?: return
-        if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED) {
-            nativeDeliverAtom3(pid, "location", "error", "permission_denied"); return
-        }
-        val priority = when (accuracy) {
-            "high" -> Priority.PRIORITY_HIGH_ACCURACY
-            "low"  -> Priority.PRIORITY_LOW_POWER
-            else   -> Priority.PRIORITY_BALANCED_POWER_ACCURACY
-        }
-        val client = LocationServices.getFusedLocationProviderClient(activity)
-        locationClient = client
-        val req = LocationRequest.Builder(priority, 5000).build()
-        val cb = object : LocationCallback() {
-            override fun onLocationResult(result: LocationResult) {
-                result.lastLocation?.let { l ->
-                    nativeDeliverLocation(pid, l.latitude, l.longitude, l.accuracy.toDouble(), l.altitude)
-                }
-            }
-        }
-        locationCallback = cb
-        client.requestLocationUpdates(req, cb, activity.mainLooper)
-    }
-
-    @JvmStatic
-    fun location_stop() {
-        locationCallback?.let { locationClient?.removeLocationUpdates(it) }
-        locationCallback = null
-    }
-
-    // ── Camera ────────────────────────────────────────────────────────────
-    @JvmStatic
-    fun camera_capture_photo(pid: Long, quality: String) {
-        pendingCameraPid = pid
-        pendingCameraIsVideo = false
-        activityRef?.get()?.let { (it as? MainActivity)?.launchCameraPhoto() }
-            ?: nativeDeliverAtom2(pid, "camera", "cancelled")
-    }
-
-    @JvmStatic
-    fun camera_capture_video(pid: Long, maxDuration: String) {
-        pendingCameraPid = pid
-        pendingCameraIsVideo = true
-        activityRef?.get()?.let { (it as? MainActivity)?.launchCameraVideo() }
-            ?: nativeDeliverAtom2(pid, "camera", "cancelled")
-    }
-
-    @JvmStatic
-    fun handleCameraPhotoResult(uri: Uri?) {
-        val pid = pendingCameraPid
-        if (uri == null) { nativeDeliverAtom2(pid, "camera", "cancelled"); return }
-        val activity = activityRef?.get() ?: return
-        Thread {
-            try {
-                val tmp = File(activity.cacheDir, "mob_photo_${System.currentTimeMillis()}.jpg")
-                activity.contentResolver.openInputStream(uri)?.use { it.copyTo(tmp.outputStream()) }
-                val json = """[{"path":"${tmp.absolutePath}","width":0,"height":0}]"""
-                nativeDeliverFileResult(pid, "camera", "photo", json)
-            } catch (e: Exception) {
-                nativeDeliverAtom2(pid, "camera", "cancelled")
-            }
-        }.start()
-    }
-
-    @JvmStatic
-    fun handleCameraVideoResult(uri: Uri?) {
-        val pid = pendingCameraPid
-        if (uri == null) { nativeDeliverAtom2(pid, "camera", "cancelled"); return }
-        val activity = activityRef?.get() ?: return
-        Thread {
-            try {
-                val tmp = File(activity.cacheDir, "mob_video_${System.currentTimeMillis()}.mp4")
-                activity.contentResolver.openInputStream(uri)?.use { it.copyTo(tmp.outputStream()) }
-                val json = """[{"path":"${tmp.absolutePath}","duration":0.0}]"""
-                nativeDeliverFileResult(pid, "camera", "video", json)
-            } catch (e: Exception) {
-                nativeDeliverAtom2(pid, "camera", "cancelled")
-            }
-        }.start()
-    }
-
-    // ── Photos picker ─────────────────────────────────────────────────────
-    @JvmStatic
-    fun photos_pick(pid: Long, maxStr: String) {
-        pendingPhotosPid = pid
-        activityRef?.get()?.let { (it as? MainActivity)?.launchPhotosPicker(maxStr.toIntOrNull() ?: 1) }
-            ?: nativeDeliverAtom2(pid, "photos", "cancelled")
-    }
-
-    @JvmStatic
-    fun handlePhotosResult(uris: List<Uri>) {
-        val pid = pendingPhotosPid
-        if (uris.isEmpty()) { nativeDeliverAtom2(pid, "photos", "cancelled"); return }
-        val activity = activityRef?.get() ?: return
-        Thread {
-            try {
-                val items = uris.mapIndexed { i, uri ->
-                    val ext = if (uri.toString().contains("video")) "mp4" else "jpg"
-                    val tmp = File(activity.cacheDir, "mob_pick_${System.currentTimeMillis()}_$i.$ext")
-                    activity.contentResolver.openInputStream(uri)?.use { it.copyTo(tmp.outputStream()) }
-                    val type = if (ext == "mp4") "video" else "image"
-                    """{"path":"${tmp.absolutePath}","type":"$type","width":0,"height":0}"""
-                }
-                val json = "[${items.joinToString(",")}]"
-                nativeDeliverFileResult(pid, "photos", "picked", json)
-            } catch (e: Exception) {
-                nativeDeliverAtom2(pid, "photos", "cancelled")
-            }
-        }.start()
     }
 
     // ── File picker ───────────────────────────────────────────────────────
@@ -1223,144 +1200,6 @@ object MobBridge {
     private val _previewFacing = mutableStateOf<String?>(null)
     val previewFacing: State<String?> get() = _previewFacing
 
-    // ── Camera live frame stream ──────────────────────────────────────────
-    // Mirrors the iOS shape: CameraX ImageAnalysis is bound to the same
-    // lifecycle as the preview, converts each YUV frame to RGB f32, and
-    // posts {:camera, :frame, %{...}} via JNI back to the caller pid.
-    // frameStreamRev increments on each start/stop so the MobCameraPreview
-    // composable's LaunchedEffect can detect changes and rebind use cases
-    // with or without the analyzer.
-    internal val frameStreamRev = AtomicLong(0L)
-    internal val frameStreamActive = mutableStateOf(false)
-    internal var frameStreamPid: Long = 0L
-    internal var frameStreamWidth: Int = 640
-    internal var frameStreamHeight: Int = 640
-    internal var frameStreamFormat: String = "rgb_f32"
-    internal var frameStreamThrottleMs: Int = 0
-    private var frameStreamLastDeliveryMs: Long = 0L
-    private var frameStreamDroppedCount: Long = 0L
-    internal val frameAnalysisExecutor = Executors.newSingleThreadExecutor()
-
-    @JvmStatic
-    fun camera_start_frame_stream(pid: Long, optsJson: String) {
-        try {
-            val opts = JSONObject(optsJson)
-            frameStreamPid = pid
-            frameStreamWidth = opts.optInt("width", 640).coerceIn(1, 4096)
-            frameStreamHeight = opts.optInt("height", 640).coerceIn(1, 4096)
-            frameStreamFormat = opts.optString("format", "rgb_f32")
-            frameStreamThrottleMs = opts.optInt("throttle_ms", 0)
-            val facing = opts.optString("facing", "back")
-            frameStreamLastDeliveryMs = 0L
-            frameStreamDroppedCount = 0L
-            // Match iOS: start_frame_stream activates the camera on its own
-            // even if no explicit start_preview was issued.
-            if (_previewFacing.value != facing) _previewFacing.value = facing
-            frameStreamActive.value = true
-            frameStreamRev.incrementAndGet()
-        } catch (e: Exception) {
-            Log.e("MobCamera", "start_frame_stream failed: ${e.message}")
-        }
-    }
-
-    @JvmStatic
-    fun camera_stop_frame_stream() {
-        frameStreamActive.value = false
-        frameStreamRev.incrementAndGet()
-    }
-
-    // Called from the CameraX analyzer thread. Converts YUV → target
-    // format and forwards to BEAM. The ImageProxy must be closed
-    // exactly once, which we do in a finally.
-    internal fun deliverFrame(image: ImageProxy) {
-        try {
-            val now = System.currentTimeMillis()
-            if (frameStreamThrottleMs > 0 &&
-                (now - frameStreamLastDeliveryMs) < frameStreamThrottleMs.toLong()) {
-                frameStreamDroppedCount++
-                return
-            }
-            // CameraX 1.3+ gives us toBitmap() which handles YUV_420_888
-            // → ARGB conversion internally. Slower than a hand-rolled
-            // native YUV path but unblocks the common case without
-            // per-device YUV plane quirks.
-            val raw = image.toBitmap()
-            val rotated = rotateIfNeeded(raw, image.imageInfo.rotationDegrees)
-            val cropped = centerCropAndScale(rotated, frameStreamWidth, frameStreamHeight)
-            val bytes = when (frameStreamFormat) {
-                "bgra_u8" -> bitmapToBgraU8(cropped)
-                else -> bitmapToRgbF32(cropped)
-            }
-            nativeDeliverCameraFrame(
-                frameStreamPid, bytes, cropped.width, cropped.height,
-                frameStreamFormat, now, frameStreamDroppedCount
-            )
-            frameStreamLastDeliveryMs = now
-            frameStreamDroppedCount = 0L
-        } catch (e: Throwable) {
-            Log.e("MobCamera", "deliverFrame failed: ${e.message}")
-        } finally {
-            image.close()
-        }
-    }
-
-    private fun rotateIfNeeded(bm: Bitmap, deg: Int): Bitmap {
-        if (deg == 0) return bm
-        val m = Matrix().apply { postRotate(deg.toFloat()) }
-        return Bitmap.createBitmap(bm, 0, 0, bm.width, bm.height, m, true)
-    }
-
-    private fun centerCropAndScale(src: Bitmap, w: Int, h: Int): Bitmap {
-        val srcAspect = src.width.toDouble() / src.height
-        val dstAspect = w.toDouble() / h
-        val (cropX, cropY, cropW, cropH) = when {
-            srcAspect > dstAspect -> {
-                val cw = (src.height * dstAspect).toInt()
-                arrayOf((src.width - cw) / 2, 0, cw, src.height)
-            }
-            srcAspect < dstAspect -> {
-                val ch = (src.width / dstAspect).toInt()
-                arrayOf(0, (src.height - ch) / 2, src.width, ch)
-            }
-            else -> arrayOf(0, 0, src.width, src.height)
-        }
-        val cropped = Bitmap.createBitmap(src, cropX, cropY, cropW, cropH)
-        return if (cropped.width != w || cropped.height != h) {
-            Bitmap.createScaledBitmap(cropped, w, h, true)
-        } else cropped
-    }
-
-    private fun bitmapToRgbF32(bm: Bitmap): ByteArray {
-        val w = bm.width; val h = bm.height
-        val pixels = IntArray(w * h)
-        bm.getPixels(pixels, 0, w, 0, 0, w, h)
-        val out = ByteArray(w * h * 3 * 4)
-        val bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN)
-        for (i in 0 until w * h) {
-            val px = pixels[i]
-            val r = ((px shr 16) and 0xff).toFloat() / 255f
-            val g = ((px shr 8) and 0xff).toFloat() / 255f
-            val b = (px and 0xff).toFloat() / 255f
-            bb.putFloat(r); bb.putFloat(g); bb.putFloat(b)
-        }
-        return out
-    }
-
-    private fun bitmapToBgraU8(bm: Bitmap): ByteArray {
-        val w = bm.width; val h = bm.height
-        val pixels = IntArray(w * h)
-        bm.getPixels(pixels, 0, w, 0, 0, w, h)
-        val out = ByteArray(w * h * 4)
-        for (i in 0 until w * h) {
-            val px = pixels[i]
-            out[i * 4 + 0] = (px and 0xff).toByte()           // B
-            out[i * 4 + 1] = ((px shr 8) and 0xff).toByte()   // G
-            out[i * 4 + 2] = ((px shr 16) and 0xff).toByte()  // R
-            out[i * 4 + 3] = ((px shr 24) and 0xff).toByte()  // A
-        }
-        return out
-    }
-
     // ── Alerts / action sheets / toasts ───────────────────────────────────
 
     @JvmStatic
@@ -1516,90 +1355,15 @@ object MobBridge {
         sensorListener = null
     }
 
-    // ── QR scanner ────────────────────────────────────────────────────────
-    @JvmStatic
-    fun scanner_scan(pid: Long, formatsJson: String) {
-        pendingScanPid = pid
-        activityRef?.get()?.let { (it as? MainActivity)?.launchQrScanner() }
-            ?: nativeDeliverAtom2(pid, "scan", "cancelled")
-    }
+    // scanner_scan / handleScanResult moved to the mob_scanner plugin
+    // (io.mob.scanner.MobScannerBridge + MobScannerActivity).
 
-    @JvmStatic
-    fun handleScanResult(value: String?, type: String?) {
-        val pid = pendingScanPid
-        if (value == null) { nativeDeliverAtom2(pid, "scan", "cancelled"); return }
-        val safeValue = value.replace("\"", "\\\"")
-        val safeType  = (type ?: "qr").replace("\"", "\\\"")
-        val json = """[{"type":"$safeType","value":"$safeValue"}]"""
-        nativeDeliverFileResult(pid, "scan", "result", json)
-    }
 
-    // ── Local notifications ────────────────────────────────────────────────
-    const val NOTIF_CHANNEL_ID = "mob_notifications"
+    // notify_schedule / notify_cancel / notify_register_push moved to the
+    // mob_notify plugin (io.mob.notify.MobNotifyBridge); shared delivery state
+    // lives in the generated io.mob.plugin.MobNotifyHub. The channel id +
+    // delivery thunks/receiver stay host-side (delivery is core/host-owned).
     private const val PERM_REQUEST_CODE = 9001
-
-    @JvmStatic
-    fun notify_schedule(pid: Long, optsJson: String) {
-        val activity = activityRef?.get() ?: return
-        try {
-            val opts = org.json.JSONObject(optsJson)
-            val id      = opts.getString("id")
-            val title   = opts.getString("title")
-            val body    = opts.getString("body")
-            val triggerAt = opts.getLong("trigger_at") * 1000L // to ms
-
-            // Ensure channel exists
-            val nm = activity.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
-            if (android.os.Build.VERSION.SDK_INT >= 26) {
-                nm.createNotificationChannel(
-                    NotificationChannel(NOTIF_CHANNEL_ID, "Notifications", NotificationManager.IMPORTANCE_DEFAULT))
-            }
-
-            val intent = android.content.Intent(activity, NotificationReceiver::class.java).apply {
-                putExtra("title", title)
-                putExtra("body",  body)
-                putExtra("id",    id)
-                putExtra("data",  opts.optJSONObject("data")?.toString() ?: "{}")
-            }
-            val pi = PendingIntent.getBroadcast(activity, id.hashCode(), intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val am = activity.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
-            if (android.os.Build.VERSION.SDK_INT >= 23) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
-            } else {
-                am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pi)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("MobBridge", "notify_schedule failed: ${e.message}")
-        }
-    }
-
-    @JvmStatic
-    fun notify_cancel(id: String) {
-        val activity = activityRef?.get() ?: return
-        val intent = android.content.Intent(activity, NotificationReceiver::class.java)
-        val pi = PendingIntent.getBroadcast(activity, id.hashCode(), intent,
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
-        pi?.let {
-            val am = activity.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
-            am.cancel(it)
-        }
-    }
-
-    @JvmStatic
-    fun notify_register_push(pid: Long, arg: String?) {
-        notifyPid = pid
-        // Deliver any token that refreshed while no screen was active.
-        MobFirebaseService.pendingToken?.let { token ->
-            MobFirebaseService.pendingToken = null
-            nativeDeliverPushToken(pid, token)
-            return
-        }
-        com.google.firebase.messaging.FirebaseMessaging.getInstance().token
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) nativeDeliverPushToken(pid, task.result)
-            }
-    }
 
     @JvmStatic
     fun setLaunchNotification(json: String?) {
@@ -1651,6 +1415,50 @@ object MobBridge {
                 view.performHapticFeedback(constant, HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING)
             }
         }
+    }
+
+    // ── Text-to-speech ──────────────────────────────────────────────────────
+    // TextToSpeech initializes asynchronously; we keep one engine alive and
+    // queue the first utterance until onInit fires.
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private var ttsPending: Pair<String, String>? = null
+
+    /** Called from nif_tts_speak via JNI — speaks text via TextToSpeech.
+     *  optsJson may carry {"rate":Float,"pitch":Float,"voice":"en-US"} (all optional). */
+    @JvmStatic
+    fun ttsSpeak(text: String, optsJson: String) {
+        val activity = activityRef?.get() ?: return
+        activity.runOnUiThread {
+            if (tts == null) {
+                tts = TextToSpeech(activity.applicationContext) { status ->
+                    ttsReady = status == TextToSpeech.SUCCESS
+                    val pending = ttsPending
+                    ttsPending = null
+                    if (ttsReady && pending != null) speakNow(pending.first, pending.second)
+                }
+            }
+            if (ttsReady) speakNow(text, optsJson) else ttsPending = text to optsJson
+        }
+    }
+
+    private fun speakNow(text: String, optsJson: String) {
+        val engine = tts ?: return
+        try {
+            val opts = org.json.JSONObject(optsJson)
+            if (opts.has("rate")) engine.setSpeechRate(opts.getDouble("rate").toFloat())
+            if (opts.has("pitch")) engine.setPitch(opts.getDouble("pitch").toFloat())
+            if (opts.has("voice"))
+                engine.setLanguage(java.util.Locale.forLanguageTag(opts.getString("voice")))
+        } catch (_: Exception) {
+        }
+        engine.speak(text, TextToSpeech.QUEUE_ADD, null, "mob_tts_${System.currentTimeMillis()}")
+    }
+
+    /** Called from nif_tts_stop via JNI — stops any in-progress speech immediately. */
+    @JvmStatic
+    fun ttsStop() {
+        tts?.stop()
     }
 
     /** Called from nif_clipboard_put via JNI — writes text to the system clipboard. */
@@ -2049,500 +1857,6 @@ object MobBridge {
     @JvmStatic external fun nativeDeliverVendorUsbEvent(
         pid: Long, sessionId: Int, tag: String, reason: String)
 
-  // ── Bluetooth Classic (Mob.Bt suite) — Phase 2 implementation ────────────
-  //
-  // Each operation maps Android BluetoothAdapter / BluetoothHeadset events
-  // into typed envelope deliveries via the dedicated nativeDeliverBt* externs.
-  // No JSON crosses JNI — every payload field is unmarshalled to a primitive
-  // Kotlin type before delivery.
-  //
-  // Limitations stubbed out:
-  //   - bt_hfp_send_vendor_at:  Android exposes no public API for this.
-  //   - bt_hfp_send_audio:      Phase 3 work (SCO audio inject).
-  //   - bt_hid_connect / subscribe_raw: HID host needs InputManager / IME path.
-
-  private val btSessionMap = ConcurrentHashMap<Int, BluetoothDevice>()
-  private val btSessionCounter = AtomicInteger(1)
-  private var btDiscoveryReceiver: BroadcastReceiver? = null
-  private var btDiscoveryPid: Long = 0
-  private var btBondReceiver: BroadcastReceiver? = null
-  private val btBondPids = ConcurrentHashMap<String, Long>()
-  private var btHfpProxy: BluetoothHeadset? = null
-  private val btHfpVendorPids = ConcurrentHashMap<Int, Long>()
-  private var btHfpVendorReceiver: BroadcastReceiver? = null
-  private val btSppSockets = ConcurrentHashMap<Int, BluetoothSocket>()
-  private val btSppReadThreads = ConcurrentHashMap<Int, Thread>()
-
-  private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-
-  private fun btAdapter(): BluetoothAdapter? {
-      val ctx = activityRef?.get() ?: return null
-      val mgr = ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-      return mgr?.adapter
-  }
-
-  private fun btSessionFor(device: BluetoothDevice): Int {
-      for ((id, dev) in btSessionMap) {
-          if (dev.address == device.address) return id
-      }
-      val id = btSessionCounter.getAndIncrement()
-      btSessionMap[id] = device
-      return id
-  }
-
-  private fun btSafeName(device: BluetoothDevice): String =
-      try { device.name ?: device.address } catch (_: SecurityException) { device.address }
-
-  // ── Discovery / pair / list paired ──────────────────────────────────────
-
-  @JvmStatic
-  fun bt_list_paired(pid: Long) {
-      val adapter = btAdapter() ?: run { Log.d("MobBT", "no_adapter"); nativeDeliverBtError(pid, "no_adapter"); Log.d("MobBT", "after no_adapter delivery"); return }
-      if (!adapter.isEnabled) { Log.d("MobBT", "adapter_disabled"); nativeDeliverBtError(pid, "adapter_disabled"); Log.d("MobBT", "after adapter_disabled delivery"); return }
-      try {
-          nativeDeliverBtPairedListBegin(pid)
-          for (dev in adapter.bondedDevices ?: emptySet()) {
-              nativeDeliverBtPairedListEntry(pid,
-                  dev.address,
-                  btSafeName(dev),
-                  dev.bondState == BluetoothDevice.BOND_BONDED)
-          }
-          nativeDeliverBtPairedListFinish(pid)
-      } catch (e: SecurityException) {
-          nativeDeliverBtError(pid, "permission_denied")
-      }
-  }
-
-  @JvmStatic
-  fun bt_start_discovery(pid: Long) {
-      Log.d("MobBT", "bt_start_discovery entered, pid=$pid")
-      val adapter = btAdapter() ?: run { nativeDeliverBtError(pid, "no_adapter"); return }
-      val activity = activityRef?.get() ?: run { Log.d("MobBT", "no_activity"); nativeDeliverBtError(pid, "no_activity"); Log.d("MobBT", "after no_activity delivery"); return }
-      if (!adapter.isEnabled) { nativeDeliverBtError(pid, "adapter_disabled"); return }
-
-      Log.d("MobBT", "step1: about to unregister old receiver if exists")
-      if (btDiscoveryReceiver != null) {
-          try { activity.unregisterReceiver(btDiscoveryReceiver) } catch (_: Exception) {}
-          btDiscoveryReceiver = null
-      }
-      Log.d("MobBT", "step2: setting btDiscoveryPid")
-
-      btDiscoveryPid = pid
-      Log.d("MobBT", "step3: about to create receiver")
-      val receiver = object : BroadcastReceiver() {
-          override fun onReceive(ctx: Context, intent: Intent) {
-              val deliveryPid = btDiscoveryPid
-              if (deliveryPid == 0L) return
-              when (intent.action) {
-                  BluetoothDevice.ACTION_FOUND -> {
-                      val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= 33)
-                          intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                      else
-                          @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                      if (device != null) {
-                          nativeDeliverBtDiscovered(deliveryPid,
-                              device.address,
-                              btSafeName(device),
-                              device.bondState == BluetoothDevice.BOND_BONDED)
-                      }
-                  }
-                  BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                      nativeDeliverBtDiscoveryFinished(deliveryPid)
-                  }
-              }
-          }
-      }
-      Log.d("MobBT", "step4: assigning receiver")
-      btDiscoveryReceiver = receiver
-      Log.d("MobBT", "step5: building filter")
-      val filter = IntentFilter().apply {
-          addAction(BluetoothDevice.ACTION_FOUND)
-          addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
-      }
-      Log.d("MobBT", "step6: registering receiver, SDK=${Build.VERSION.SDK_INT}")
-      try {
-          if (Build.VERSION.SDK_INT >= 33) {
-              activity.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
-          } else {
-              @Suppress("UnspecifiedRegisterReceiverFlag")
-              activity.registerReceiver(receiver, filter)
-          }
-          Log.d("MobBT", "step7: receiver registered OK")
-      } catch (e: Exception) {
-          Log.e("MobBT", "registerReceiver threw: ${e.javaClass.simpleName}: ${e.message}", e)
-          nativeDeliverBtError(pid, "register_failed")
-          return
-      }
-
-      try {
-          Log.d("MobBT", "step8: checking isDiscovering")
-          if (adapter.isDiscovering) {
-              Log.d("MobBT", "step9: already discovering, cancelling")
-              adapter.cancelDiscovery()
-          }
-          Log.d("MobBT", "step10: calling adapter.startDiscovery()")
-          val result = adapter.startDiscovery()
-          Log.d("MobBT", "step11: startDiscovery returned $result")
-          if (!result) {
-              Log.d("MobBT", "step12: start_failed")
-              nativeDeliverBtError(pid, "start_failed")
-              return
-          }
-          Log.d("MobBT", "step13: calling nativeDeliverBtDiscoveryStarted, pid=$pid")
-          nativeDeliverBtDiscoveryStarted(pid)
-          Log.d("MobBT", "step14: nativeDeliverBtDiscoveryStarted returned")
-      } catch (e: SecurityException) {
-          Log.e("MobBT", "SecurityException: ${e.message}", e)
-          nativeDeliverBtError(pid, "permission_denied")
-      } catch (e: Exception) {
-          Log.e("MobBT", "Unexpected exception: ${e.javaClass.simpleName}: ${e.message}", e)
-          nativeDeliverBtError(pid, "exception")
-      }
-  }
-
-  @JvmStatic
-  fun bt_cancel_discovery(pid: Long) {
-      val adapter = btAdapter() ?: run { nativeDeliverBtError(pid, "no_adapter"); return }
-      val activity = activityRef?.get()
-      try { adapter.cancelDiscovery() } catch (_: SecurityException) {}
-      btDiscoveryReceiver?.let {
-          try { activity?.unregisterReceiver(it) } catch (_: Exception) {}
-          btDiscoveryReceiver = null
-      }
-      nativeDeliverBtDiscoveryCancelled(pid)
-  }
-
-  @JvmStatic
-  fun bt_pair(pid: Long, json: String) {
-      val adapter = btAdapter() ?: run { nativeDeliverBtError(pid, "no_adapter"); return }
-      val activity = activityRef?.get() ?: run { nativeDeliverBtError(pid, "no_activity"); return }
-      val mac = try { JSONObject(json).optString("address").takeIf { it.isNotEmpty() } }
-                catch (_: Exception) { null }
-          ?: run { nativeDeliverBtError(pid, "no_address"); return }
-      val device = try { adapter.getRemoteDevice(mac) }
-                   catch (_: Exception) { nativeDeliverBtError(pid, "invalid_address"); return }
-
-      if (device.bondState == BluetoothDevice.BOND_BONDED) {
-          nativeDeliverBtPaired(pid, device.address, btSafeName(device), true)
-          return
-      }
-
-      if (btBondReceiver == null) {
-          btBondReceiver = object : BroadcastReceiver() {
-              override fun onReceive(ctx: Context, intent: Intent) {
-                  if (intent.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
-                  val dev: BluetoothDevice? = if (Build.VERSION.SDK_INT >= 33)
-                      intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                  else
-                      @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                  if (dev == null) return
-                  val state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
-                  val waitingPid = btBondPids[dev.address] ?: return
-                  when (state) {
-                      BluetoothDevice.BOND_BONDED -> {
-                          nativeDeliverBtPaired(waitingPid, dev.address, btSafeName(dev), true)
-                          btBondPids.remove(dev.address)
-                      }
-                      BluetoothDevice.BOND_NONE -> {
-                          nativeDeliverBtPairFailed(waitingPid, dev.address, "bond_none")
-                          btBondPids.remove(dev.address)
-                      }
-                  }
-              }
-          }
-          val filter = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-          if (Build.VERSION.SDK_INT >= 33) {
-              activity.registerReceiver(btBondReceiver, filter, Context.RECEIVER_EXPORTED)
-          } else {
-              @Suppress("UnspecifiedRegisterReceiverFlag")
-              activity.registerReceiver(btBondReceiver, filter)
-          }
-      }
-
-      btBondPids[device.address] = pid
-      try {
-          if (!device.createBond()) {
-              btBondPids.remove(device.address)
-              nativeDeliverBtPairFailed(pid, device.address, "create_bond_failed")
-          }
-      } catch (e: SecurityException) {
-          btBondPids.remove(device.address)
-          nativeDeliverBtPairFailed(pid, device.address, "permission_denied")
-      }
-  }
-
-  @JvmStatic
-  fun bt_unpair(pid: Long, json: String) {
-      val adapter = btAdapter() ?: run { nativeDeliverBtError(pid, "no_adapter"); return }
-      val mac = try { JSONObject(json).optString("address").takeIf { it.isNotEmpty() } }
-                catch (_: Exception) { null }
-          ?: run { nativeDeliverBtError(pid, "no_address"); return }
-      val device = try { adapter.getRemoteDevice(mac) }
-                   catch (_: Exception) { nativeDeliverBtError(pid, "invalid_address"); return }
-      try {
-          val method = device.javaClass.getMethod("removeBond")
-          val ok = method.invoke(device) as? Boolean ?: false
-          if (ok) nativeDeliverBtUnpaired(pid, device.address)
-          else    nativeDeliverBtError(pid, "remove_bond_failed")
-      } catch (e: Exception) {
-          nativeDeliverBtError(pid, "remove_bond_unavailable")
-      }
-  }
-
-  // ── Generic disconnect by session ───────────────────────────────────────
-
-  @JvmStatic
-  fun bt_disconnect(pid: Long, session: Int) {
-      val device = btSessionMap[session]
-      if (device == null) {
-          nativeDeliverBtError(pid, "no_session")
-          return
-      }
-      btSppSockets.remove(session)?.let {
-          try { it.close() } catch (_: Exception) {}
-      }
-      btSppReadThreads.remove(session)?.interrupt()
-      btHfpVendorPids.remove(session)
-      btSessionMap.remove(session)
-      nativeDeliverBtSppDisconnected(pid, session, "local")
-  }
-
-  // ── HFP profile ────────────────────────────────────────────────────────
-
-  private fun acquireHfpProxy(activity: Activity, onReady: (BluetoothHeadset?) -> Unit) {
-      if (btHfpProxy != null) { onReady(btHfpProxy); return }
-      val adapter = btAdapter() ?: run { onReady(null); return }
-      val listener = object : BluetoothProfile.ServiceListener {
-          override fun onServiceConnected(profile: Int, proxy: BluetoothProfile?) {
-              if (profile == BluetoothProfile.HEADSET) {
-                  btHfpProxy = proxy as? BluetoothHeadset
-                  onReady(btHfpProxy)
-              }
-          }
-          override fun onServiceDisconnected(profile: Int) {
-              if (profile == BluetoothProfile.HEADSET) btHfpProxy = null
-          }
-      }
-      adapter.getProfileProxy(activity, listener, BluetoothProfile.HEADSET)
-  }
-
-  @JvmStatic
-  fun bt_hfp_connect(pid: Long, json: String) {
-      val activity = activityRef?.get() ?: run { nativeDeliverBtError(pid, "no_activity"); return }
-      val adapter = btAdapter() ?: run { nativeDeliverBtError(pid, "no_adapter"); return }
-      val mac = try { JSONObject(json).optString("address").takeIf { it.isNotEmpty() } }
-                catch (_: Exception) { null }
-          ?: run { nativeDeliverBtError(pid, "no_address"); return }
-      val device = try { adapter.getRemoteDevice(mac) }
-                   catch (_: Exception) { nativeDeliverBtError(pid, "invalid_address"); return }
-
-      acquireHfpProxy(activity) { proxy ->
-          if (proxy == null) {
-              nativeDeliverBtHfpConnectFailed(pid, mac, "hfp_proxy_unavailable")
-              return@acquireHfpProxy
-          }
-          val session = btSessionFor(device)
-          val connected = proxy.connectedDevices.any { it.address == device.address }
-          if (connected) {
-              nativeDeliverBtHfpConnected(pid, session, device.address, btSafeName(device))
-          } else {
-              try {
-                  val method = proxy.javaClass.getMethod("connect", BluetoothDevice::class.java)
-                  val ok = method.invoke(proxy, device) as? Boolean ?: false
-                  if (ok) {
-                      nativeDeliverBtHfpConnecting(pid, session, device.address)
-                  } else {
-                      nativeDeliverBtHfpConnectFailed(pid, device.address, "hfp_connect_failed")
-                  }
-              } catch (e: Exception) {
-                  nativeDeliverBtHfpConnectFailed(pid, device.address, "hfp_connect_unavailable")
-              }
-          }
-      }
-  }
-
-  @JvmStatic
-  fun bt_hfp_subscribe_vendor_at(pid: Long, session: Int, companyIdsJson: String) {
-      val activity = activityRef?.get() ?: run { nativeDeliverBtHfpError(pid, session, "no_activity"); return }
-      val device = btSessionMap[session] ?: run { nativeDeliverBtHfpError(pid, session, "no_session"); return }
-      btHfpVendorPids[session] = pid
-
-      // Parse company_ids from JSON envelope {"company_ids":[int, int, ...]}.
-      // Empty list is valid: the receiver registers, but no events route through.
-      val companyIds: List<Int> = try {
-          val obj = org.json.JSONObject(companyIdsJson)
-          val arr = obj.getJSONArray("company_ids")
-          (0 until arr.length()).map { arr.getInt(it) }
-      } catch (e: Exception) {
-          emptyList()
-      }
-
-      if (btHfpVendorReceiver == null) {
-          btHfpVendorReceiver = object : BroadcastReceiver() {
-              override fun onReceive(ctx: Context, intent: Intent) {
-                  if (intent.action != BluetoothHeadset.ACTION_VENDOR_SPECIFIC_HEADSET_EVENT) return
-                  val dev: BluetoothDevice? = if (Build.VERSION.SDK_INT >= 33)
-                      intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                  else
-                      @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                  val cmd = intent.getStringExtra(
-                      BluetoothHeadset.EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD)
-                  val cmdType = intent.getIntExtra(
-                      BluetoothHeadset.EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE, -1)
-                  val args = intent.getSerializableExtra(
-                      "android.bluetooth.headset.extra.VENDOR_SPECIFIC_HEADSET_EVENT_ARGS")
-                  if (dev == null || cmd == null) return
-                  val devSession = btSessionMap.entries.firstOrNull { it.value.address == dev.address }?.key
-                      ?: btSessionFor(dev)
-                  val deliveryPid = btHfpVendorPids[devSession] ?: return
-                  nativeDeliverBtHfpVendorAt(deliveryPid, devSession,
-                      cmd, cmdType,
-                      args?.toString() ?: "",
-                      dev.address)
-              }
-          }
-          val filter = IntentFilter(BluetoothHeadset.ACTION_VENDOR_SPECIFIC_HEADSET_EVENT).apply {
-              // Register only the company IDs the caller asked for.
-              // Android's ACTION_VENDOR_SPECIFIC_HEADSET_EVENT is only delivered
-              // for explicitly-registered IDs — events from other vendors get dropped.
-              for (companyId in companyIds) {
-                  addCategory("android.bluetooth.headset.intent.category.companyid.$companyId")
-              }
-          }
-          if (Build.VERSION.SDK_INT >= 33) {
-              activity.registerReceiver(btHfpVendorReceiver, filter, Context.RECEIVER_EXPORTED)
-          } else {
-              @Suppress("UnspecifiedRegisterReceiverFlag")
-              activity.registerReceiver(btHfpVendorReceiver, filter)
-          }
-      }
-      nativeDeliverBtHfpVendorSubscribed(pid, session)
-  }
-
-  @JvmStatic
-  fun bt_hfp_send_vendor_at(pid: Long, session: Int, cmd: String, args: String) {
-      nativeDeliverBtHfpError(pid, session, "not_supported_by_android_api")
-  }
-
-  @JvmStatic
-  fun bt_hfp_start_sco(pid: Long, session: Int) {
-      val activity = activityRef?.get() ?: run { nativeDeliverBtHfpError(pid, session, "no_activity"); return }
-      val device = btSessionMap[session] ?: run { nativeDeliverBtHfpError(pid, session, "no_session"); return }
-      val proxy = btHfpProxy ?: run { nativeDeliverBtHfpError(pid, session, "hfp_not_connected"); return }
-      try {
-          val method = proxy.javaClass.getMethod("startScoUsingVirtualVoiceCall", BluetoothDevice::class.java)
-          val ok = method.invoke(proxy, device) as? Boolean ?: false
-          if (ok) {
-              val am = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-              am.mode = AudioManager.MODE_IN_COMMUNICATION
-              nativeDeliverBtHfpScoStarted(pid, session, device.address)
-          } else {
-              nativeDeliverBtHfpError(pid, session, "sco_start_failed")
-          }
-      } catch (e: Exception) {
-          nativeDeliverBtHfpError(pid, session, "sco_unavailable")
-      }
-  }
-
-  @JvmStatic
-  fun bt_hfp_stop_sco(pid: Long, session: Int) {
-      val activity = activityRef?.get() ?: run { nativeDeliverBtHfpError(pid, session, "no_activity"); return }
-      val device = btSessionMap[session] ?: run { nativeDeliverBtHfpError(pid, session, "no_session"); return }
-      val proxy = btHfpProxy ?: run { nativeDeliverBtHfpError(pid, session, "hfp_not_connected"); return }
-      try {
-          val method = proxy.javaClass.getMethod("stopScoUsingVirtualVoiceCall", BluetoothDevice::class.java)
-          method.invoke(proxy, device)
-          val am = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-          am.mode = AudioManager.MODE_NORMAL
-          nativeDeliverBtHfpScoStopped(pid, session)
-      } catch (e: Exception) {
-          nativeDeliverBtHfpError(pid, session, "sco_stop_failed")
-      }
-  }
-
-  @JvmStatic
-  fun bt_hfp_send_audio(pid: Long, session: Int, bytes: ByteArray) {
-      nativeDeliverBtHfpError(pid, session, "unsupported")
-  }
-
-  // ── SPP profile ────────────────────────────────────────────────────────
-
-  @JvmStatic
-  fun bt_spp_connect(pid: Long, json: String) {
-      val adapter = btAdapter() ?: run { nativeDeliverBtError(pid, "no_adapter"); return }
-      val opts = try { JSONObject(json) } catch (_: Exception) { JSONObject() }
-      val mac = opts.optString("address").takeIf { it.isNotEmpty() }
-          ?: run { nativeDeliverBtError(pid, "no_address"); return }
-      val device = try { adapter.getRemoteDevice(mac) }
-                   catch (_: Exception) { nativeDeliverBtError(pid, "invalid_address"); return }
-      val uuidStr = opts.optString("uuid").takeIf { it.isNotEmpty() }
-      val uuid = try { if (uuidStr != null) UUID.fromString(uuidStr) else SPP_UUID }
-                 catch (_: Exception) { SPP_UUID }
-      val secure = opts.optBoolean("secure", true)
-
-      val session = btSessionFor(device)
-      Thread {
-          try {
-              try { adapter.cancelDiscovery() } catch (_: SecurityException) {}
-              val socket = if (secure) device.createRfcommSocketToServiceRecord(uuid)
-                           else device.createInsecureRfcommSocketToServiceRecord(uuid)
-              socket.connect()
-              btSppSockets[session] = socket
-              nativeDeliverBtSppConnected(pid, session, device.address, btSafeName(device))
-
-              val readThread = Thread {
-                  val buf = ByteArray(1024)
-                  try {
-                      val input = socket.inputStream
-                      while (!Thread.currentThread().isInterrupted) {
-                          val n = input.read(buf)
-                          if (n <= 0) break
-                          val slice = buf.copyOfRange(0, n)
-                          nativeDeliverBtSppData(pid, session, slice)
-                      }
-                  } catch (_: Exception) {}
-                  nativeDeliverBtSppDisconnected(pid, session, "remote")
-                  btSppSockets.remove(session)
-                  btSppReadThreads.remove(session)
-              }
-              btSppReadThreads[session] = readThread
-              readThread.start()
-          } catch (e: SecurityException) {
-              nativeDeliverBtSppConnectFailed(pid, mac, "permission_denied")
-          } catch (e: Exception) {
-              nativeDeliverBtSppConnectFailed(pid, mac, "spp_connect_failed")
-          }
-      }.start()
-  }
-
-  @JvmStatic
-  fun bt_spp_write(pid: Long, session: Int, bytes: ByteArray) {
-      val socket = btSppSockets[session] ?: run { nativeDeliverBtSppError(pid, session, "no_session"); return }
-      Thread {
-          try {
-              socket.outputStream.write(bytes)
-              socket.outputStream.flush()
-              nativeDeliverBtSppWritten(pid, session, bytes.size)
-          } catch (e: Exception) {
-              nativeDeliverBtSppError(pid, session, "spp_write_failed")
-          }
-      }.start()
-  }
-
-  // ── HID profile (stubs) ────────────────────────────────────────────────
-
-  @JvmStatic
-  fun bt_hid_connect(pid: Long, json: String) {
-      val mac = try { JSONObject(json).optString("address") } catch (_: Exception) { "" }
-      nativeDeliverBtHidConnectFailed(pid, mac, "requires_input_method")
-  }
-
-  @JvmStatic
-  fun bt_hid_subscribe_raw(pid: Long, session: Int) {
-      nativeDeliverBtHidDisconnected(pid, session, "requires_input_method")
-  }
-
-
 }
 
 // ── Composables ───────────────────────────────────────────────────────────────
@@ -2608,7 +1922,11 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     val tapModifier = if (tapHandle != null && node.type != "button") {
         modifier.clickable { MobBridge.nativeSendTap(tapHandle) }
     } else modifier
-    val m = tapModifier.then(nodeModifier(node.props))
+    val base = tapModifier.then(nodeModifier(node.props))
+    // Track on-screen frame + set a testTag for any node carrying an :id, so the
+    // agent can read positions (Mob.Test.element_frames) without a screenshot.
+    val trackId = node.props["id"] as? String
+    val m = if (trackId != null) base.then(MobBridge.frameTrackingModifier(trackId)) else base
     when (node.type) {
         "column" -> Column(modifier = m) {
             node.children.forEach { child ->
@@ -2636,12 +1954,27 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         }
         "scroll" -> {
             val scrollState = rememberScrollState()
-            if (node.props["axis"] == "horizontal") {
-                Row(modifier = m.horizontalScroll(scrollState)) {
+            val horizontal = node.props["axis"] == "horizontal"
+            // Register by :id so Mob.Test.scroll_info/scroll_to can address it,
+            // and record the measured viewport (ScrollState doesn't expose it).
+            val id = node.props["id"] as? String
+            val regMod: Modifier =
+                if (id != null) {
+                    val handle = MobBridge.scrollHandle(id)
+                    handle.scrollState = scrollState
+                    handle.horizontal = horizontal
+                    Modifier.onGloballyPositioned {
+                        handle.viewportPx = if (horizontal) it.size.width else it.size.height
+                    }
+                } else {
+                    Modifier
+                }
+            if (horizontal) {
+                Row(modifier = m.then(regMod).horizontalScroll(scrollState)) {
                     node.children.forEach { RenderNode(it) }
                 }
             } else {
-                Column(modifier = m.verticalScroll(scrollState).imePadding()) {
+                Column(modifier = m.then(regMod).verticalScroll(scrollState).imePadding()) {
                     node.children.forEach { RenderNode(it) }
                 }
             }
@@ -2677,7 +2010,7 @@ private fun MobText(node: MobNode, modifier: Modifier) {
     val textAlign     = textAlignProp(node.props)
     val letterSpacing = floatProp(node.props, "letter_spacing")
     val lineHeightMul = floatProp(node.props, "line_height")
-    val fontFamily    = fontFamilyProp(node.props)
+    val fontFamily    = fontFamilyProp(node.props, LocalContext.current)
     val tapHandle     = intProp(node.props, "on_tap")
 
     val resolvedLineHeight = if (lineHeightMul != null && fontSize != TextUnit.Unspecified)
@@ -2987,20 +2320,13 @@ private fun MobCameraPreview(node: MobNode, modifier: Modifier) {
     val context        = LocalContext.current
     val lifecycleOwner = context as LifecycleOwner
 
-    // Observe frameStreamActive so the LaunchedEffect below rebinds use
-    // cases when Mob.Camera.start_frame_stream/stop_frame_stream is called
-    // from BEAM.
-    val frameActive = MobBridge.frameStreamActive.value
-
     // PreviewView is held in remember so the LaunchedEffect can rebind to
     // the same surface provider across recompositions. COMPATIBLE mode
     // uses TextureView so the preview renders inside the normal Compose
     // Z-order — PERFORMANCE (default) uses SurfaceView which punches
     // through above Compose and hides any overlay drawn on top of the
     // camera (e.g. bounding boxes, status text). FILL_CENTER center-crops
-    // the camera image to fill the view; this matches the model-side
-    // center-crop in MobBridge.deliverFrame so model-space coords from an
-    // overlay Canvas align with the visible preview underneath.
+    // the camera image to fill the view.
     val previewView = remember(context) {
         PreviewView(context).apply {
             scaleType = PreviewView.ScaleType.FILL_CENTER
@@ -3008,13 +2334,13 @@ private fun MobCameraPreview(node: MobNode, modifier: Modifier) {
         }
     }
 
-    // Bind in a LaunchedEffect keyed only on (frameActive, cameraSelector)
-    // — NOT in AndroidView's update block. The update block re-runs on
-    // every recomposition, so wiring the bind there caused continual
+    // Bind in a LaunchedEffect keyed only on cameraSelector — NOT in
+    // AndroidView's update block. The update block re-runs on every
+    // recomposition, so wiring the bind there caused continual
     // unbindAll/bind cycles whenever any sibling state ticked (e.g. an
     // FPS counter), making the TextureView surface flicker and fight
     // with overlays.
-    LaunchedEffect(frameActive, cameraSelector) {
+    LaunchedEffect(cameraSelector) {
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
             val provider = providerFuture.get()
@@ -3023,16 +2349,6 @@ private fun MobCameraPreview(node: MobNode, modifier: Modifier) {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
             val useCases = mutableListOf<UseCase>(preview)
-            if (frameActive) {
-                val analysis = ImageAnalysis.Builder()
-                    .setTargetResolution(Size(MobBridge.frameStreamWidth, MobBridge.frameStreamHeight))
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
-                analysis.setAnalyzer(MobBridge.frameAnalysisExecutor) { proxy ->
-                    MobBridge.deliverFrame(proxy)
-                }
-                useCases.add(analysis)
-            }
             try {
                 provider.unbindAll()
                 provider.bindToLifecycle(lifecycleOwner, cameraSelector, *useCases.toTypedArray())
@@ -3068,6 +2384,24 @@ private fun MobWebView(node: MobNode, modifier: Modifier) {
     val allowList = allowStr.split(",").filter { it.isNotEmpty() }
     val title     = node.props["title"] as? String
 
+    // File-chooser plumbing for HTML <input type="file"> inside the WebView
+    // (e.g. Livebook's Upload import, attachments). Without a WebChromeClient
+    // that handles onShowFileChooser, tapping a file input does nothing.
+    val filePathCallback =
+        remember { mutableStateOf<android.webkit.ValueCallback<Array<android.net.Uri>>?>(null) }
+    val fileChooserLauncher =
+        androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            val uris =
+                android.webkit.WebChromeClient.FileChooserParams.parseResult(
+                    result.resultCode,
+                    result.data,
+                )
+            filePathCallback.value?.onReceiveValue(uris)
+            filePathCallback.value = null
+        }
+
     Column(modifier = modifier) {
         if (title != null) {
             Text(text = title, fontSize = 12.sp,
@@ -3077,8 +2411,21 @@ private fun MobWebView(node: MobNode, modifier: Modifier) {
             modifier = Modifier.weight(1f),
             factory  = { ctx ->
                 android.webkit.WebView(ctx).apply {
+                    // Fill the AndroidView's allocated bounds. Without explicit
+                    // MATCH_PARENT layout params the WebView defaults to
+                    // wrap_content, so a full-viewport web app (CSS 100vh/100%,
+                    // e.g. an xterm.js terminal) measures its container as 0px
+                    // and collapses to nothing. useWideViewPort +
+                    // loadWithOverviewMode make the WebView honour the page's
+                    // viewport meta so vh units resolve correctly.
+                    layoutParams = android.view.ViewGroup.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
                     addJavascriptInterface(object : Any() {
                         @android.webkit.JavascriptInterface
                         fun postMessage(json: String) {
@@ -3098,6 +2445,31 @@ private fun MobWebView(node: MobNode, modifier: Modifier) {
                             if (allowList.any { reqUrl.startsWith(it) }) return false
                             MobBridge.nativeDeliverWebViewBlocked(0L, reqUrl)
                             return true
+                        }
+                    }
+                    webChromeClient = object : android.webkit.WebChromeClient() {
+                        override fun onShowFileChooser(
+                            webView: android.webkit.WebView?,
+                            callback: android.webkit.ValueCallback<Array<android.net.Uri>>?,
+                            params: android.webkit.WebChromeClient.FileChooserParams?,
+                        ): Boolean {
+                            // Cancel any in-flight chooser, then launch the picker the
+                            // page asked for (params carries its accept/multiple flags).
+                            filePathCallback.value?.onReceiveValue(null)
+                            filePathCallback.value = callback
+                            val intent = params?.createIntent()
+                            return if (intent != null) {
+                                try {
+                                    fileChooserLauncher.launch(intent)
+                                    true
+                                } catch (e: Exception) {
+                                    filePathCallback.value = null
+                                    false
+                                }
+                            } else {
+                                filePathCallback.value = null
+                                false
+                            }
                         }
                     }
                     MobBridge.webView = this
@@ -3681,6 +3053,11 @@ private fun MobLazyList(node: MobNode, modifier: Modifier) {
         else LazyListState()
     }
 
+    // Register by :id so Mob.Test.scroll_info/scroll_to can address this list.
+    (node.props["id"] as? String)?.let { id ->
+        MobBridge.scrollHandle(id).lazyState = listState
+    }
+
     val reachedEnd by remember {
         derivedStateOf {
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
@@ -3835,8 +3212,23 @@ private fun jsonValueToKotlin(v: Any?): Any? = when (v) {
     else -> v
 }
 
-private fun fontFamilyProp(props: Map<String, Any?>): FontFamily? {
+private fun fontFamilyProp(props: Map<String, Any?>, context: android.content.Context?): FontFamily? {
     val name = props["font"] as? String ?: return null
+    // Custom fonts ship uncompressed in res/font/<normalized>.ttf (build-copied
+    // from priv/fonts/ + plugin assets.fonts). Normalise the prop the same way
+    // the build named the resource, look it up by id, and load it as a Typeface.
+    // Fall back to a system family name (sans-serif, monospace, …), then null.
+    if (context != null) {
+        var resName = name.lowercase().replace(Regex("[^a-z0-9_]"), "_")
+        if (!resName.matches(Regex("^[a-z].*"))) resName = "f_$resName"
+        val resId = context.resources.getIdentifier(resName, "font", context.packageName)
+        if (resId != 0) {
+            try {
+                val tf = androidx.core.content.res.ResourcesCompat.getFont(context, resId)
+                if (tf != null) return FontFamily(tf)
+            } catch (_: Exception) { }
+        }
+    }
     return try { FontFamily(Typeface.create(name, Typeface.NORMAL)) }
     catch (_: Exception) { null }
 }
@@ -3957,7 +3349,7 @@ class NotificationReceiver : BroadcastReceiver() {
         val dataStr = intent.getStringExtra("data")  ?: "{}"
 
         val nm = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
-        val notif = NotificationCompat.Builder(context, MobBridge.NOTIF_CHANNEL_ID)
+        val notif = NotificationCompat.Builder(context, io.mob.plugin.MobNotifyHub.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(body)

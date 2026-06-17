@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mob.New do
   @moduledoc """
   Creates a new Mob project with Android and iOS boilerplate.
 
-      mix mob.new APP_NAME [--liveview] [--python] [--ios | --android] [--no-install] [--dest DIR] [--local]
+      mix mob.new APP_NAME [--liveview] [--python] [--blank] [--ios | --android] [--no-install] [--dest DIR] [--local]
 
   ## Platform selection
 
@@ -42,6 +42,14 @@ defmodule Mix.Tasks.Mob.New do
                          post-scaffold. Bundle size ~70 MB; iOS only —
                          Android Python is intentionally out of scope. See
                          the `Embedded CPython` guide in mob_dev's docs.
+    * `--blank`        — minimal native app: just `app.ex`, `home_screen.ex`,
+                         and `repo.ex`. Skips the demo/sample screens (text,
+                         dice, audio, webview, storage, list) and the showcase
+                         plugins (`mob_camera`/`mob_location`/`mob_biometric`/
+                         `mob_themes`), leaving `config :mob, :plugins, []`. The
+                         home screen still auto-lists any plugins you add later.
+                         Ignored in `--liveview` mode (which has no native demo
+                         screens to begin with).
     * `--no-install`   — skip running `mix deps.get` after generation
     * `--dest DIR`     — create project in DIR (default: current directory)
     * `--local`        — use `path:` deps pointing to local mob/mob_dev repos
@@ -107,16 +115,22 @@ defmodule Mix.Tasks.Mob.New do
 
   """
 
+  # NOTE: do NOT add `no_ios:`/`no_android:` boolean switches here. OptionParser
+  # auto-derives the `--no-<flag>` form of every boolean switch, so `--no-ios`
+  # already parses as `ios: false` (the negation of the `ios:` switch) and
+  # `--no-android` as `android: false`. Declaring separate `no_ios:`/`no_android:`
+  # switches makes those `--no-*` forms route to the negation of `ios:`/`android:`
+  # instead, leaving the dedicated switches permanently unset — which silently
+  # broke platform skipping. See `resolve_platforms/1`.
   @switches [
     no_install: :boolean,
-    no_ios: :boolean,
-    no_android: :boolean,
     ios: :boolean,
     android: :boolean,
     dest: :string,
     local: :boolean,
     liveview: :boolean,
-    python: :boolean
+    python: :boolean,
+    blank: :boolean
   ]
 
   @impl Mix.Task
@@ -155,28 +169,52 @@ defmodule Mix.Tasks.Mob.New do
       local: opts[:local] || false,
       no_ios: no_ios,
       no_android: no_android,
-      python: opts[:python] || false
+      python: opts[:python] || false,
+      blank: opts[:blank] || false
     ]
 
     {dest_dir, liveview, gen_opts}
   end
 
-  # Resolves the four platform-related flags into {no_ios?, no_android?}.
-  # Positive flags (--ios, --android) and negative flags (--no-ios, --no-android)
-  # are accepted; --ios is sugar for --no-android and vice versa.
   defp resolve_platforms!(opts) do
-    ios? = opts[:ios] == true
-    android? = opts[:android] == true
-    no_ios? = opts[:no_ios] == true or android?
-    no_android? = opts[:no_android] == true or ios?
+    case resolve_platforms(opts) do
+      {:ok, result} ->
+        result
+
+      {:error, msg} ->
+        Mix.raise(msg)
+    end
+  end
+
+  @doc """
+  Resolves the platform-selection flags into `{:ok, {no_ios?, no_android?}}`
+  or `{:error, message}`.
+
+  Only `ios:`/`android:` switches exist (see `@switches`). OptionParser maps:
+
+    * `--ios`        → `ios: true`        → iOS only (skip android)
+    * `--android`    → `android: true`    → Android only (skip ios)
+    * `--no-ios`     → `ios: false`       → skip iOS (keep android)
+    * `--no-android` → `android: false`   → skip Android (keep ios)
+
+  Positive flags (`--ios`/`--android`) are "this platform only"; negative
+  flags (`--no-ios`/`--no-android`) drop the named platform. Passing flags
+  that exclude both platforms is an error. Public for testing.
+  """
+  @spec resolve_platforms(keyword()) ::
+          {:ok, {boolean(), boolean()}} | {:error, String.t()}
+  def resolve_platforms(opts) do
+    # `--ios` ⇒ iOS only ⇒ no android. `--no-android` ⇒ android: false ⇒ no android.
+    no_android? = opts[:ios] == true or opts[:android] == false
+    # `--android` ⇒ Android only ⇒ no ios. `--no-ios` ⇒ ios: false ⇒ no ios.
+    no_ios? = opts[:android] == true or opts[:ios] == false
 
     if no_ios? and no_android? do
-      Mix.raise(
-        "Cannot exclude both platforms. Pass at most one of --ios, --android, --no-ios, --no-android."
-      )
+      {:error,
+       "Cannot exclude both platforms. Pass at most one of --ios, --android, --no-ios, --no-android."}
+    else
+      {:ok, {no_ios?, no_android?}}
     end
-
-    {no_ios?, no_android?}
   end
 
   defp log_flags(gen_opts, liveview) do
@@ -211,6 +249,14 @@ defmodule Mix.Tasks.Mob.New do
         :reset
       ])
     end
+
+    if gen_opts[:blank] do
+      Mix.shell().info([
+        :cyan,
+        "* --blank: minimal app (no demo screens or showcase plugins)",
+        :reset
+      ])
+    end
   end
 
   defp generate(app_name, dest_dir, true = _liveview, gen_opts) do
@@ -230,6 +276,10 @@ defmodule Mix.Tasks.Mob.New do
     else
       print_next_steps(app_name, opts[:no_install], gen_opts)
     end
+
+    # Best-effort "newer mob.new available?" hint (phx.new style). Never fatal,
+    # capped by a short timeout — the project is fully generated by this point.
+    MobNew.VersionCheck.print_notice()
   end
 
   # ── private ──────────────────────────────────────────────────────────────────

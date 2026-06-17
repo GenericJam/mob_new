@@ -3,9 +3,11 @@ defmodule <%= module_name %>.HomeScreen do
   use Mob.Screen
 
   def mount(_params, _session, socket) do
-    theme = Mob.State.get(:theme, :obsidian)
+    theme = Mob.State.get(:theme, :dark)
     Mob.Theme.set(theme_to_module(theme))
-    {:ok, Mob.Socket.assign(socket, :theme, theme)}
+    # Activated plugins that ship a demo screen show up here automatically —
+    # no edits needed when you add or remove one in mob.exs.
+    {:ok, Mob.Socket.assign(socket, theme: theme, plugin_screens: Mob.Plugins.screens())}
   end
 
   def render(assigns) do
@@ -16,7 +18,7 @@ defmodule <%= module_name %>.HomeScreen do
         <Spacer size={16} />
         <Text text="<%= display_name %>" text_size={:xl} text_color={:on_surface} padding={:space_sm} />
         <Text text="BEAM running on device" text_size={:sm} text_color={:primary} padding={4} />
-        <Spacer size={40} />
+        <Spacer size={40} /><%= unless blank do %>
         {nav_button("Text Input",          :open_text)}
         <Spacer size={12} />
         {nav_button("Rock Paper Scissors", :open_list)}
@@ -27,25 +29,34 @@ defmodule <%= module_name %>.HomeScreen do
         <Spacer size={12} />
         {nav_button("Audio",               :open_audio)}
         <Spacer size={12} />
-        {nav_button("Camera",              :open_camera)}
-        <Spacer size={12} />
-        {nav_button("Storage",             :open_storage)}
+        {nav_button("Storage",             :open_storage)}<% end %>
+        {plugin_section(assigns.plugin_screens)}
         <Spacer size={32} />
         <Text text="Theme" text_size={:sm} text_color={:muted} padding={4} />
         <Spacer size={8} />
         <Row fill_width={true}>
-          {theme_tab("Obsidian", :obsidian, assigns.theme)}
+          {theme_tab("Light", :light, assigns.theme)}
           <Spacer size={8} />
-          {theme_tab("Citrus",   :citrus,   assigns.theme)}
-          <Spacer size={8} />
-          {theme_tab("Birch",    :birch,    assigns.theme)}
+          {theme_tab("Dark",  :dark,  assigns.theme)}
         </Row>
       </Column>
     </Scroll>
     """
   end
 
-  def handle_info({:tap, :open_text}, socket) do
+  def handle_info({:tap, :theme_light}, socket) do
+    Mob.Theme.set(Mob.Theme.Light)
+    Mob.State.put(:theme, :light)
+    {:noreply, Mob.Socket.assign(socket, :theme, :light)}
+  end
+
+  def handle_info({:tap, :theme_dark}, socket) do
+    Mob.Theme.set(Mob.Theme.Dark)
+    Mob.State.put(:theme, :dark)
+    {:noreply, Mob.Socket.assign(socket, :theme, :dark)}
+  end
+
+<%= unless blank do %>  def handle_info({:tap, :open_text}, socket) do
     {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.TextScreen)}
   end
 
@@ -65,30 +76,16 @@ defmodule <%= module_name %>.HomeScreen do
     {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.AudioScreen)}
   end
 
-  def handle_info({:tap, :open_camera}, socket) do
-    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.CameraScreen)}
-  end
-
   def handle_info({:tap, :open_storage}, socket) do
     {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.StorageScreen)}
   end
 
-  def handle_info({:tap, :theme_obsidian}, socket) do
-    Mob.Theme.set(Mob.Theme.Obsidian)
-    Mob.State.put(:theme, :obsidian)
-    {:noreply, Mob.Socket.assign(socket, :theme, :obsidian)}
-  end
-
-  def handle_info({:tap, :theme_citrus}, socket) do
-    Mob.Theme.set(Mob.Theme.Citrus)
-    Mob.State.put(:theme, :citrus)
-    {:noreply, Mob.Socket.assign(socket, :theme, :citrus)}
-  end
-
-  def handle_info({:tap, :theme_birch}, socket) do
-    Mob.Theme.set(Mob.Theme.Birch)
-    Mob.State.put(:theme, :birch)
-    {:noreply, Mob.Socket.assign(socket, :theme, :birch)}
+<% end %>  # Plugin demo screens are tagged by their route string (see plugin_section/1).
+  def handle_info({:tap, route}, socket) when is_binary(route) do
+    case Enum.find(socket.assigns.plugin_screens, &(&1.default_route == route)) do
+      %{module: mod} -> {:noreply, Mob.Socket.push_screen(socket, mod)}
+      nil -> {:noreply, socket}
+    end
   end
 
   def handle_info(_message, socket), do: {:noreply, socket}
@@ -98,17 +95,51 @@ defmodule <%= module_name %>.HomeScreen do
     ~MOB(<Button text={label} background={:primary} text_color={:on_primary} text_size={:lg} padding={:space_md} fill_width={true} on_tap={tap} />)
   end
 
+  # A nav button per activated plugin that declares a screen, built from the
+  # live plugin registry so the list tracks mob.exs with no edits here.
+  defp plugin_section([]), do: %{type: :column, props: %{}, children: []}
+
+  defp plugin_section(screens) do
+    heading = %{
+      type: :text,
+      props: %{text: "Device Plugins", text_size: :sm, text_color: :muted, padding: 4},
+      children: []
+    }
+
+    spacer = %{type: :spacer, props: %{size: 12}, children: []}
+
+    buttons =
+      Enum.flat_map(screens, fn %{default_route: route} ->
+        [spacer, nav_button(plugin_label(route), route)]
+      end)
+
+    %{type: :column, props: %{fill_width: true}, children: [spacer, heading | buttons]}
+  end
+
+  # "/mob_camera/demo" -> "Camera". Falls back gracefully for any route shape.
+  defp plugin_label(route) do
+    route
+    |> String.trim_leading("/")
+    |> String.split("/")
+    |> List.first()
+    |> to_string()
+    |> String.replace_prefix("mob_", "")
+    |> String.replace("_", " ")
+    |> String.split()
+    |> Enum.map_join(" ", &String.capitalize/1)
+  end
+
   defp theme_tab(label, key, active) do
     {bg, fg} = if key == active, do: {:primary, :on_primary}, else: {:surface, :on_surface}
     tap = {self(), :"theme_#{key}"}
     ~MOB(<Button text={label} background={bg} text_color={fg} text_size={:sm} padding={:space_sm} weight={1} on_tap={tap} />)
   end
 
-  defp theme_to_module(:citrus), do: Mob.Theme.Citrus
-  defp theme_to_module(:birch),  do: Mob.Theme.Birch
-  defp theme_to_module(_),       do: Mob.Theme.Obsidian
+  defp theme_to_module(:light), do: Mob.Theme.Light
+  defp theme_to_module(:dark), do: Mob.Theme.Dark
+  defp theme_to_module(_), do: Mob.Theme.Dark
 
-  defp logo_src(:birch), do: Path.join(rootdir(), "mob_logo_dark.png")
+  defp logo_src(:light), do: Path.join(rootdir(), "mob_logo_dark.png")
   defp logo_src(_),      do: Path.join(rootdir(), "mob_logo_light.png")
 
   # ROOTDIR is set by mob_beam (iOS) and mob_beam.c (Android) before erl_start,

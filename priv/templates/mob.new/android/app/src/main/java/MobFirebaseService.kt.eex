@@ -6,12 +6,12 @@ import org.json.JSONObject
 
 // Receives FCM messages and token refreshes.
 // Token refreshes are cached and delivered to Elixir the next time a screen
-// calls Mob.Notify.register_push/0.
+// calls MobNotify.register_push/1 (mob_notify plugin).
 // Foreground data pushes are forwarded immediately to the registered screen.
 class MobFirebaseService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
-        pendingToken = token
+        io.mob.plugin.MobNotifyHub.pendingToken = token
     }
 
     // Called when a data message arrives while the app is in the foreground,
@@ -19,7 +19,7 @@ class MobFirebaseService : FirebaseMessagingService() {
     // If the FCM payload includes mob_notification_json, that JSON is forwarded
     // directly; otherwise a JSON object is built from the notification fields.
     override fun onMessageReceived(message: RemoteMessage) {
-        val pid = MobBridge.notifyPid
+        val pid = io.mob.plugin.MobNotifyHub.notifyPid
         if (pid == 0L) return
         val json = message.data["mob_notification_json"] ?: run {
             val notif = message.notification ?: return
@@ -33,7 +33,7 @@ class MobFirebaseService : FirebaseMessagingService() {
         MobBridge.nativeDeliverNotification(pid, json)
     }
 
-    companion object {
-        @Volatile var pendingToken: String? = null
-    }
+    // pendingToken moved to the generated io.mob.plugin.MobNotifyHub — the
+    // mob_notify plugin bridge drains it (this class can't be referenced from
+    // the plugin's package, and vice versa).
 }

@@ -14,11 +14,41 @@ mix archive.install hex mob_new
 
 ## Usage
 
+### Greenfield: `mix mob.new`
+
 ```bash
 mix mob.new my_app
 cd my_app
 mix mob.install    # first-run setup: download OTP runtime, generate icons, write mob.exs
+                   # (shipped by mob_dev, runs once per device)
 ```
+
+### Adopt into an existing Phoenix project: `mix mob.adopt`
+
+For projects that already exist (you want Mob in a running app rather
+than scaffolding a fresh one), use `mix mob.adopt`. Add Igniter to your
+target project's deps first if it isn't already there:
+
+```elixir
+# mix.exs
+{:igniter, "~> 0.7", only: [:dev, :test]}
+```
+
+Then:
+
+```bash
+mix deps.get
+mix mob.adopt                                      # LiveView bridge (default)
+mix mob.adopt --host-url https://my-app.fly.dev/   # thin-client (WebView opens remote URL)
+mix mob.adopt --no-live-view                       # skip LV bridge; thin mob_app.ex
+```
+
+`mix mob.adopt` is **experimental** pre-1.0 — it supports the standard
+`mix phx.new` shape (single non-umbrella Phoenix app, conventional
+`assets/js/app.js` and `root.html.heex`) and refuses with a clear
+message on shapes it can't safely patch. See
+[`feat-mob-install-report.md`](feat-mob-install-report.md) for the
+design.
 
 ### Options
 

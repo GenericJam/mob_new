@@ -11,27 +11,43 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Added
-- **`mix mob.install` — add Mob to an existing Phoenix project.** Composable
+- **`mix mob.adopt` — add Mob to an existing Phoenix project.**
+  **Experimental (pre-1.0).** Supports a narrow blessed shape: single
+  (non-umbrella) Phoenix project, stock `assets/js/app.js` containing
+  `new LiveSocket(...)`, stock `root.html.heex` with a `<body>` tag,
+  default LV bridge or `--host-url` thin-client mode. On anything
+  else the task refuses (via `Igniter.add_issue/2`) with a clear
+  message — never best-effort munging that could break the app. The
+  refuse-and-halt predicates live in `MobNew.AdoptGuard`; the
+  supported shape will widen as the task stabilises. Composable
   Igniter-based installer mirroring the architecture of
   [team-alembic/phx_install](https://github.com/team-alembic/phx_install).
-  Distributed as a path/Hex dep (not the mob_new archive — Igniter tasks
-  need to compile against the target project's deps tree). An orchestrator
-  (`mix mob.install`) composes 7 sub-installers: `mob.install.deps`,
-  `mob.install.bridge`, `mob.install.screen`, `mob.install.mob_app`,
-  `mob.install.mob_exs`, `mob.install.native` (+ `.android` / `.ios`),
-  `mob.install.finalize`. Each sub-installer is idempotent and runnable
-  standalone. `Mob.App` is the *behaviour* the on-device entry uses via
-  `use Mob.App`, never a supervision-tree child — on-device runtime
-  services start imperatively inside `<App>.MobApp.start/0`. Patches existing `app.js` /
-  `root.html.heex` for the LiveView bridge; for non-LV hosts (e.g.
-  Hologram) those patches harmlessly no-op since the native `window.mob`
-  injection from Mob's WebView shell carries the bridge traffic. Triggered
-  by [mob#16](https://github.com/GenericJam/mob/issues/16).
+  Named `mob.adopt` (not `mob.install`) to avoid colliding with mob_dev's
+  shipped `mix mob.install` (first-run setup: OTP download, icon gen,
+  `mob.exs`). The full task taxonomy is now `mob.new` (greenfield) /
+  `mob.adopt` (into existing) / `mob.install` (first-run setup, owned by
+  mob_dev). Ships in the mob_new archive — a single
+  `mix archive.install hex mob_new` gives the user both `mob.new` and
+  `mob.adopt`, given `{:igniter, "~> 0.7", only: [:dev, :test]}` in the
+  target project's deps.
+
+  An orchestrator (`mix mob.adopt`) composes 7 sub-installers:
+  `mob.adopt.deps`, `mob.adopt.bridge`, `mob.adopt.screen`,
+  `mob.adopt.mob_app`, `mob.adopt.mob_exs`, `mob.adopt.native`
+  (+ `.android` / `.ios`), `mob.adopt.finalize`. Each sub-installer is
+  idempotent and runnable standalone. `Mob.App` is the *behaviour* the
+  on-device entry uses via `use Mob.App`, never a supervision-tree
+  child — on-device runtime services start imperatively inside
+  `<App>.MobApp.start/0`. Patches existing `app.js` / `root.html.heex`
+  for the LiveView bridge; for non-LV hosts (e.g. Hologram) those
+  patches harmlessly no-op since the native `window.mob` injection
+  from Mob's WebView shell carries the bridge traffic. Triggered by
+  [mob#16](https://github.com/GenericJam/mob/issues/16).
 
   Native trees (android/ios) emit through Igniter for EEx-rendered text
   and direct `File.copy!/2` for binaries (gradle-wrapper.jar, gradlew,
   PNG icons) since Igniter's `Rewrite` engine assumes UTF-8.
-  `mix mob.new` is unaffected — install is purely additive. Adds
+  `mix mob.new` is unaffected — adopt is purely additive. Adds
   `{:igniter, "~> 0.7"}` to mob_new's deps.
 
   CLI flags:
@@ -49,11 +65,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
     `Application.ensure_all_started(:<app>)`, no on-device Phoenix
     boot). For Hologram-only or non-Phoenix hosts.
 
-  All flags forward from `mix mob.install` to each sub-installer.
+  All flags forward from `mix mob.adopt` to each sub-installer.
   Every sub-installer accepts the full orchestrator flag set in its
   schema, ignoring flags that don't apply to it — so each is also
   individually invokable with the same CLI surface (`mix help
-  mob.install.screen` documents `--host-url`, etc.).
+  mob.adopt.screen` documents `--host-url`, etc.).
 
 ## [0.3.10]
 

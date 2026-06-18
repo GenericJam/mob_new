@@ -590,6 +590,10 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) *std.Build.S
 
     const run = b.addSystemCommand(&.{ ndk_clang, target_arg, "-shared" });
     run.addArg(b.fmt("--sysroot={s}", .{opts.ndk_sysroot}));
+    // Align LOAD segments to 16 KB so the .so works on Android 15+ devices with
+    // 16 KB memory pages (Google Play requirement). The prebuilt ERTS lib*.so are
+    // already 16 KB-aligned by the OTP NDK build; this covers lib<app>.so.
+    run.addArg("-Wl,-z,max-page-size=16384");
     // -Wl,-soname pins the DT_SONAME of the produced .so. Other libs that
     // link against this one (sqlite3_nif via CMake) put the SONAME in their
     // DT_NEEDED list, which is what Android's dlopen looks for at runtime.
@@ -723,6 +727,8 @@ fn addExqliteLink(b: *std.Build, step: *std.Build.Step, opts: ExqliteLinkOptions
     const run = b.addSystemCommand(&.{ ndk_clang, target_arg, "-shared" });
     if (opts.depends_on) |dep| run.step.dependOn(dep);
     run.addArg(b.fmt("--sysroot={s}", .{opts.ndk_sysroot}));
+    // 16 KB page alignment (Android 15+ / Google Play requirement), as for lib<app>.so.
+    run.addArg("-Wl,-z,max-page-size=16384");
     run.addArg(b.fmt("-Wl,-soname,{s}", .{so_name}));
     for (opts.objects) |obj| run.addFileArg(obj);
     // The main .so provides enif_* (and Android system libs cover the rest).

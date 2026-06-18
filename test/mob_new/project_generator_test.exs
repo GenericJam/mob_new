@@ -1037,6 +1037,22 @@ defmodule MobNew.ProjectGeneratorTest do
       end
     end
 
+    test "android build.zig 16 KB-aligns the .so links (Android 15+ / Play page-size requirement)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "android/app/src/main/jni/build.zig"))
+
+      # Both .so links (lib<app>.so and libsqlite3_nif.so) must pass
+      # -Wl,-z,max-page-size=16384 so LOAD segments align to 16 KB. Without it,
+      # Google Play rejects the AAB on Android 15+ (16 KB memory page) devices.
+      # The literal appears only in the two `addArg` calls (not in comments).
+      count = ~r/-Wl,-z,max-page-size=16384/ |> Regex.scan(content) |> length()
+
+      assert count >= 2,
+             "android build.zig must pass -Wl,-z,max-page-size=16384 on BOTH .so links " <>
+               "(lib<app>.so + libsqlite3_nif.so); found #{count}"
+    end
+
     for {path, label} <- [
           {"ios/build.zig", "ios sim"},
           {"ios/build_device.zig", "ios device"}

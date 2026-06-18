@@ -8,6 +8,20 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.9] - 2026-06-17
+
+### Fixed
+- **Generated Android apps now support 16 KB memory page sizes** (Google Play
+  requirement on Android 15+). The android `build.zig` links `lib<app>.so` and
+  `libsqlite3_nif.so` with `-Wl,-z,max-page-size=16384`, so their LOAD segments
+  align to 16 KB. Without it, Play rejects the AAB with "app does not support
+  16 KB memory page sizes". The prebuilt ERTS `lib*.so` were already 16 KB-aligned
+  by the OTP NDK build; only the two zig-linked app libs needed the flag. Pinned
+  by a generator test. (Apps generated before 0.4.9 need the flag added to their
+  app-owned `android/app/src/main/jni/build.zig`.)
+
+---
+
 ## [0.4.5] - 2026-06-16
 
 ### Added

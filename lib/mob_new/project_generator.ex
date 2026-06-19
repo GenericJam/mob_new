@@ -613,6 +613,11 @@ defmodule MobNew.ProjectGenerator do
         # priv/repo/migrations is added explicitly by apply_liveview_patches when
         # ecto_sqlite3 is wired up — skip the native template's version.
         String.starts_with?(rel, "priv/") -> true
+        # The native test/ scaffolding (test_helper + the Mob.ScreenCase test for
+        # the native HomeScreen) doesn't apply to a LiveView app: phx.new already
+        # generated its own test/test_helper.exs (with the Ecto sandbox) and there
+        # is no native HomeScreen module to test. Skip the whole subtree.
+        String.starts_with?(rel, "test/") -> true
         true -> false
       end
     else

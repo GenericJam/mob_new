@@ -8,6 +8,17 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.10] - 2026-06-19
+
+### Added
+- **`build.zig` links plugin `:cpp_archive` static libs** via
+  `-Dplugin_static_libs` across the android JNI, iOS sim, and iOS device
+  templates — pairs with mob_dev 0.6.10's cpp_archive plugin path. (#22)
+- **`mix mob.new` scaffolds a `Mob.ScreenCase` test** for the generated home
+  screen (`test/<app>/home_screen_test.exs`), pairs with mob 0.7.2. (#21)
+
+---
+
 ## [0.4.9] - 2026-06-17
 
 ### Fixed

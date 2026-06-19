@@ -117,6 +117,11 @@ defmodule MobNew.ProjectGeneratorTest do
       assert owned?("lib/app_name/webview.ex.eex")
     end
 
+    test "blocks anything under test/ (phx.new owns test_helper; no native HomeScreen)" do
+      assert owned?("test/test_helper.exs.eex")
+      assert owned?("test/app_name/home_screen_test.exs.eex")
+    end
+
     test "blocks anything under priv/ (apply_liveview_patches owns repo migrations)" do
       assert owned?("priv/static/something.txt")
       assert owned?("priv/repo/migrations/foo.exs")
@@ -168,6 +173,19 @@ defmodule MobNew.ProjectGeneratorTest do
     test "generates mix.exs", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "mix.exs"))
+    end
+
+    test "scaffolds a Mob.ScreenCase test for the home screen", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      assert File.exists?(Path.join(dir, "test/test_helper.exs"))
+
+      screen_test = Path.join(dir, "test/test_app/home_screen_test.exs")
+      assert File.exists?(screen_test)
+      content = File.read!(screen_test)
+      assert content =~ "defmodule TestApp.HomeScreenTest do"
+      assert content =~ "use Mob.ScreenCase"
+      assert content =~ "alias TestApp.HomeScreen"
+      assert content =~ "assert_renderable(view)"
     end
 
     test "mix.exs contains correct app name", %{tmp: tmp} do
@@ -1959,6 +1977,100 @@ defmodule MobNew.ProjectGeneratorTest do
     end
   end
 
+  # ── scaffolded Mob.ScreenCase test compiles against the real API ──────────────
+  #
+  # The home-screen test scaffold (test/app_name/home_screen_test.exs.eex) does
+  # `use Mob.ScreenCase` and calls mount_screen/3, render_info/2, assigns/1 and
+  # assert_renderable/2 — an API that lives in mob (see Mob.ScreenCase). The
+  # other scaffold tests in this file only substring-match the *rendered file
+  # content*, so a rename in mob (e.g. mount_screen → mount, assert_renderable →
+  # assert_drawable) would slip through CI here while silently breaking the test
+  # suite of every project `mix mob.new` generates. This test pins the contract:
+  # it generates a real native project and compiles it under MIX_ENV=test, which
+  # compiles test/ — including the scaffolded screen test — against the real
+  # Mob.ScreenCase. If the API drifts, the generated test fails to compile and
+  # this turns red.
+  #
+  # Tagged :integration to match the --python E2E test above (same gating, same
+  # CI invocation): `mix deps.get` + a cold `mix compile` are slow and the
+  # `local: true` path needs a resolvable mob checkout.
+  #
+  # The catch unique to this test: the mob checkout MOB_DIR points at must
+  # actually define Mob.ScreenCase. It was introduced in the mob screen-test
+  # branch and is being released with mob 0.7.2; mob master doesn't have it yet.
+  # We resolve, in order: $MOB_SCREEN_CASE_DIR, then $MOB_DIR if that checkout
+  # has lib/mob/screen_case.ex, then the known local screen-test worktree. If
+  # none has Mob.ScreenCase we skip rather than fail — a host without the
+  # coupled mob branch can't run this check, and that's a property of the
+  # environment, not a regression in mob_new.
+  describe "scaffolded Mob.ScreenCase test end-to-end" do
+    setup do
+      tmp =
+        Path.join(
+          System.tmp_dir!(),
+          "mob_new_screen_case_e2e_#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(tmp)
+      on_exit(fn -> File.rm_rf!(tmp) end)
+      {:ok, tmp: tmp}
+    end
+
+    @tag :integration
+    test "generated home_screen_test.exs compiles against the real Mob.ScreenCase",
+         %{tmp: tmp} do
+      case mob_dir_with_screen_case() do
+        nil ->
+          # No mob checkout on this host defines Mob.ScreenCase (the coupled
+          # mob branch / 0.7.2 isn't present). That's an environment gap, not a
+          # mob_new regression, so warn and pass rather than fail — CI for the
+          # release runs with the coupled mob checked out and does exercise this.
+          IO.warn(
+            "skipping Mob.ScreenCase compile check: no mob checkout with " <>
+              "lib/mob/screen_case.ex found (set MOB_SCREEN_CASE_DIR or MOB_DIR)"
+          )
+
+          assert true
+
+        mob_dir ->
+          mob_dev_dir = System.get_env("MOB_DEV_DIR") || "/Users/kevin/code/mob_dev"
+
+          {:ok, dir} =
+            with_env(
+              %{"MOB_DIR" => mob_dir, "MOB_DEV_DIR" => mob_dev_dir},
+              fn -> ProjectGenerator.generate("screen_e2e", tmp, local: true) end
+            )
+
+          scaffold = Path.join(dir, "test/screen_e2e/home_screen_test.exs")
+
+          assert File.exists?(scaffold),
+                 "generator did not emit the scaffolded screen test at #{scaffold}"
+
+          mix = System.find_executable("mix") || flunk("mix not on PATH")
+
+          {deps_out, deps_code} =
+            System.cmd(mix, ["deps.get"], cd: dir, stderr_to_stdout: true)
+
+          assert deps_code == 0,
+                 "deps.get failed for generated screen-case project:\n#{deps_out}"
+
+          # MIX_ENV=test compiles test/ too, so this exercises the scaffolded
+          # home_screen_test.exs against the real Mob.ScreenCase. A rename in
+          # mob's ScreenCase surface lands here as a compile error.
+          {compile_out, compile_code} =
+            System.cmd(mix, ["compile", "--warnings-as-errors"],
+              cd: dir,
+              env: [{"MIX_ENV", "test"}],
+              stderr_to_stdout: true
+            )
+
+          assert compile_code == 0,
+                 "generated project (incl. scaffolded Mob.ScreenCase test) failed " <>
+                   "to compile under MIX_ENV=test:\n#{compile_out}"
+      end
+    end
+  end
+
   # `--local` was originally documented as "use path: deps for mob/mob_dev"
   # only, but the mental model from users is "use everything local" —
   # including templates. local_mob_new_priv/1 opts into local templates
@@ -2033,6 +2145,41 @@ defmodule MobNew.ProjectGeneratorTest do
   end
 
   # ── helpers ──────────────────────────────────────────────────────────────
+
+  # Resolves a mob checkout that actually defines Mob.ScreenCase (presence of
+  # lib/mob/screen_case.ex), or nil if none is reachable. Tries, in order:
+  #   1. $MOB_SCREEN_CASE_DIR  — explicit opt-in for hosts/CI
+  #   2. $MOB_DIR              — only if that checkout has ScreenCase
+  #   3. the local screen-test worktree the coupled mob PR lives in
+  # Returning nil (rather than raising) lets the caller skip on hosts without
+  # the coupled mob branch instead of failing.
+  defp mob_dir_with_screen_case do
+    [
+      System.get_env("MOB_SCREEN_CASE_DIR"),
+      System.get_env("MOB_DIR"),
+      "/Users/kevin/code/mob/.claude/worktrees/screen-test"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&Path.expand/1)
+    |> Enum.find(fn dir -> File.exists?(Path.join(dir, "lib/mob/screen_case.ex")) end)
+  end
+
+  # Runs fun with the given env vars set, restoring each to its prior value
+  # (or deleting it if it wasn't set) afterwards. Keeps the MOB_DIR override
+  # scoped to the generate/3 call instead of leaking into the rest of the suite.
+  defp with_env(vars, fun) do
+    previous = Map.new(vars, fn {k, _} -> {k, System.get_env(k)} end)
+    Enum.each(vars, fn {k, v} -> System.put_env(k, v) end)
+
+    try do
+      fun.()
+    after
+      Enum.each(previous, fn
+        {k, nil} -> System.delete_env(k)
+        {k, v} -> System.put_env(k, v)
+      end)
+    end
+  end
 
   # Returns the path to the NDK's aarch64 clang, or nil if no NDK is
   # installed. Probes standard locations + env vars; picks the

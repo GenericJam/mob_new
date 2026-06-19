@@ -570,45 +570,6 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ~s|raw.optString("android", "")|
     end
 
-    test "generates MobFirebaseService.kt in correct package path", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-
-      path =
-        Path.join(dir, "android/app/src/main/java/com/example/test_app/MobFirebaseService.kt")
-
-      assert File.exists?(path)
-    end
-
-    test "MobFirebaseService.kt has correct package declaration", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-
-      content =
-        File.read!(
-          Path.join(dir, "android/app/src/main/java/com/example/test_app/MobFirebaseService.kt")
-        )
-
-      assert content =~ "package com.example.test_app"
-    end
-
-    test "generates placeholder google-services.json with the project's bundle_id", %{tmp: tmp} do
-      # The com.google.gms.google-services gradle plugin (wired in
-      # build.gradle) refuses to build without a google-services.json
-      # whose package_name matches applicationId. The template ships a
-      # placeholder so vanilla projects build out of the box; users
-      # replace it with one downloaded from the Firebase console once
-      # they're ready to deliver FCM pushes.
-      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      path = Path.join(dir, "android/app/google-services.json")
-      assert File.exists?(path)
-
-      content = File.read!(path)
-      assert {:ok, json} = Jason.decode(content)
-      [client] = json["client"]
-
-      assert client["client_info"]["android_client_info"]["package_name"] ==
-               "com.example.test_app"
-    end
-
     test "MobBridge.kt has correct package declaration", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

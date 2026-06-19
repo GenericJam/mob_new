@@ -117,6 +117,11 @@ defmodule MobNew.ProjectGeneratorTest do
       assert owned?("lib/app_name/webview.ex.eex")
     end
 
+    test "blocks anything under test/ (phx.new owns test_helper; no native HomeScreen)" do
+      assert owned?("test/test_helper.exs.eex")
+      assert owned?("test/app_name/home_screen_test.exs.eex")
+    end
+
     test "blocks anything under priv/ (apply_liveview_patches owns repo migrations)" do
       assert owned?("priv/static/something.txt")
       assert owned?("priv/repo/migrations/foo.exs")
@@ -168,6 +173,19 @@ defmodule MobNew.ProjectGeneratorTest do
     test "generates mix.exs", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "mix.exs"))
+    end
+
+    test "scaffolds a Mob.ScreenCase test for the home screen", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      assert File.exists?(Path.join(dir, "test/test_helper.exs"))
+
+      screen_test = Path.join(dir, "test/test_app/home_screen_test.exs")
+      assert File.exists?(screen_test)
+      content = File.read!(screen_test)
+      assert content =~ "defmodule TestApp.HomeScreenTest do"
+      assert content =~ "use Mob.ScreenCase"
+      assert content =~ "alias TestApp.HomeScreen"
+      assert content =~ "assert_renderable(view)"
     end
 
     test "mix.exs contains correct app name", %{tmp: tmp} do

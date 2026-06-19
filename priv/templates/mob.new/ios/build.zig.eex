@@ -71,6 +71,7 @@ pub fn build(b: *std.Build) void {
     const plugin_swift_files = b.option([]const u8, "plugin_swift_files", "Comma-separated absolute paths to plugin Swift sources; empty if none") orelse "";
     const plugin_frameworks = b.option([]const u8, "plugin_frameworks", "Comma-separated iOS framework names contributed by plugins; empty if none") orelse "";
     const plugin_c_nifs = b.option([]const u8, "plugin_c_nifs", "Comma-separated absolute paths to plugin C NIF sources; basename = NIF module name; empty if none") orelse "";
+    const plugin_static_libs = b.option([]const u8, "plugin_static_libs", "Comma-separated absolute paths to plugin cpp_archive .a files (pre-built by mob_dev); empty if none") orelse "";
     // MLX + EMLX. See build_device.zig.eex for full rationale.
     const mlx_static = b.option(bool, "mlx_static", "EMLX NIF statically linked + libmlx.a included (-DMOB_STATIC_EMLX_NIF on driver_tab)") orelse false;
     const mlx_dir = b.option([]const u8, "mlx_dir", "Absolute path to extracted MLX bundle (libmlx.a + libemlx.a + include/)") orelse "";
@@ -366,6 +367,7 @@ pub fn build(b: *std.Build) void {
         .nxeigen_static = nxeigen_static,
         .nxeigen_dir = nxeigen_dir,
         .project_rust_libs = project_rust_libs,
+        .plugin_static_libs = plugin_static_libs,
         .plugin_frameworks = plugin_frameworks,
         .objects = objs.items,
     });
@@ -529,6 +531,9 @@ const LinkOptions = struct {
     // (pre-built by mob_dev with `cargo rustc --target
     // aarch64-apple-ios-sim --crate-type staticlib`). Empty if none.
     project_rust_libs: []const u8,
+    // Plugin cpp_archive `.a` archives (comma-separated abs paths). Same link
+    // shape as project_rust_libs. Empty if no cpp_archive plugin is active.
+    plugin_static_libs: []const u8 = "",
     // Plugin-contributed extra iOS frameworks (comma-separated).
     plugin_frameworks: []const u8 = "",
     objects: []const std.Build.LazyPath,
@@ -597,6 +602,19 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
             // contents of the .a, not just its path. Otherwise rebuilding
             // a project-side rust crate produces a new .a that the link
             // step ignores as UP-TO-DATE.
+            const lp: std.Build.LazyPath = .{ .cwd_relative = lib_path };
+            run.addFileArg(lp);
+        }
+    }
+
+    // Plugin cpp_archive NIFs (e.g. an Nx CPU backend). Each lib<mod>.a exports
+    // <mod>_nif_init, referenced by driver_tab_ios, so the linker pulls it in —
+    // same mechanism as project_rust_libs / libnx_eigen.a above. addFileArg so
+    // the cache key tracks archive contents.
+    if (opts.plugin_static_libs.len > 0) {
+        var ps_it = std.mem.splitScalar(u8, opts.plugin_static_libs, ',');
+        while (ps_it.next()) |lib_path| {
+            if (lib_path.len == 0) continue;
             const lp: std.Build.LazyPath = .{ .cwd_relative = lib_path };
             run.addFileArg(lp);
         }

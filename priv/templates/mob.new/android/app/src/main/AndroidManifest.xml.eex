@@ -30,11 +30,6 @@
     <!-- Haptic feedback -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- Background keep-alive (Mob.Background) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"
-        android:minSdkVersion="34" />
-
     <!-- Package visibility (API 30+): apps we want to launch via Mob.Device.open_url. -->
     <queries>
         <intent>
@@ -80,19 +75,6 @@
         <!-- Scheduled local notification delivery -->
         <receiver android:name=".NotificationReceiver"
             android:exported="false" />
-
-        <!-- Background keep-alive foreground service (Mob.Background) -->
-        <service android:name=".BeamForegroundService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
-        <!-- FCM token refresh (remote push notifications) -->
-        <service android:name=".MobFirebaseService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
 
         <!-- FileProvider for camera temp files (photo / video capture) -->
         <provider

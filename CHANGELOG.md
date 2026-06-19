@@ -8,6 +8,22 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.11] - 2026-06-19
+
+### Changed (default scaffolding)
+- **Generated Android apps no longer ship a foreground service or Firebase by
+  default.** Removed the `dataSync` `BeamForegroundService`, the FCM
+  `MobFirebaseService`, the `google-services` plugin/classpath + firebase
+  dependency, the placeholder `google-services.json`, the FGS permissions, and
+  the `MobBridge` background-keep-alive methods from the template. Both drew
+  Google Play policy scrutiny (unused `dataSync` FGS / `c2dm` permissions) on
+  apps that used neither. They are now opt-in: background keep-alive via the
+  `mob_background` plugin, FCM via the `mob_notify` plugin (whose `gradle_dep`
+  auto-merges; the host service + `google-services` are documented
+  `host_requirements`). `POST_NOTIFICATIONS` stays (local notifications).
+
+---
+
 ## [0.4.10] - 2026-06-19
 
 ### Added

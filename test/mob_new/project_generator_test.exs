@@ -318,6 +318,25 @@ defmodule MobNew.ProjectGeneratorTest do
       assert kt =~ ~s[System.loadLibrary("test_app")]
     end
 
+    test "MobBridge.kt NotificationReceiver wires the tap to bring up the app", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # A displayed local notification must carry a content PendingIntent, or
+      # tapping it is a no-op. The intent relaunches MainActivity (singleTop)
+      # carrying the payload under the exact key MainActivity reads, so the tap
+      # foregrounds the app and the BEAM gets the notification.
+      assert kt =~ "setContentIntent",
+             "NotificationReceiver must set a content intent or the tap does nothing"
+
+      assert kt =~ "PendingIntent.getActivity"
+
+      assert kt =~ ~s[putExtra("mob_notification_json")] or kt =~ "mob_notification_json",
+             "tap intent must carry the payload under the key MainActivity.onNewIntent reads"
+    end
+
     test "generates ios/beam_main.m", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "ios/beam_main.m"))

@@ -8,6 +8,28 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.12] - 2026-06-23
+
+### Fixed
+- **Tapping a local notification now brings the generated Android app to the
+  foreground.** The template's `NotificationReceiver.onReceive` built and posted
+  the notification but never set a content intent, so the tap was a no-op in
+  every scaffolded app. It now attaches a `PendingIntent` that relaunches
+  `MainActivity` (singleTop) carrying the payload under `mob_notification_json`
+  — the exact key `MainActivity.onCreate`/`onNewIntent` already read to forward
+  it to the BEAM. A `ProjectGeneratorTest` case asserts the rendered
+  `MobBridge.kt` wires `setContentIntent` + `PendingIntent.getActivity` + the
+  payload key, so the template can't silently regress. Verified end-to-end on a
+  physical device. (#23)
+
+  Known limitation (not fixed here): for *local* notifications, a warm tap
+  forwards the payload on the next screen mount rather than to the live screen,
+  since `MobBridge.notifyPid` is only set by the push-registration path. The tap
+  reliably foregrounds the app; live in-app delivery on a warm tap needs
+  separate core/host plumbing.
+
+---
+
 ## [0.4.11] - 2026-06-19
 
 ### Changed (default scaffolding)

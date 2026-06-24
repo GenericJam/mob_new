@@ -8,7 +8,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [0.4.12] - 2026-06-23
+## [0.4.13] - 2026-06-24
+
+### Added
+- **The generated demo's theme picker now offers Material 3 and Liquid Glass**
+  alongside Light and Dark (a 2×2 grid). "Material 3" applies
+  `MobThemes.Material3` (M3 baseline palette + shape scale); "Liquid Glass"
+  applies `MobThemes.ObsidianGlass`, which renders real `glassEffect` translucent
+  surfaces on iOS 26+ (`.ultraThinMaterial` fallback on iOS 17–25). Both themes
+  already shipped in the `mob_themes` dependency; this just wires them into the
+  picker. The new tabs are gated behind the showcase (non-`--blank`) build, so a
+  `--blank` app, which doesn't depend on `mob_themes`, stays clean and keeps just
+  Light/Dark.
 
 ### Fixed
 - **Tapping a local notification now brings the generated Android app to the

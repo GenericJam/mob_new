@@ -1771,10 +1771,14 @@ defmodule MobNew.ProjectGeneratorTest do
       refute content =~ "TextScreen"
       refute content =~ "DiceScreen"
       refute content =~ ":open_audio"
-      # Plugin auto-listing + theme toggle survive (work with zero plugins).
+      # Plugin auto-listing + Light/Dark toggle survive (work with zero plugins).
       assert content =~ "Mob.Plugins.screens()"
       assert content =~ "plugin_section"
       assert content =~ "Mob.Theme.Dark"
+      # The Material 3 / Liquid Glass tabs reference the mob_themes package,
+      # which a blank app doesn't depend on — they must be gated out.
+      refute content =~ "MobThemes"
+      refute content =~ ":theme_material3"
     end
 
     test "default (non-blank) still ships demo screens + plugins (regression guard)", %{tmp: tmp} do
@@ -1782,6 +1786,18 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(Path.join(dir, "lib/full_app/dice_screen.ex"))
       assert File.read!(Path.join(dir, "mix.exs")) =~ "mob_camera"
       assert File.read!(Path.join(dir, "mob.exs")) =~ ":mob_camera"
+    end
+
+    test "default home_screen wires the Material 3 + Liquid Glass theme tabs", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("full_app", tmp)
+      content = File.read!(Path.join(dir, "lib/full_app/home_screen.ex"))
+
+      assert content =~ ~s(theme_tab("Material 3",)
+      assert content =~ ~s(theme_tab("Liquid Glass",)
+      assert content =~ "Mob.Theme.set(MobThemes.Material3)"
+      assert content =~ "Mob.Theme.set(MobThemes.ObsidianGlass)"
+      assert content =~ "defp theme_to_module(:material3), do: MobThemes.Material3"
+      assert content =~ "defp theme_to_module(:glass), do: MobThemes.ObsidianGlass"
     end
   end
 

@@ -38,7 +38,13 @@ defmodule <%= module_name %>.HomeScreen do
           {theme_tab("Light", :light, assigns.theme)}
           <Spacer size={8} />
           {theme_tab("Dark",  :dark,  assigns.theme)}
-        </Row>
+        </Row><%= unless blank do %>
+        <Spacer size={8} />
+        <Row fill_width={true}>
+          {theme_tab("Material 3",   :material3, assigns.theme)}
+          <Spacer size={8} />
+          {theme_tab("Liquid Glass", :glass,     assigns.theme)}
+        </Row><% end %>
       </Column>
     </Scroll>
     """
@@ -56,7 +62,19 @@ defmodule <%= module_name %>.HomeScreen do
     {:noreply, Mob.Socket.assign(socket, :theme, :dark)}
   end
 
-<%= unless blank do %>  def handle_info({:tap, :open_text}, socket) do
+<%= unless blank do %>  def handle_info({:tap, :theme_material3}, socket) do
+    Mob.Theme.set(MobThemes.Material3)
+    Mob.State.put(:theme, :material3)
+    {:noreply, Mob.Socket.assign(socket, :theme, :material3)}
+  end
+
+  def handle_info({:tap, :theme_glass}, socket) do
+    Mob.Theme.set(MobThemes.ObsidianGlass)
+    Mob.State.put(:theme, :glass)
+    {:noreply, Mob.Socket.assign(socket, :theme, :glass)}
+  end
+
+  def handle_info({:tap, :open_text}, socket) do
     {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.TextScreen)}
   end
 
@@ -136,10 +154,16 @@ defmodule <%= module_name %>.HomeScreen do
   end
 
   defp theme_to_module(:light), do: Mob.Theme.Light
-  defp theme_to_module(:dark), do: Mob.Theme.Dark
+  defp theme_to_module(:dark), do: Mob.Theme.Dark<%= unless blank do %>
+  defp theme_to_module(:material3), do: MobThemes.Material3
+  defp theme_to_module(:glass), do: MobThemes.ObsidianGlass<% end %>
   defp theme_to_module(_), do: Mob.Theme.Dark
 
-  defp logo_src(:light), do: Path.join(rootdir(), "mob_logo_dark.png")
+  # mob_logo_dark.png is the dark-on-light logo (for light backgrounds);
+  # mob_logo_light.png is light-on-dark. Material 3's baseline is a light
+  # surface, so it uses the dark logo like :light.
+  defp logo_src(:light), do: Path.join(rootdir(), "mob_logo_dark.png")<%= unless blank do %>
+  defp logo_src(:material3), do: Path.join(rootdir(), "mob_logo_dark.png")<% end %>
   defp logo_src(_),      do: Path.join(rootdir(), "mob_logo_light.png")
 
   # ROOTDIR is set by mob_beam (iOS) and mob_beam.c (Android) before erl_start,

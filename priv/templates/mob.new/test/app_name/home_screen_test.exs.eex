@@ -21,4 +21,14 @@ defmodule <%= module_name %>.HomeScreenTest do
     view = HomeScreen |> mount_screen() |> render_info({:tap, :theme_light})
     assert assigns(view).theme == :light
   end
-end
+<%= unless blank do %>
+  test "switching to the material3 theme updates the assign" do
+    view = HomeScreen |> mount_screen() |> render_info({:tap, :theme_material3})
+    assert assigns(view).theme == :material3
+  end
+
+  test "switching to the liquid glass theme updates the assign" do
+    view = HomeScreen |> mount_screen() |> render_info({:tap, :theme_glass})
+    assert assigns(view).theme == :glass
+  end
+<% end %>end

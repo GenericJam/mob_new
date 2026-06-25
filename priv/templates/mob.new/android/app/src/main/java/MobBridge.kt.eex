@@ -1518,6 +1518,43 @@ object MobBridge {
             }
         }
     }
+
+    /** Called from nif_open_settings via JNI — opens an OS settings screen.
+     *  target is "app" | "notifications" | "exact_alarm". Fire-and-forget;
+     *  failures are silently ignored. */
+    @JvmStatic
+    fun openSettings(target: String) {
+        activityRef?.get()?.let { activity ->
+            activity.runOnUiThread {
+                try {
+                    val pkgUri = Uri.parse("package:" + activity.packageName)
+                    val intent = when (target) {
+                        "notifications" ->
+                            Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(
+                                    android.provider.Settings.EXTRA_APP_PACKAGE,
+                                    activity.packageName,
+                                )
+                        "exact_alarm" ->
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                Intent(
+                                    android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                    pkgUri,
+                                )
+                            } else {
+                                Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkgUri)
+                            }
+                        else ->
+                            Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkgUri)
+                    }
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    activity.startActivity(intent)
+                } catch (e: Exception) {
+                    android.util.Log.w("MobBridge", "openSettings failed for $target: ${e.message}")
+                }
+            }
+        }
+    }
     // ── Mob.Peripheral.VendorUsb ─────────────────────────────────────────────
     //
     // Android USB host. Talks to USB devices over bulk endpoints — surfaced to

@@ -8,6 +8,15 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.15] - 2026-06-25
+
+### Added
+- **`MobBridge.openSettings/1` scaffolding** for `Mob.Device.open_settings/1`
+  (mob 0.7.8). Generated Android apps can now open an OS settings screen by
+  target: `:app` (app details / permissions), `:notifications`, or
+  `:exact_alarm` (with the correct SDK 31+ guard and a fallback to the app
+  page). iOS needs no companion (the NIF opens the single app settings page).
+
 ## [0.4.14] - 2026-06-25
 
 ### Added

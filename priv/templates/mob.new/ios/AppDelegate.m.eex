@@ -16,6 +16,10 @@ extern void mob_send_push_token(const char* hex_token);
 // body is just empty in that case).
 extern void mob_register_plugins(void);
 
+// Exported by mob_nif: the orientation mask set by Mob.Device.lock_orientation/1
+// (UIInterfaceOrientationMaskAll when unlocked).
+extern UIInterfaceOrientationMask mob_locked_orientation_mask(void);
+
 static void* beam_thread(void* arg) {
     mob_start_beam((const char*)arg);
     return NULL;
@@ -48,6 +52,15 @@ static void* beam_thread(void* arg) {
     pthread_detach(t);
 
     return YES;
+}
+
+// Holds an orientation lock. UIKit consults this window-level method in
+// preference to the root view controller's -supportedInterfaceOrientations, so
+// the rotation Mob.Device.lock_orientation/1 requests via requestGeometryUpdate
+// actually sticks (and unlock_orientation/0 returns ...MaskAll = follow sensor).
+- (UIInterfaceOrientationMask)application:(UIApplication*)app
+    supportedInterfaceOrientationsForWindow:(UIWindow*)window {
+    return mob_locked_orientation_mask();
 }
 
 - (void)application:(UIApplication*)app

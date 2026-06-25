@@ -8,6 +8,21 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.14] - 2026-06-25
+
+### Added
+- **Device-orientation lock works out of the box.** Generated apps now ship the
+  companion native hooks that `Mob.Device.lock_orientation/1` /
+  `unlock_orientation/0` need to actually hold a rotation (mob 0.7.7+):
+  - iOS: `AppDelegate` returns `mob_locked_orientation_mask()` from
+    `application:supportedInterfaceOrientationsForWindow:` (the window-level
+    override that holds the lock over the root view controller), and `Info.plist`
+    declares the landscape + upside-down `UISupportedInterfaceOrientations`.
+  - Android: `MobBridge.orientationLock/1` → `setRequestedOrientation`, and
+    `MainActivity.onConfigurationChanged` forwards rotations to the BEAM via a
+    `nativeNotifyOrientation` → `mob_send_orientation_changed` JNI thunk, so
+    `Mob.Device.orientation/0` and the `:display` subscription track rotations.
+
 ## [0.4.13] - 2026-06-24
 
 ### Added

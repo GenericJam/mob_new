@@ -483,6 +483,23 @@ object MobBridge {
     }
 
     /**
+     * Lock the activity to an ActivityInfo.SCREEN_ORIENTATION_* constant
+     * (SCREEN_ORIENTATION_UNSPECIFIED = -1 to unlock). Called from
+     * mob_nif.zig's nif_device_lock_orientation via the cached orientationLock
+     * JMethodID. setRequestedOrientation must run on the UI thread.
+     */
+    @JvmStatic
+    fun orientationLock(orientation: Int) {
+        val activity = activityRef?.get() ?: return
+        activity.runOnUiThread {
+            try {
+                activity.requestedOrientation = orientation
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    /**
      * Extracts the bundled OTP runtime from `assets/otp.zip` into `<filesDir>/otp/`.
      *
      * Release builds (assembleRelease / bundleRelease) ship the OTP tree as an

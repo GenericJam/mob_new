@@ -200,6 +200,33 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "defmodule TestApp.MixProject"
     end
 
+    test "scaffolds the Mob.Device orientation lock/detect native hooks", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      read = fn rel -> File.read!(Path.join(dir, rel)) end
+
+      # iOS: window-level orientation override (holds lock_orientation/1) + the
+      # landscape Info.plist entries that let iOS rotate to them.
+      app_delegate = read.("ios/AppDelegate.m")
+      assert app_delegate =~ "supportedInterfaceOrientationsForWindow"
+      assert app_delegate =~ "mob_locked_orientation_mask()"
+      info_plist = read.("ios/Info.plist")
+      assert info_plist =~ "UIInterfaceOrientationLandscapeLeft"
+      assert info_plist =~ "UIInterfaceOrientationLandscapeRight"
+
+      # Android: orientationLock bridge + onConfigurationChanged → BEAM delivery
+      # + the JNI thunk (jni_package interpolated to com_example_test_1app).
+      assert read.("android/app/src/main/java/com/example/test_app/MobBridge.kt") =~
+               "fun orientationLock("
+
+      main_activity = read.("android/app/src/main/java/com/example/test_app/MainActivity.kt")
+      assert main_activity =~ "external fun nativeNotifyOrientation"
+      assert main_activity =~ "landscape_left"
+
+      beam_jni = read.("android/app/src/main/jni/beam_jni.c")
+      assert beam_jni =~ "Java_com_example_test_1app_MainActivity_nativeNotifyOrientation"
+      assert beam_jni =~ "mob_send_orientation_changed"
+    end
+
     test "generates app.ex", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "lib/test_app/app.ex"))

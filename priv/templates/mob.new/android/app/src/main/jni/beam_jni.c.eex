@@ -28,6 +28,18 @@ Java_<%= jni_package %>_MainActivity_nativeStartBeam(JNIEnv* env, jobject thiz) 
     mob_start_beam(APP_MODULE);
 }
 
+// Called from MainActivity.onConfigurationChanged on a rotation. Forwards the
+// new orientation string to the BEAM. mob_send_orientation_changed is exported
+// by mob_nif.zig; declared here in case it's not in mob_beam.h.
+extern void mob_send_orientation_changed(const char* orient);
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MainActivity_nativeNotifyOrientation(JNIEnv* env, jobject thiz, jstring orient) {
+    const char* utf8 = (*env)->GetStringUTFChars(env, orient, NULL);
+    mob_send_orientation_changed(utf8);
+    (*env)->ReleaseStringUTFChars(env, orient, utf8);
+}
+
 // Called from MobBridge.nativeSendTap(handle) in Kotlin when a button is tapped.
 JNIEXPORT void JNICALL
 Java_<%= jni_package %>_MobBridge_nativeSendTap(JNIEnv* env, jclass cls, jint handle) {

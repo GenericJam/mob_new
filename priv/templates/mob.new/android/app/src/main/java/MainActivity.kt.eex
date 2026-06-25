@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
 
     external fun nativeSetActivity(activity: Activity)
     external fun nativeStartBeam()
+    external fun nativeNotifyOrientation(orient: String)
 
     // ── File picker launcher ──────────────────────────────────────────────
     private val filePickerLauncher =
@@ -265,6 +266,19 @@ class MainActivity : ComponentActivity() {
         val nightMode = newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK
         val scheme = if (nightMode == Configuration.UI_MODE_NIGHT_YES) "dark" else "light"
         MobBridge.notifyColorSchemeChanged(scheme)
+
+        // Forward the new orientation to the BEAM so Mob.Device.orientation/0 and
+        // the :display subscription reflect a rotation (mob_send_orientation_changed).
+        val orient = when (display?.rotation) {
+            android.view.Surface.ROTATION_90 -> "landscape_left"
+            android.view.Surface.ROTATION_270 -> "landscape_right"
+            android.view.Surface.ROTATION_180 -> "portrait_upside_down"
+            else -> "portrait"
+        }
+        try {
+            nativeNotifyOrientation(orient)
+        } catch (_: Throwable) {
+        }
     }
 
     // Pulls an ARGB long out of the BEAM-pushed theme map, falling back to

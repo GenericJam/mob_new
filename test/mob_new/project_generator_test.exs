@@ -462,6 +462,18 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "fun ttsStop()"
     end
 
+    test "MobBridge.kt declares openSettings for Mob.Device.open_settings", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # Android side of Mob.Device.open_settings — opens an OS settings screen by target.
+      assert content =~ "fun openSettings(target: String)"
+      assert content =~ "ACTION_APPLICATION_DETAILS_SETTINGS"
+      assert content =~ "ACTION_REQUEST_SCHEDULE_EXACT_ALARM"
+    end
+
     test "MobBridge.kt does not declare Bluetooth external fns (plugin-provided)", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

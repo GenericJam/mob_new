@@ -1555,6 +1555,94 @@ object MobBridge {
             }
         }
     }
+
+    /** Called from nif_audio_output_status via JNI — reads system audio config
+     *  so Mob.Audio.output_status/0 can answer "is sound configured to play".
+     *  Returns float[4] = [volume0..1, muted(0/1), routeCode, otherAudio(0/1)].
+     *  routeCode: 1=speaker 2=headphones 3=bluetooth 4=receiver 0=none. */
+    @JvmStatic
+    fun audioOutputStatus(): FloatArray {
+        val activity = activityRef?.get() ?: return FloatArray(4)
+        val am = activity.getSystemService(Activity.AUDIO_SERVICE) as? AudioManager
+            ?: return FloatArray(4)
+        val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
+        val cur = am.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()
+        val volume = if (max > 0f) cur / max else 0f
+        val muted =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                am.isStreamMute(AudioManager.STREAM_MUSIC)
+            ) {
+                1f
+            } else {
+                0f
+            }
+        val other = if (am.isMusicActive) 1f else 0f
+        // Best-effort active route: Android routes media to BT/wired when one
+        // is connected, so pick the highest-priority connected output.
+        var route = 1f // builtin speaker
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            var hasBt = false
+            var hasWired = false
+            for (d in am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                when (d.type) {
+                    android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+                    android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                    -> hasBt = true
+                    android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                    android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                    android.media.AudioDeviceInfo.TYPE_USB_HEADSET,
+                    -> hasWired = true
+                }
+            }
+            route = if (hasBt) 3f else if (hasWired) 2f else 1f
+        }
+        return floatArrayOf(volume, muted, route, other)
+    }
+
+    /** Called from nif_audio_output_level via JNI — reads the actual output
+     *  signal level so Mob.Audio.output_level/1 can tell live audio from
+     *  silence. Meters Mob.Audio's OWN player session (`source` == "mob") with a
+     *  short-lived Visualizer; RECORD_AUDIO is sufficient for an own-session tap.
+     *
+     *  Returns: float[2] = [rms_db, peak_db] on success, else a length-1 error
+     *  code the NIF maps to an atom — 1 unsupported_on_platform, 2
+     *  needs_record_audio, 3 not_playing.
+     *
+     *  "mix" (the global output mix) is unsupported: attaching a Visualizer to
+     *  session 0 is privileged on modern Android (ERROR_NO_INIT for a normal
+     *  app), so global device-audio capture lives in a separate
+     *  MediaProjection-based plugin, not here. */
+    @JvmStatic
+    fun audioOutputLevel(source: String): FloatArray {
+        if (source != "mob") return floatArrayOf(1f) // unsupported_on_platform
+        val sessionId = audioPlayer?.audioSessionId ?: return floatArrayOf(3f) // not_playing
+        return try {
+            val v = android.media.audiofx.Visualizer(sessionId)
+            try {
+                v.measurementMode = android.media.audiofx.Visualizer.MEASUREMENT_MODE_PEAK_RMS
+                v.captureSize = android.media.audiofx.Visualizer.getCaptureSizeRange()[1]
+                v.enabled = true
+                // Let the measurement window collect a few audio frames before
+                // reading; an immediate read returns the silence sentinel.
+                Thread.sleep(60)
+                val m = android.media.audiofx.Visualizer.MeasurementPeakRms()
+                val rc = v.getMeasurementPeakRms(m)
+                v.enabled = false
+                if (rc != android.media.audiofx.Visualizer.SUCCESS) {
+                    floatArrayOf(2f) // needs_record_audio (most common measure failure)
+                } else {
+                    // mPeak / mRms are in millibels (1/100 dB).
+                    floatArrayOf(m.mRms / 100f, m.mPeak / 100f)
+                }
+            } finally {
+                v.release()
+            }
+        } catch (e: Throwable) {
+            // Usually a SecurityException: RECORD_AUDIO not granted at runtime.
+            android.util.Log.w("MobBridge", "audioOutputLevel($source) failed: ${e.message}")
+            floatArrayOf(2f) // needs_record_audio
+        }
+    }
     // ── Mob.Peripheral.VendorUsb ─────────────────────────────────────────────
     //
     // Android USB host. Talks to USB devices over bulk endpoints — surfaced to

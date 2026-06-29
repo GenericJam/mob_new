@@ -1601,17 +1601,23 @@ object MobBridge {
 
     /** Called from nif_audio_output_level via JNI — reads the actual output
      *  signal level so Mob.Audio.output_level/1 can tell live audio from
-     *  silence. Returns float[2] = [rms_db, peak_db] from a short-lived
-     *  Visualizer on the global output mix (session 0), which observes ALL
-     *  audio — including native players (e.g. a game's own AudioTrack) that
-     *  bypass Mob.Audio. Returns null on failure; the usual cause is the
-     *  RECORD_AUDIO permission not being granted (a global-mix tap counts as
-     *  capture). `source` is "mix" | "mob"; Android reads the global mix for
-     *  both. */
+     *  silence. Meters Mob.Audio's OWN player session (`source` == "mob") with a
+     *  short-lived Visualizer; RECORD_AUDIO is sufficient for an own-session tap.
+     *
+     *  Returns: float[2] = [rms_db, peak_db] on success, else a length-1 error
+     *  code the NIF maps to an atom — 1 unsupported_on_platform, 2
+     *  needs_record_audio, 3 not_playing.
+     *
+     *  "mix" (the global output mix) is unsupported: attaching a Visualizer to
+     *  session 0 is privileged on modern Android (ERROR_NO_INIT for a normal
+     *  app), so global device-audio capture lives in a separate
+     *  MediaProjection-based plugin, not here. */
     @JvmStatic
-    fun audioOutputLevel(source: String): FloatArray? {
+    fun audioOutputLevel(source: String): FloatArray {
+        if (source != "mob") return floatArrayOf(1f) // unsupported_on_platform
+        val sessionId = audioPlayer?.audioSessionId ?: return floatArrayOf(3f) // not_playing
         return try {
-            val v = android.media.audiofx.Visualizer(0)
+            val v = android.media.audiofx.Visualizer(sessionId)
             try {
                 v.measurementMode = android.media.audiofx.Visualizer.MEASUREMENT_MODE_PEAK_RMS
                 v.captureSize = android.media.audiofx.Visualizer.getCaptureSizeRange()[1]
@@ -1623,7 +1629,7 @@ object MobBridge {
                 val rc = v.getMeasurementPeakRms(m)
                 v.enabled = false
                 if (rc != android.media.audiofx.Visualizer.SUCCESS) {
-                    null
+                    floatArrayOf(2f) // needs_record_audio (most common measure failure)
                 } else {
                     // mPeak / mRms are in millibels (1/100 dB).
                     floatArrayOf(m.mRms / 100f, m.mPeak / 100f)
@@ -1632,8 +1638,9 @@ object MobBridge {
                 v.release()
             }
         } catch (e: Throwable) {
+            // Usually a SecurityException: RECORD_AUDIO not granted at runtime.
             android.util.Log.w("MobBridge", "audioOutputLevel($source) failed: ${e.message}")
-            null
+            floatArrayOf(2f) // needs_record_audio
         }
     }
     // ── Mob.Peripheral.VendorUsb ─────────────────────────────────────────────

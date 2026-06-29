@@ -15,15 +15,19 @@ defmodule MobNew.Templates.AndroidAudioOutputProbesTest do
     assert src =~ "fun audioOutputStatus(): FloatArray",
            "MobBridge.kt.eex must scaffold audioOutputStatus() for Mob.Audio.output_status/0"
 
-    assert src =~ "fun audioOutputLevel(source: String): FloatArray?",
+    assert src =~ "fun audioOutputLevel(source: String): FloatArray",
            "MobBridge.kt.eex must scaffold audioOutputLevel(source) for Mob.Audio.output_level/1"
 
-    # The level probe reads the global output mix (session 0) so it observes
-    # audio from native players that bypass Mob.Audio (e.g. a game's AudioTrack).
-    assert src =~ "Visualizer(0)",
-           "audioOutputLevel must tap the global output mix (session 0)"
+    # The level probe meters Mob.Audio's OWN player session (an own-session tap
+    # works with RECORD_AUDIO). It must NOT attach to session 0 — the global
+    # output mix is privileged on modern Android (ERROR_NO_INIT for a normal
+    # app); global capture lives in a separate MediaProjection plugin.
+    assert src =~ "audioPlayer?.audioSessionId",
+           "audioOutputLevel(:mob) must meter the app's own player session"
 
-    # JNI return signatures the native cache expects: both return float[] (`[F`).
+    refute src =~ "Visualizer(0)",
+           "audioOutputLevel must not tap session 0 — privileged on modern Android"
+
     assert src =~ "MEASUREMENT_MODE_PEAK_RMS",
            "audioOutputLevel must use peak/rms measurement mode"
   end

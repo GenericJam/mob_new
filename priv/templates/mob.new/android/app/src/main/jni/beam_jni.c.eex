@@ -130,6 +130,22 @@ Java_<%= jni_package %>_MobBridge_nativeDeliverMotion(JNIEnv* env, jclass cls,
     mob_deliver_motion(pid, ax, ay, az, gx, gy, gz, (long long)ts);
 }
 
+// mob_deliver_motion_mag is exported by mob_nif.zig; declared here in case the
+// installed mob_beam.h predates the magnetometer/heading delivery function.
+extern void mob_deliver_motion_mag(jlong pid, double ax, double ay, double az,
+                                   double gx, double gy, double gz, double mx,
+                                   double my, double mz, double heading,
+                                   long long ts);
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeDeliverMotionMag(JNIEnv* env, jclass cls,
+    jlong pid, jdouble ax, jdouble ay, jdouble az,
+    jdouble gx, jdouble gy, jdouble gz,
+    jdouble mx, jdouble my, jdouble mz, jdouble heading, jlong ts) {
+    mob_deliver_motion_mag(pid, ax, ay, az, gx, gy, gz, mx, my, mz, heading,
+                           (long long)ts);
+}
+
 JNIEXPORT void JNICALL
 Java_<%= jni_package %>_MobBridge_nativeDeliverFileResult(JNIEnv* env, jclass cls,
     jlong pid, jstring event, jstring sub, jstring json_items) {

@@ -641,6 +641,10 @@ object MobBridge {
     @JvmStatic external fun nativeDeliverAtom3(pid: Long, a1: String, a2: String, a3: String)
     @JvmStatic external fun nativeDeliverMotion(pid: Long, ax: Double, ay: Double, az: Double,
                                                   gx: Double, gy: Double, gz: Double, ts: Long)
+    @JvmStatic external fun nativeDeliverMotionMag(pid: Long, ax: Double, ay: Double, az: Double,
+                                                  gx: Double, gy: Double, gz: Double,
+                                                  mx: Double, my: Double, mz: Double,
+                                                  heading: Double, ts: Long)
     @JvmStatic external fun nativeDeliverFileResult(pid: Long, event: String, sub: String, json: String?)
     @JvmStatic external fun nativeDeliverPushToken(pid: Long, token: String)
     @JvmStatic external fun nativeDeliverNotification(pid: Long, json: String)
@@ -1308,6 +1312,9 @@ object MobBridge {
     private var motionPid: Long = 0
     private var accelData = floatArrayOf(0f, 0f, 0f)
     private var gyroData  = floatArrayOf(0f, 0f, 0f)
+    private var magData   = floatArrayOf(0f, 0f, 0f)
+    private var headingDeg = -1.0   // <0 => unavailable; delivered as nil (RFC 0001)
+    private var hasMag = false
 
     @JvmStatic
     fun motion_start(pid: Long, intervalMsStr: String) {
@@ -1316,20 +1323,41 @@ object MobBridge {
         val activity = activityRef?.get() ?: return
         val sm = activity.getSystemService(android.content.Context.SENSOR_SERVICE) as SensorManager
         sensorManager = sm
+        // Register the magnetometer + a rotation-vector for a fused heading whenever
+        // the hardware has one (many budget devices don't). See Mob.Motion / RFC 0001.
+        hasMag = sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD) != null
+        val rot = FloatArray(9)
+        val orientation = FloatArray(3)
         val listener = object : SensorEventListener {
             var lastSendMs = 0L
             override fun onSensorChanged(event: SensorEvent) {
                 when (event.sensor.type) {
-                    Sensor.TYPE_ACCELEROMETER -> accelData = event.values.copyOf()
-                    Sensor.TYPE_GYROSCOPE     -> gyroData  = event.values.copyOf()
+                    Sensor.TYPE_ACCELEROMETER  -> accelData = event.values.copyOf()
+                    Sensor.TYPE_GYROSCOPE      -> gyroData  = event.values.copyOf()
+                    Sensor.TYPE_MAGNETIC_FIELD -> magData   = event.values.copyOf()
+                    Sensor.TYPE_ROTATION_VECTOR -> {
+                        SensorManager.getRotationMatrixFromVector(rot, event.values)
+                        SensorManager.getOrientation(rot, orientation)
+                        var az = Math.toDegrees(orientation[0].toDouble())
+                        if (az < 0.0) az += 360.0
+                        headingDeg = az
+                    }
                 }
                 val now = System.currentTimeMillis()
                 if (now - lastSendMs >= intervalMs) {
                     lastSendMs = now
-                    nativeDeliverMotion(pid,
-                        accelData[0].toDouble(), accelData[1].toDouble(), accelData[2].toDouble(),
-                        gyroData[0].toDouble(),  gyroData[1].toDouble(),  gyroData[2].toDouble(),
-                        now)
+                    if (hasMag) {
+                        nativeDeliverMotionMag(pid,
+                            accelData[0].toDouble(), accelData[1].toDouble(), accelData[2].toDouble(),
+                            gyroData[0].toDouble(),  gyroData[1].toDouble(),  gyroData[2].toDouble(),
+                            magData[0].toDouble(),   magData[1].toDouble(),   magData[2].toDouble(),
+                            headingDeg, now)
+                    } else {
+                        nativeDeliverMotion(pid,
+                            accelData[0].toDouble(), accelData[1].toDouble(), accelData[2].toDouble(),
+                            gyroData[0].toDouble(),  gyroData[1].toDouble(),  gyroData[2].toDouble(),
+                            now)
+                    }
                 }
             }
             override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
@@ -1339,6 +1367,12 @@ object MobBridge {
             sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
         sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let {
+            sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+        sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)?.let {
+            sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+        sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
             sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
     }

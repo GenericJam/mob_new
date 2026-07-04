@@ -614,11 +614,18 @@ defmodule MobNew.ProjectGeneratorTest do
       c = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
 
       # Kotlin: registers the magnetometer + a rotation-vector (for a fused
-      # heading) and routes through the 5-key delivery when hardware is present.
+      # heading) and routes through the 5-key delivery.
       assert kt =~ "Sensor.TYPE_MAGNETIC_FIELD"
       assert kt =~ "Sensor.TYPE_ROTATION_VECTOR"
       assert kt =~ "nativeDeliverMotionMag"
       assert kt =~ "external fun nativeDeliverMotionMag"
+
+      # Opt-in contract: motion_start parses the request out of the spec string
+      # and only enables the magnetometer when it was asked for — so an
+      # accel/gyro-only consumer keeps the plain 3-key stream. Guards against a
+      # regression back to "register whenever the hardware exists".
+      assert kt =~ ~s|val wantMag = parts.contains("magnetometer")|
+      assert kt =~ "hasMag = wantMag &&"
 
       # C: the matching JNI thunk exists and forwards to the zig export. The
       # local `extern` keeps beam_jni.c compilable even against a mob_beam.h

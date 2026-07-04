@@ -1313,19 +1313,28 @@ object MobBridge {
     private var accelData = floatArrayOf(0f, 0f, 0f)
     private var gyroData  = floatArrayOf(0f, 0f, 0f)
     private var magData   = floatArrayOf(0f, 0f, 0f)
-    private var headingDeg = -1.0   // <0 => unavailable; delivered as nil (RFC 0001)
+    private var headingDeg = -1.0   // <0 => unavailable; delivered as nil
     private var hasMag = false
 
+    // `spec` is "<interval>" or "<interval>,magnetometer" — the sensor request is
+    // encoded in the string by nif_motion_start (the JNI signature stays
+    // (JLjava/lang/String;)V). We only register the magnetometer + rotation-vector
+    // when the app asked for it, so a plain accel/gyro consumer never pays the
+    // extra sensor cost nor gets a 5-key map it didn't request.
     @JvmStatic
-    fun motion_start(pid: Long, intervalMsStr: String) {
+    fun motion_start(pid: Long, spec: String) {
         motionPid = pid
-        val intervalMs = intervalMsStr.toLongOrNull() ?: 100L
+        val parts = spec.split(",")
+        val intervalMs = parts.getOrNull(0)?.toLongOrNull() ?: 100L
+        val wantMag = parts.contains("magnetometer")
         val activity = activityRef?.get() ?: return
         val sm = activity.getSystemService(android.content.Context.SENSOR_SERVICE) as SensorManager
         sensorManager = sm
-        // Register the magnetometer + a rotation-vector for a fused heading whenever
-        // the hardware has one (many budget devices don't). See Mob.Motion / RFC 0001.
-        hasMag = sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD) != null
+        // hasMag drives the map shape only when the caller wanted the compass:
+        // requested + hardware => real mag/heading; requested + no hardware =>
+        // NaN mag / heading -1 sentinels (the native layer maps them to nil) so
+        // the mag/heading keys are always present when :magnetometer was asked for.
+        hasMag = wantMag && sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD) != null
         val rot = FloatArray(9)
         val orientation = FloatArray(3)
         val listener = object : SensorEventListener {
@@ -1346,12 +1355,15 @@ object MobBridge {
                 val now = System.currentTimeMillis()
                 if (now - lastSendMs >= intervalMs) {
                     lastSendMs = now
-                    if (hasMag) {
+                    if (wantMag) {
+                        val nan = Double.NaN
                         nativeDeliverMotionMag(pid,
                             accelData[0].toDouble(), accelData[1].toDouble(), accelData[2].toDouble(),
                             gyroData[0].toDouble(),  gyroData[1].toDouble(),  gyroData[2].toDouble(),
-                            magData[0].toDouble(),   magData[1].toDouble(),   magData[2].toDouble(),
-                            headingDeg, now)
+                            if (hasMag) magData[0].toDouble() else nan,
+                            if (hasMag) magData[1].toDouble() else nan,
+                            if (hasMag) magData[2].toDouble() else nan,
+                            if (hasMag) headingDeg else -1.0, now)
                     } else {
                         nativeDeliverMotion(pid,
                             accelData[0].toDouble(), accelData[1].toDouble(), accelData[2].toDouble(),
@@ -1369,11 +1381,13 @@ object MobBridge {
         sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let {
             sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
-        sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)?.let {
-            sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
-        }
-        sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
-            sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
+        if (hasMag) {
+            sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)?.let {
+                sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
+            }
+            sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
+                sm.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL)
+            }
         }
     }
 

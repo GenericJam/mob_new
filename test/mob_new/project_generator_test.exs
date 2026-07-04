@@ -601,6 +601,41 @@ defmodule MobNew.ProjectGeneratorTest do
                Enum.map_join(issues, "\n  ", & &1.message)
     end
 
+    test "generates the magnetometer/compass motion path end to end (MOB-6)", %{tmp: tmp} do
+      # Positive guard for the magnetometer feature: the consistency test above
+      # only proves the Kotlin extern and C thunk *pair up* — it stays green even
+      # if both halves are deleted. This pins that the mag/heading wiring is
+      # actually present on both sides, so removing it fails loudly.
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      c = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
+
+      # Kotlin: registers the magnetometer + a rotation-vector (for a fused
+      # heading) and routes through the 5-key delivery.
+      assert kt =~ "Sensor.TYPE_MAGNETIC_FIELD"
+      assert kt =~ "Sensor.TYPE_ROTATION_VECTOR"
+      assert kt =~ "nativeDeliverMotionMag"
+      assert kt =~ "external fun nativeDeliverMotionMag"
+
+      # Opt-in contract: motion_start parses the request out of the spec string
+      # and only enables the magnetometer when it was asked for — so an
+      # accel/gyro-only consumer keeps the plain 3-key stream. Guards against a
+      # regression back to "register whenever the hardware exists".
+      assert kt =~ ~s|val wantMag = parts.contains("magnetometer")|
+      assert kt =~ "hasMag = wantMag &&"
+
+      # C: the matching JNI thunk exists and forwards to the zig export. The
+      # local `extern` keeps beam_jni.c compilable even against a mob_beam.h
+      # that predates the mag delivery fn (decouples cross-repo merge order).
+      # JNI mangles the underscore in the app name: test_app -> test_1app.
+      assert c =~ "Java_com_example_test_1app_MobBridge_nativeDeliverMotionMag"
+      assert c =~ "mob_deliver_motion_mag("
+      assert c =~ "extern void mob_deliver_motion_mag("
+    end
+
     test "MobBridge.kt wires the GpuView GLES 3.0 renderer", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

@@ -8,7 +8,16 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [0.4.15] - 2026-06-25
+## [0.4.16] - 2026-07-04
+
+### Added
+- **Generated `MobBridge` registers the magnetometer / compass path** for
+  `Mob.Motion`'s `:magnetometer` sensor (mob 0.7.14). `motion_start` parses the
+  requested sensor set out of its spec arg and, only when `:magnetometer` was
+  asked for, registers `TYPE_MAGNETIC_FIELD` + `TYPE_ROTATION_VECTOR` and routes
+  through the new `nativeDeliverMotionMag` JNI thunk (with the matching
+  `beam_jni.c` binding to `mob_deliver_motion_mag`). Accel/gyro-only apps keep
+  the byte-identical 3-key path. Requires mob 0.7.14+. (MOB-6, #26)
 
 ### Added
 - **`MobBridge.openSettings/1` scaffolding** for `Mob.Device.open_settings/1`

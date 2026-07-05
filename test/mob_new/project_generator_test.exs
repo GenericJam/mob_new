@@ -225,6 +225,17 @@ defmodule MobNew.ProjectGeneratorTest do
       beam_jni = read.("android/app/src/main/jni/beam_jni.c")
       assert beam_jni =~ "Java_com_example_test_1app_MainActivity_nativeNotifyOrientation"
       assert beam_jni =~ "mob_send_orientation_changed"
+
+      # Network connectivity (Mob.Device.network_state / :network). Same
+      # MainActivity-extern ↔ beam_jni-thunk pairing as orientation, which the
+      # MobBridge-only external_fun_jni_consistency lint doesn't cover.
+      assert main_activity =~ "external fun nativeNotifyConnectivity"
+      assert main_activity =~ "NET_CAPABILITY_VALIDATED"
+      assert beam_jni =~ "Java_com_example_test_1app_MainActivity_nativeNotifyConnectivity"
+      assert beam_jni =~ "mob_send_connectivity_changed"
+
+      assert read.("android/app/src/main/AndroidManifest.xml") =~
+               "android.permission.ACCESS_NETWORK_STATE"
     end
 
     test "generates app.ex", %{tmp: tmp} do

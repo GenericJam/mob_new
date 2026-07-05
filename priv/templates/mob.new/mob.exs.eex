@@ -28,6 +28,7 @@ config :mob, :plugins, [<%= unless blank do %>:mob_camera, :mob_location, :mob_b
 # `mix mob.plugin.trust <name>`, or `config :mob, :acknowledge_unsafe_plugins,
 # [...]` for an unsigned prototype.
 config :mob, :trusted_plugins, %{
+  mob_audio_capture: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
   mob_camera: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
   mob_location: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
   mob_biometric: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",

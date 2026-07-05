@@ -8,6 +8,15 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.19] - 2026-07-04
+
+### Added
+- **Generated `MobBridge` keep-awake method** for `Mob.Device.keep_awake/1`
+  (mob 0.7.17). Generated Android apps get a `MobBridge.keepAwake(Int)` that
+  toggles the window's `FLAG_KEEP_SCREEN_ON` on the UI thread — no permission.
+  Adds the `android.view.WindowManager` import. Requires mob 0.7.17+.
+  Device-verified on moto g power (2021). (MOB-20, #30)
+
 ## [0.4.18] - 2026-07-04
 
 ### Added

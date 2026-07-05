@@ -656,6 +656,20 @@ defmodule MobNew.ProjectGeneratorTest do
                ~s|<uses-feature android:name="android.hardware.camera.flash" android:required="false" />|
     end
 
+    test "generates the keep-awake / idle-timer bridge (MOB-20)", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # Kotlin: keepAwake toggles the window's FLAG_KEEP_SCREEN_ON (no permission).
+      assert kt =~ "fun keepAwake(on: Int)"
+      assert kt =~ "import android.view.WindowManager"
+      assert kt =~ "WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON"
+      assert kt =~ "activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)"
+      assert kt =~ "activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)"
+    end
+
     test "MobBridge.kt wires the GpuView GLES 3.0 renderer", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

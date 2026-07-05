@@ -80,6 +80,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.testTag
 import android.view.PixelCopy
+import android.view.WindowManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -497,6 +498,24 @@ object MobBridge {
             try {
                 activity.requestedOrientation = orientation
             } catch (_: Throwable) {
+            }
+        }
+    }
+
+    /**
+     * Keep the screen on (FLAG_KEEP_SCREEN_ON) while `on != 0`, clear it
+     * otherwise. Called from mob_nif.zig's nif_device_keep_awake via the cached
+     * keepAwake JMethodID. Window flags must be set on the UI thread. No
+     * permission required.
+     */
+    @JvmStatic
+    fun keepAwake(on: Int) {
+        val activity = activityRef?.get() ?: return
+        activity.runOnUiThread {
+            if (on != 0) {
+                activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
     }

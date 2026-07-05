@@ -49,9 +49,11 @@ extern void mob_send_connectivity_changed(int online, const char* transport, int
 JNIEXPORT void JNICALL
 Java_<%= jni_package %>_MainActivity_nativeNotifyConnectivity(JNIEnv* env, jobject thiz,
     jboolean online, jstring transport, jboolean expensive) {
-    const char* utf8 = transport ? (*env)->GetStringUTFChars(env, transport, NULL) : "none";
-    mob_send_connectivity_changed(online ? 1 : 0, utf8, expensive ? 1 : 0);
-    if (transport) (*env)->ReleaseStringUTFChars(env, transport, utf8);
+    // utf8 is NULL if transport is null OR GetStringUTFChars failed (OOM); pass
+    // "none" in that case and only release what we actually acquired.
+    const char* utf8 = transport ? (*env)->GetStringUTFChars(env, transport, NULL) : NULL;
+    mob_send_connectivity_changed(online ? 1 : 0, utf8 ? utf8 : "none", expensive ? 1 : 0);
+    if (utf8) (*env)->ReleaseStringUTFChars(env, transport, utf8);
 }
 
 // Called from MobBridge.nativeSendTap(handle) in Kotlin when a button is tapped.

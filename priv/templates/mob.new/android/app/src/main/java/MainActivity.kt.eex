@@ -56,19 +56,17 @@ class MainActivity : ComponentActivity() {
         connectivityManager = cm
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                val transport = when {
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "wired"
-                    else -> "other"
-                }
-                val expensive =
-                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-                notifyConnectivitySafe(true, transport, expensive)
+                pushConnectivity(caps)
             }
 
             override fun onLost(network: Network) {
-                notifyConnectivitySafe(false, "none", false)
+                // Don't blindly report offline: on a wifi->cellular handoff the
+                // lost default's onLost can arrive after the new default has
+                // settled, which would leave us stuck offline. Re-check the
+                // current active network before concluding there's no path.
+                val active = connectivityManager?.activeNetwork
+                val caps = active?.let { connectivityManager?.getNetworkCapabilities(it) }
+                pushConnectivity(caps)
             }
         }
         networkCallback = callback
@@ -76,6 +74,21 @@ class MainActivity : ComponentActivity() {
             cm.registerDefaultNetworkCallback(callback)
         } catch (_: Throwable) {
         }
+    }
+
+    private fun pushConnectivity(caps: NetworkCapabilities?) {
+        if (caps == null) {
+            notifyConnectivitySafe(false, "none", false)
+            return
+        }
+        val transport = when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "wired"
+            else -> "other"
+        }
+        val expensive = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        notifyConnectivitySafe(true, transport, expensive)
     }
 
     private fun notifyConnectivitySafe(online: Boolean, transport: String, expensive: Boolean) {

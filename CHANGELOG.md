@@ -8,6 +8,17 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.17] - 2026-07-04
+
+### Added
+- **Generated `MobBridge` torch method** for `Mob.Torch` (mob 0.7.15). Generated
+  Android apps get a `MobBridge.torch(String)` that toggles the rear-camera torch
+  via `CameraManager.setTorchMode` — no capture session, no `CAMERA` permission.
+  It finds a camera with a flash unit, no-ops on flash-less devices, and swallows
+  transient camera-access failures. Adds a not-required `android.hardware.camera.flash`
+  `<uses-feature>` so flash-less devices still install. Requires mob 0.7.15+.
+  Device-verified on moto g power (2021). (MOB-15, #27)
+
 ## [0.4.16] - 2026-07-04
 
 ### Added

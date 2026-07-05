@@ -636,6 +636,26 @@ defmodule MobNew.ProjectGeneratorTest do
       assert c =~ "extern void mob_deliver_motion_mag("
     end
 
+    test "generates the torch / flashlight bridge (MOB-15)", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      manifest = File.read!(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
+
+      # Kotlin: the torch bridge toggles via CameraManager.setTorchMode (no
+      # capture session / permission) and only lights a camera that has a flash.
+      assert kt =~ "fun torch(state: String)"
+      assert kt =~ "as? CameraManager"
+      assert kt =~ "CameraCharacteristics.FLASH_INFO_AVAILABLE"
+      assert kt =~ ~s|cm.setTorchMode(camId, state == "on")|
+
+      # Manifest: flash declared but not required, so flash-less devices still install.
+      assert manifest =~
+               ~s|<uses-feature android:name="android.hardware.camera.flash" android:required="false" />|
+    end
+
     test "MobBridge.kt wires the GpuView GLES 3.0 renderer", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

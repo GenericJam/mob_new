@@ -15,6 +15,11 @@
          per-device access is gated by the runtime ACTION_USB_PERMISSION dialog. -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
+    <!-- Torch / flashlight (Mob.Torch). required=false so the Play Store doesn't
+         filter the app off flash-less devices; Mob.Torch is a no-op there. No
+         permission needed — CameraManager.setTorchMode works without one. -->
+    <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
+
     <!-- Media-library read permissions moved to the mob_photos plugin manifest
          (READ_MEDIA_IMAGES / READ_MEDIA_VIDEO / READ_EXTERNAL_STORAGE). NOTE the
          plugin's plain-string permission list can't express maxSdkVersion="32"

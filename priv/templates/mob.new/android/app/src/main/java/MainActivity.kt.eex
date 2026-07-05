@@ -42,7 +42,12 @@ class MainActivity : ComponentActivity() {
     external fun nativeSetActivity(activity: Activity)
     external fun nativeStartBeam()
     external fun nativeNotifyOrientation(orient: String)
-    external fun nativeNotifyConnectivity(online: Boolean, transport: String, expensive: Boolean)
+    external fun nativeNotifyConnectivity(
+        online: Boolean,
+        transport: String,
+        expensive: Boolean,
+        validated: Boolean,
+    )
 
     // ── Network connectivity ──────────────────────────────────────────────
     // A ConnectivityManager.NetworkCallback drives Mob.Device.network_state/0
@@ -78,7 +83,7 @@ class MainActivity : ComponentActivity() {
 
     private fun pushConnectivity(caps: NetworkCapabilities?) {
         if (caps == null) {
-            notifyConnectivitySafe(false, "none", false)
+            notifyConnectivitySafe(false, "none", false, false)
             return
         }
         val transport = when {
@@ -88,12 +93,20 @@ class MainActivity : ComponentActivity() {
             else -> "other"
         }
         val expensive = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-        notifyConnectivitySafe(true, transport, expensive)
+        // Android actively probes for real internet reachability — false on a
+        // captive portal / before validation. iOS has no equivalent (:unavailable).
+        val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        notifyConnectivitySafe(true, transport, expensive, validated)
     }
 
-    private fun notifyConnectivitySafe(online: Boolean, transport: String, expensive: Boolean) {
+    private fun notifyConnectivitySafe(
+        online: Boolean,
+        transport: String,
+        expensive: Boolean,
+        validated: Boolean,
+    ) {
         try {
-            nativeNotifyConnectivity(online, transport, expensive)
+            nativeNotifyConnectivity(online, transport, expensive, validated)
         } catch (_: Throwable) {
         }
     }

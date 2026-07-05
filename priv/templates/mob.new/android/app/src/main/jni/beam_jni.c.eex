@@ -44,15 +44,17 @@ Java_<%= jni_package %>_MainActivity_nativeNotifyOrientation(JNIEnv* env, jobjec
 // network path changes. Forwards online/transport/expensive to the BEAM
 // (Mob.Device.network_state/0 + :network subscribers).
 // mob_send_connectivity_changed is exported by mob_nif.zig.
-extern void mob_send_connectivity_changed(int online, const char* transport, int expensive);
+extern void mob_send_connectivity_changed(int online, const char* transport, int expensive,
+    int validated);
 
 JNIEXPORT void JNICALL
 Java_<%= jni_package %>_MainActivity_nativeNotifyConnectivity(JNIEnv* env, jobject thiz,
-    jboolean online, jstring transport, jboolean expensive) {
+    jboolean online, jstring transport, jboolean expensive, jboolean validated) {
     // utf8 is NULL if transport is null OR GetStringUTFChars failed (OOM); pass
     // "none" in that case and only release what we actually acquired.
     const char* utf8 = transport ? (*env)->GetStringUTFChars(env, transport, NULL) : NULL;
-    mob_send_connectivity_changed(online ? 1 : 0, utf8 ? utf8 : "none", expensive ? 1 : 0);
+    mob_send_connectivity_changed(online ? 1 : 0, utf8 ? utf8 : "none", expensive ? 1 : 0,
+        validated ? 1 : 0);
     if (utf8) (*env)->ReleaseStringUTFChars(env, transport, utf8);
 }
 

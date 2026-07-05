@@ -11,6 +11,8 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -1456,6 +1458,27 @@ object MobBridge {
                 @Suppress("DEPRECATION")
                 view.performHapticFeedback(constant, HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING)
             }
+        }
+    }
+
+    /**
+     * Called from nif_torch via JNI — toggles the rear-camera torch on ("on") or
+     * off (any other value). Uses CameraManager.setTorchMode, so no capture
+     * session and no CAMERA permission are needed. No-op on a device with no
+     * flash unit, and swallows the transient failures (torch in use / camera
+     * unavailable) rather than crashing the caller.
+     */
+    @JvmStatic
+    fun torch(state: String) {
+        val activity = activityRef?.get() ?: return
+        val cm = activity.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return
+        try {
+            val camId = cm.cameraIdList.firstOrNull { id ->
+                cm.getCameraCharacteristics(id).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+            } ?: return
+            cm.setTorchMode(camId, state == "on")
+        } catch (e: Exception) {
+            Log.w("MobBridge", "torch($state) failed: ${e.message}")
         }
     }
 

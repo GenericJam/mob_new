@@ -8,6 +8,21 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.18] - 2026-07-04
+
+### Added
+- **Generated Android network-connectivity callback** for
+  `Mob.Device.network_state/0` (mob 0.7.16). `MainActivity` registers a
+  `ConnectivityManager.NetworkCallback` that maps `NetworkCapabilities` to
+  online / transport / expensive / validated and delivers the snapshot to the
+  BEAM through a `beam_jni.c` trampoline (`nativeNotifyConnectivity` →
+  `mob_send_connectivity_changed`); `onLost` re-queries the active network
+  rather than assuming offline. Adds `ACCESS_NETWORK_STATE` to the manifest.
+  Generator test covers the rendered extern / thunk / permission. Device-verified
+  on moto g power (2021). (MOB-14, #28)
+- **`mob_audio_capture` pre-trusted in generated apps** so the plugin activates
+  without a manual trust prompt. (MOB-34, #29)
+
 ## [0.4.17] - 2026-07-04
 
 ### Added

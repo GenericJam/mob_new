@@ -4,6 +4,9 @@
 
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Read connectivity state for Mob.Device.network_state/0 + :network events.
+         Normal (install-time) permission; no runtime request needed. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Microphone (audio recording). CAMERA + the camera uses-features are
          declared by the mob_camera plugin's manifest and merged at build. -->

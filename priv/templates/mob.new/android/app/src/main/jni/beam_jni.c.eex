@@ -40,6 +40,20 @@ Java_<%= jni_package %>_MainActivity_nativeNotifyOrientation(JNIEnv* env, jobjec
     (*env)->ReleaseStringUTFChars(env, orient, utf8);
 }
 
+// Called from MainActivity's ConnectivityManager.NetworkCallback when the active
+// network path changes. Forwards online/transport/expensive to the BEAM
+// (Mob.Device.network_state/0 + :network subscribers).
+// mob_send_connectivity_changed is exported by mob_nif.zig.
+extern void mob_send_connectivity_changed(int online, const char* transport, int expensive);
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MainActivity_nativeNotifyConnectivity(JNIEnv* env, jobject thiz,
+    jboolean online, jstring transport, jboolean expensive) {
+    const char* utf8 = transport ? (*env)->GetStringUTFChars(env, transport, NULL) : "none";
+    mob_send_connectivity_changed(online ? 1 : 0, utf8, expensive ? 1 : 0);
+    if (transport) (*env)->ReleaseStringUTFChars(env, transport, utf8);
+}
+
 // Called from MobBridge.nativeSendTap(handle) in Kotlin when a button is tapped.
 JNIEXPORT void JNICALL
 Java_<%= jni_package %>_MobBridge_nativeSendTap(JNIEnv* env, jclass cls, jint handle) {

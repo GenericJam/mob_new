@@ -792,6 +792,55 @@ object MobBridge {
         }
     }
 
+    // ── Audio input metering (mic level probe, no recording kept) ──────────
+    // Pairs with Mob.Audio.start_input_metering/input_level/stop_input_metering
+    // and the zig NIF (mob). MediaRecorder to a throwaway file with getMaxAmplitude
+    // as the level; the NIF converts amplitude (0..32767, -1 = not metering) to dBFS.
+    private var meterRecorder: MediaRecorder? = null
+    private var meterPath: String? = null
+
+    @JvmStatic
+    fun audio_start_input_metering() {
+        val activity = activityRef?.get() ?: return
+        activity.runOnUiThread {
+            try {
+                val tmp = File(activity.cacheDir, "mob_meter_${System.currentTimeMillis()}.m4a")
+                meterPath = tmp.absolutePath
+                val rec = if (android.os.Build.VERSION.SDK_INT >= 31)
+                    MediaRecorder(activity)
+                else @Suppress("DEPRECATION") MediaRecorder()
+                rec.setAudioSource(MediaRecorder.AudioSource.MIC)
+                rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                rec.setOutputFile(meterPath)
+                rec.prepare()
+                rec.start()
+                meterRecorder = rec
+            } catch (e: Exception) {
+                meterRecorder = null
+            }
+        }
+    }
+
+    @JvmStatic
+    fun audio_input_level(): Int {
+        val rec = meterRecorder ?: return -1
+        return try { rec.maxAmplitude } catch (e: Exception) { -1 }
+    }
+
+    @JvmStatic
+    fun audio_stop_input_metering() {
+        val rec = meterRecorder ?: return
+        meterRecorder = null
+        try {
+            rec.stop()
+            rec.release()
+        } catch (e: Exception) {
+        }
+        meterPath?.let { runCatching { File(it).delete() } }
+        meterPath = null
+    }
+
     // ── Audio playback ─────────────────────────────────────────────────────
     private var audioPlayer: MediaPlayer? = null
     private var playbackPid: Long = 0

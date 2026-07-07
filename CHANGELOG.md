@@ -8,6 +8,19 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.20] - 2026-07-07
+
+### Added
+- **Scaffolded `MobBridge` audio-probe Kotlin methods** backing mob 0.7.18's
+  `Mob.Audio` probes. `audioOutputStatus()` (volume / mute / route / other-audio
+  via `AudioManager`) and `audioOutputLevel(source)` (peak/RMS dB from a
+  short-lived `Visualizer` on `Mob.Audio`'s own player session, which works with
+  `RECORD_AUDIO`; length-1 error codes the NIF maps to atoms). Plus mic
+  `input_level` metering via `MediaRecorder.getMaxAmplitude` for the agent
+  "ears" (MOB-35). Device-verified on a Moto G power (2021). (#25, #31)
+
+---
+
 ## [0.4.19] - 2026-07-04
 
 ### Added

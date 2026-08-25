@@ -3506,8 +3506,21 @@ private fun resolveOneFontName(name: String, context: android.content.Context?):
             }
         }
     }
-    return try { FontFamily(Typeface.create(name, Typeface.NORMAL)) }
-    catch (e: Exception) {
+    // Typeface.create(String, Int) never returns null and rarely throws for an
+    // unrecognized family name — per its own docs, it silently substitutes
+    // Typeface.DEFAULT. Reference-equality against that singleton is the
+    // standard (if slightly unfortunate) way to detect "this name didn't
+    // resolve to anything real" — without it, every candidate after the
+    // first "succeeds" trivially and the fallback chain never gets walked.
+    return try {
+        val tf = Typeface.create(name, Typeface.NORMAL)
+        if (tf == Typeface.DEFAULT) {
+            android.util.Log.w("MobBridge", "font \"$name\" not found (Typeface substituted the default)")
+            null
+        } else {
+            FontFamily(tf)
+        }
+    } catch (e: Exception) {
         android.util.Log.w("MobBridge", "font \"$name\" not found: ${e.message}")
         null
     }

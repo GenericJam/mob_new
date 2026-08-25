@@ -233,11 +233,23 @@ object MobBridge {
     private val _themeColors = mutableStateOf<Map<String, Long>?>(null)
     val themeColors: State<Map<String, Long>?> get() = _themeColors
 
+    // Ordered fallback font names from the last Mob.Theme.set/1 (already
+    // resolved to this platform's names — see Mob.Theme.notify_native/1 in
+    // mob core). Read by the top-level fontFamilyProp() when a node's own
+    // font can't be loaded — not private, since that function lives outside
+    // this object. Plain var, not Compose state: fonts don't need to trigger
+    // recomposition the way theme colors do — they're consulted the next
+    // time a font actually resolves, not reactively.
+    @Volatile
+    var fontFallback: List<String> = emptyList()
+        private set
+
     /** Called from mob_nif.zig (nif_set_theme) whenever `Mob.Theme.set/1`
      *  runs on the BEAM side. The JSON is the resolved-token map: atom
-     *  names → ARGB ints (e.g. `{"primary":4286331629,"surface":...}`).
-     *  The Compose-state write hops to the main thread so recomposition
-     *  fires safely. */
+     *  names → ARGB ints (e.g. `{"primary":4286331629,"surface":...}`),
+     *  plus `_font_fallback` (an ordered array of font names — see
+     *  MOB_FONTS.md). The Compose-state write hops to the main thread so
+     *  recomposition fires safely. */
     @JvmStatic
     fun setTheme(json: String) {
         try {
@@ -249,6 +261,11 @@ object MobBridge {
                 val value = obj.opt(key)
                 if (value is Number) map[key] = value.toLong()
             }
+
+            obj.optJSONArray("_font_fallback")?.let { arr ->
+                fontFallback = (0 until arr.length()).mapNotNull { arr.opt(it) as? String }
+            }
+
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 _themeColors.value = map
             }
@@ -3470,12 +3487,12 @@ private fun jsonValueToKotlin(v: Any?): Any? = when (v) {
     else -> v
 }
 
-private fun fontFamilyProp(props: Map<String, Any?>, context: android.content.Context?): FontFamily? {
-    val name = props["font"] as? String ?: return null
-    // Custom fonts ship uncompressed in res/font/<normalized>.ttf (build-copied
-    // from priv/fonts/ + plugin assets.fonts). Normalise the prop the same way
-    // the build named the resource, look it up by id, and load it as a Typeface.
-    // Fall back to a system family name (sans-serif, monospace, …), then null.
+// Tries `name` as a bundled custom font (res/font/, build-copied from
+// priv/fonts/ + plugin assets.fonts) then as a system family name
+// (sans-serif, monospace, …). Returns null if neither resolves — the
+// caller (fontFamilyProp) walks the fallback chain, this is just the
+// single-name resolution step.
+private fun resolveOneFontName(name: String, context: android.content.Context?): FontFamily? {
     if (context != null) {
         var resName = name.lowercase().replace(Regex("[^a-z0-9_]"), "_")
         if (!resName.matches(Regex("^[a-z].*"))) resName = "f_$resName"
@@ -3484,11 +3501,39 @@ private fun fontFamilyProp(props: Map<String, Any?>, context: android.content.Co
             try {
                 val tf = androidx.core.content.res.ResourcesCompat.getFont(context, resId)
                 if (tf != null) return FontFamily(tf)
-            } catch (_: Exception) { }
+            } catch (e: Exception) {
+                android.util.Log.w("MobBridge", "font resource \"$resName\" failed to load: ${e.message}")
+            }
         }
     }
     return try { FontFamily(Typeface.create(name, Typeface.NORMAL)) }
-    catch (_: Exception) { null }
+    catch (e: Exception) {
+        android.util.Log.w("MobBridge", "font \"$name\" not found: ${e.message}")
+        null
+    }
+}
+
+// Walks [the node's own font, ...MobBridge.fontFallback] (the ordered list
+// from the last Mob.Theme.set/1 — see MOB_FONTS.md), returning the first
+// name that actually resolves. Logs when the primary choice misses so a
+// missing/misnamed font is diagnosable instead of silently looking like the
+// wrong font. Returns null (system default) if nothing in the chain resolves
+// — same as today's no-font-set behavior.
+private fun fontFamilyProp(props: Map<String, Any?>, context: android.content.Context?): FontFamily? {
+    val primary = props["font"] as? String ?: return null
+    val candidates = (listOf(primary) + MobBridge.fontFallback).filter { it.isNotEmpty() }
+
+    candidates.forEachIndexed { index, name ->
+        resolveOneFontName(name, context)?.let { family ->
+            if (index > 0) {
+                android.util.Log.w("MobBridge", "font \"$primary\" not found — fell back to \"$name\"")
+            }
+            return family
+        }
+    }
+
+    android.util.Log.w("MobBridge", "none of $candidates resolved — using system font")
+    return null
 }
 
 // ── Tab bar helpers ───────────────────────────────────────────────────────────

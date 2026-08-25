@@ -232,6 +232,26 @@ defmodule MobNew.Templates.LintTest do
 
       assert Lint.native_funs_owned_by_mob_bridge(kt) == []
     end
+
+    test "flags a native fun nested inside another class within object MobBridge" do
+      # Byte-position alone would call this "inside object MobBridge" — it
+      # is, but not as a DIRECT member. JNI would need MobBridge$Helper as
+      # the declaring class, not MobBridge, so the generated Java_..._MobBridge_
+      # thunk would still mismatch.
+      kt = """
+      object MobBridge {
+          @JvmStatic external fun nativeFoo(pid: Long)
+
+          class Helper {
+              external fun nativeNested(pid: Long)
+          }
+      }
+      """
+
+      [issue] = Lint.native_funs_owned_by_mob_bridge(kt)
+      assert issue.message =~ "nativeNested"
+      assert issue.message =~ "not a direct member"
+    end
   end
 
   describe "check_kotlin/1 aggregate" do

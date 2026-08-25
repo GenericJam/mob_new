@@ -92,6 +92,16 @@ To publish a new version: bump `version:` in `mix.exs`, then
   `--local` path dep is `override: true` so a local mob checkout satisfies the
   Hex plugins' `mob ~> 0.7` requirement.
 
+- **Name consistency isn't ownership.** `MobNew.Templates.Lint.external_fun_jni_consistency/2`
+  only checks that Kotlin's `external fun nativeFoo` and C's
+  `Java_..._MobBridge_nativeFoo` agree on the NAME — it can't tell which
+  Kotlin class/object actually encloses the declaration. `nativeFoo`
+  declared on the wrong object (or nested inside a class within the right
+  one) passes that check and throws `UnsatisfiedLinkError` on first call
+  — see MOB-98. `native_funs_owned_by_mob_bridge/1` closes that gap
+  (brace-depth aware, not just byte-position aware) and runs as part of
+  `check_kotlin/1`'s aggregate.
+
 ## Tests
 
 ```bash

@@ -49,7 +49,8 @@ defmodule MobNew.Templates.Lint do
       &balanced_parens/1,
       &balanced_brackets/1,
       &no_eex_leaks/1,
-      &unique_kotlin_imports/1
+      &unique_kotlin_imports/1,
+      &native_funs_owned_by_mob_bridge/1
     ]
     |> Enum.flat_map(& &1.(content))
   end
@@ -190,8 +191,9 @@ defmodule MobNew.Templates.Lint do
   end
 
   @doc """
-  Every `external fun nativeFoo` in MobBridge.kt must be declared
-  *inside* `object MobBridge` — not just present somewhere in the file.
+  Every `external fun nativeFoo` in MobBridge.kt must be a *direct*
+  member of `object MobBridge` — not just positionally somewhere inside
+  its braces, and not just present somewhere in the file.
 
   `external_fun_jni_consistency/2` above only checks that Kotlin and C
   agree on the native function's NAME; it can't tell which enclosing
@@ -204,6 +206,12 @@ defmodule MobNew.Templates.Lint do
   the check that would have caught MOB-98's JNI owner mismatch. Only
   meaningful against MobBridge.kt's content — returns `[]` (nothing to
   flag) if the content has no `object MobBridge` block at all.
+
+  Brace-depth aware, not just byte-position aware: `external fun bar`
+  inside a hypothetical `object MobBridge { class Foo { external fun
+  bar() } }` sits at byte-position inside the span but is NOT a direct
+  member — JNI would need `MobBridge$Foo`, not `MobBridge`. Flagged the
+  same as if it were outside the span entirely.
   """
   @spec native_funs_owned_by_mob_bridge(String.t()) :: [issue()]
   def native_funs_owned_by_mob_bridge(kotlin_content) do
@@ -214,19 +222,37 @@ defmodule MobNew.Templates.Lint do
       {open, close} ->
         ~r/external\s+fun\s+(native\w+)/
         |> Regex.scan(kotlin_content, return: :index)
-        |> Enum.reject(fn [{whole_at, _} | _] -> whole_at >= open and whole_at < close end)
+        |> Enum.reject(fn [{whole_at, _} | _] ->
+          whole_at >= open and whole_at < close and
+            brace_depth_between(kotlin_content, open + 1, whole_at) == 0
+        end)
         |> Enum.map(fn [_, {name_at, name_len}] ->
           name = binary_part(kotlin_content, name_at, name_len)
 
           %{
             kind: :native_fun_outside_mob_bridge,
             message:
-              "`external fun #{name}` is declared outside `object MobBridge` — every " <>
+              "`external fun #{name}` is not a direct member of `object MobBridge` " <>
+                "(nested inside another class/object, or outside it entirely) — every " <>
                 "generated JNI thunk is Java_..._MobBridge_#{name}, and JNI resolves a " <>
                 "native method by its declaring class"
           }
         end)
     end
+  end
+
+  # Net brace depth opened between byte offsets `from` (inclusive) and `to`
+  # (exclusive). 0 at `to` means nothing between them opened an unclosed
+  # brace — i.e. `to` is a direct child of whatever `from` is inside, not
+  # nested inside some other type declared in between.
+  defp brace_depth_between(content, from, to) do
+    Enum.reduce(from..(to - 1)//1, 0, fn i, depth ->
+      case :binary.at(content, i) do
+        ?{ -> depth + 1
+        ?} -> depth - 1
+        _ -> depth
+      end
+    end)
   end
 
   # Byte-offset span of `object MobBridge { ... }`'s body, `{brace_at,

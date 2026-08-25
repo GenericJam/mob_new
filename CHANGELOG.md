@@ -8,6 +8,33 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.21] - 2026-08-25
+
+### Added
+- **Generated `MobBridge.kt`'s font resolver now walks mob's font
+  fallback chain**, part of the mob custom-fonts feature (see
+  [`mob`'s `MOB_FONTS.md`](https://github.com/GenericJam/mob/blob/master/MOB_FONTS.md)).
+  `setTheme` parses the `_font_fallback` array pushed by
+  `Mob.Theme.set/1` into `MobBridge.fontFallback`; `fontFamilyProp`'s
+  `resolveOneFontName` walks `[the node's own font] + fontFallback` in
+  order, trying each candidate (bundled `res/font/` resource first,
+  then a raw system family name) until one resolves.
+
+### Fixed
+- **The fallback chain above never actually triggered a fallback.**
+  `Typeface.create(String, Int)` never returns null and rarely throws
+  for an unrecognized family name — per its own documentation it
+  silently substitutes `Typeface.DEFAULT`. `resolveOneFontName`'s
+  `try/catch` around it never caught this, so the first fallback
+  candidate always "succeeded" (as the system default) and the walk
+  never reached the real fallback font. Found via physical-device
+  verification (Android emulator running Android 15) immediately
+  after this feature's own device check — row C of the test screen
+  showed the plain system font instead of the expected fallback.
+  Now detects failure via reference-equality against `Typeface.DEFAULT`
+  and logs + continues the walk instead. Re-verified on the same
+  emulator: the fallback font renders correctly. (MOB-94)
+
 ## [0.4.20] - 2026-07-07
 
 ### Added

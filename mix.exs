@@ -4,7 +4,7 @@ defmodule MobNew.MixProject do
   def project do
     [
       app: :mob_new,
-      version: "0.4.20",
+      version: "0.4.21",
       elixir: "~> 1.19",
       deps: deps(),
       aliases: aliases(),

@@ -189,6 +189,84 @@ defmodule MobNew.Templates.Lint do
     |> List.flatten()
   end
 
+  @doc """
+  Every `external fun nativeFoo` in MobBridge.kt must be declared
+  *inside* `object MobBridge` — not just present somewhere in the file.
+
+  `external_fun_jni_consistency/2` above only checks that Kotlin and C
+  agree on the native function's NAME; it can't tell which enclosing
+  class/object actually owns the Kotlin declaration. JNI resolves a
+  native method by its declaring class, and every generated JNI thunk
+  in this template is `Java_<pkg>_MobBridge_nativeFoo` — so a
+  `nativeFoo` declared on some OTHER object (e.g. a helper registry)
+  passes the name-consistency check cleanly and then throws
+  `UnsatisfiedLinkError` the first time it's actually called. This is
+  the check that would have caught MOB-98's JNI owner mismatch. Only
+  meaningful against MobBridge.kt's content — returns `[]` (nothing to
+  flag) if the content has no `object MobBridge` block at all.
+  """
+  @spec native_funs_owned_by_mob_bridge(String.t()) :: [issue()]
+  def native_funs_owned_by_mob_bridge(kotlin_content) do
+    case mob_bridge_span(kotlin_content) do
+      nil ->
+        []
+
+      {open, close} ->
+        ~r/external\s+fun\s+(native\w+)/
+        |> Regex.scan(kotlin_content, return: :index)
+        |> Enum.reject(fn [{whole_at, _} | _] -> whole_at >= open and whole_at < close end)
+        |> Enum.map(fn [_, {name_at, name_len}] ->
+          name = binary_part(kotlin_content, name_at, name_len)
+
+          %{
+            kind: :native_fun_outside_mob_bridge,
+            message:
+              "`external fun #{name}` is declared outside `object MobBridge` — every " <>
+                "generated JNI thunk is Java_..._MobBridge_#{name}, and JNI resolves a " <>
+                "native method by its declaring class"
+          }
+        end)
+    end
+  end
+
+  # Byte-offset span of `object MobBridge { ... }`'s body, `{brace_at,
+  # matching_close_at}` — or nil if the content has no such block.
+  defp mob_bridge_span(content) do
+    with {obj_at, obj_len} <- binary_match(content, "object MobBridge"),
+         search_from = obj_at + obj_len,
+         {brace_at, _} <- binary_match(content, "{", search_from),
+         close_at when not is_nil(close_at) <- matching_brace_index(content, brace_at) do
+      {brace_at, close_at}
+    else
+      _ -> nil
+    end
+  end
+
+  defp binary_match(content, pattern, from \\ 0) do
+    case :binary.match(content, pattern, scope: {from, byte_size(content) - from}) do
+      :nomatch -> :nomatch
+      result -> result
+    end
+  end
+
+  # Byte offset of the `}` that closes the `{` at `open_index`, or nil if
+  # unbalanced. Plain byte scan — safe even with multi-byte UTF-8 elsewhere
+  # in the file, since a continuation byte never equals ASCII `{`/`}`.
+  defp matching_brace_index(content, open_index) do
+    find_matching_brace(content, open_index + 1, 1)
+  end
+
+  defp find_matching_brace(content, index, depth) when index < byte_size(content) do
+    case :binary.at(content, index) do
+      ?{ -> find_matching_brace(content, index + 1, depth + 1)
+      ?} when depth == 1 -> index
+      ?} -> find_matching_brace(content, index + 1, depth - 1)
+      _ -> find_matching_brace(content, index + 1, depth)
+    end
+  end
+
+  defp find_matching_brace(_content, _index, _depth), do: nil
+
   # ── helpers ──────────────────────────────────────────────────────────────
 
   defp balanced(content, open, close, kind) do

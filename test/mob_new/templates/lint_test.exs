@@ -170,6 +170,70 @@ defmodule MobNew.Templates.LintTest do
     end
   end
 
+  describe "native_funs_owned_by_mob_bridge/1 (MOB-98)" do
+    test "passes when every native fun lives inside object MobBridge" do
+      kt = """
+      object MobBridge {
+          @JvmStatic external fun nativeFoo(pid: Long)
+          @JvmStatic external fun nativeDeliverComponentEvent(handle: Int, event: String, payloadJson: String)
+      }
+
+      object MobNativeViewRegistry {
+          fun render(node: MobNode) {}
+      }
+      """
+
+      assert Lint.native_funs_owned_by_mob_bridge(kt) == []
+    end
+
+    test "flags a native fun declared on a different object (the exact MOB-98 shape)" do
+      kt = """
+      object MobBridge {
+          @JvmStatic external fun nativeFoo(pid: Long)
+      }
+
+      object MobNativeViewRegistry {
+          external fun nativeDeliverComponentEvent(handle: Int, event: String, payloadJson: String)
+      }
+      """
+
+      [issue] = Lint.native_funs_owned_by_mob_bridge(kt)
+      assert issue.kind == :native_fun_outside_mob_bridge
+      assert issue.message =~ "nativeDeliverComponentEvent"
+    end
+
+    test "a native fun declared before object MobBridge is also flagged" do
+      kt = """
+      external fun nativeOrphan(pid: Long)
+
+      object MobBridge {
+          @JvmStatic external fun nativeFoo(pid: Long)
+      }
+      """
+
+      [issue] = Lint.native_funs_owned_by_mob_bridge(kt)
+      assert issue.message =~ "nativeOrphan"
+    end
+
+    test "returns no issues (nothing to check) when there's no object MobBridge at all" do
+      kt = "external fun nativeOrphan(pid: Long)"
+      assert Lint.native_funs_owned_by_mob_bridge(kt) == []
+    end
+
+    test "handles a MobBridge body containing nested braces" do
+      kt = """
+      object MobBridge {
+          fun helper() {
+              if (true) { doSomething() }
+          }
+          @JvmStatic external fun nativeFoo(pid: Long)
+      }
+      """
+
+      assert Lint.native_funs_owned_by_mob_bridge(kt) == []
+    end
+  end
+
   describe "check_kotlin/1 aggregate" do
     test "returns empty list on clean Kotlin" do
       content = """

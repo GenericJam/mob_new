@@ -2132,6 +2132,13 @@ object MobBridge {
     @JvmStatic external fun nativeDeliverVendorUsbEvent(
         pid: Long, sessionId: Int, tag: String, reason: String)
 
+    // Native callback for MobNativeViewRegistry's tier-2 components — see
+    // beam_jni.c's Java_..._MobBridge_nativeDeliverComponentEvent. JNI
+    // resolves a native method by its DECLARING class, so this must stay on
+    // MobBridge (where every other nativeDeliver* callback lives) even
+    // though only MobNativeViewRegistry calls it.
+    @JvmStatic external fun nativeDeliverComponentEvent(handle: Int, event: String, payloadJson: String)
+
 }
 
 // ── Composables ───────────────────────────────────────────────────────────────
@@ -2165,13 +2172,11 @@ object MobNativeViewRegistry {
         val send: MobNativeSend = { event, payload ->
             try {
                 val json = org.json.JSONObject(payload).toString()
-                nativeDeliverComponentEvent(handle, event, json)
+                MobBridge.nativeDeliverComponentEvent(handle, event, json)
             } catch (_: Exception) {}
         }
         factory(node.props, send)
     }
-
-    external fun nativeDeliverComponentEvent(handle: Int, event: String, payloadJson: String)
 }
 
 /** Renders a MobNode tree produced by Mob.Renderer. */

@@ -612,6 +612,47 @@ defmodule MobNew.ProjectGeneratorTest do
                Enum.map_join(issues, "\n  ", & &1.message)
     end
 
+    test "every native fun in MobBridge.kt is actually owned by object MobBridge (MOB-98)",
+         %{tmp: tmp} do
+      # external_fun_jni_consistency/2 above only proves the two sides agree
+      # on NAME — it stays green even if nativeDeliverComponentEvent is
+      # declared on a different object entirely, which is exactly the shape
+      # of the JNI owner mismatch this pins. That bug surfaced as an
+      # UnsatisfiedLinkError on real native interaction, not a compile
+      # failure — this is the test that would have caught it before a
+      # device ever saw it.
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      issues = Lint.native_funs_owned_by_mob_bridge(kt)
+
+      assert issues == [],
+             "native fun(s) declared outside object MobBridge:\n  " <>
+               Enum.map_join(issues, "\n  ", & &1.message)
+    end
+
+    test "nativeDeliverComponentEvent is declared on MobBridge, called from MobNativeViewRegistry",
+         %{tmp: tmp} do
+      # Positive guard: the two checks above stay green even if the whole
+      # tier-2 native component feature were deleted. Pin that it's actually
+      # present and wired the right way — @JvmStatic on MobBridge, called
+      # through the qualified MobBridge.nativeDeliverComponentEvent(...)
+      # from the registry, not the unqualified call that resolved to the
+      # broken same-object declaration.
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      c = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
+
+      assert kt =~ "@JvmStatic external fun nativeDeliverComponentEvent"
+      assert kt =~ "MobBridge.nativeDeliverComponentEvent(handle, event, json)"
+      assert c =~ "Java_com_example_test_1app_MobBridge_nativeDeliverComponentEvent"
+    end
+
     test "generates the magnetometer/compass motion path end to end (MOB-6)", %{tmp: tmp} do
       # Positive guard for the magnetometer feature: the consistency test above
       # only proves the Kotlin extern and C thunk *pair up* — it stays green even

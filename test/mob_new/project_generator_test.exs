@@ -772,6 +772,50 @@ defmodule MobNew.ProjectGeneratorTest do
       refute File.exists?(Path.join(dir, "ios/build.sh"))
     end
 
+    test "AppDelegate.m adopts UIScene lifecycle with the boot-once guard (Xcode 27 requirement)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/AppDelegate.m"))
+
+      # Xcode 27 requires scene-based startup; window creation + the BEAM boot
+      # move to a SceneDelegate. dispatch_once is the load-bearing guard — a
+      # scene can disconnect/reconnect (backgrounding, memory pressure) and
+      # re-fire scene:willConnectToSession:options: without relaunching the
+      # process, and a second erl_start in the same process is fatal. Assert
+      # both together so a future "simplification" that drops the guard (but
+      # keeps the scene delegate itself) still fails this test.
+      assert content =~ "UIWindowSceneDelegate",
+             "AppDelegate.m must declare a SceneDelegate conforming to " <>
+               "UIWindowSceneDelegate — Xcode 27 requires scene-based startup"
+
+      # The bare substring "dispatch_once" also matches the unrelated
+      # "dispatch_once_t" type declaration, so it would still pass even if
+      # someone removed the actual guarded call — assert on the call site
+      # itself (dispatch_once(&<token>, so the guard is genuinely invoked,
+      # not just declared.
+      assert content =~ ~r/dispatch_once\(&\w+,/,
+             "SceneDelegate must guard the BEAM boot (mob_register_plugins/" <>
+               "mob_init_ui/the beam_thread pthread) with a dispatch_once(...) " <>
+               "call — scene:willConnectToSession:options: can fire more than " <>
+               "once per process, and a second erl_start is fatal"
+    end
+
+    test "Info.plist wires UISceneConfigurations to SceneDelegate (Xcode 27 requirement)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/Info.plist"))
+
+      assert content =~ "UISceneDelegateClassName",
+             "Info.plist's UIApplicationSceneManifest must declare " <>
+               "UISceneConfigurations -> UISceneDelegateClassName, or iOS has " <>
+               "no scene delegate to hand the connecting UIWindowScene to"
+
+      assert content =~ "<string>SceneDelegate</string>",
+             "UISceneDelegateClassName must name the bare ObjC class " <>
+               "(SceneDelegate, not a module-prefixed name — only Swift " <>
+               "classes need that) declared in AppDelegate.m"
+    end
+
     test "generates mob.exs config template", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "mob.exs"))

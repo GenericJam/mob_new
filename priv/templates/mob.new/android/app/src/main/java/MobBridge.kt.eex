@@ -2169,6 +2169,11 @@ object MobNativeViewRegistry {
         val name = node.props["module"] as? String ?: return
         val factory = factories[name] ?: return
         val handle = (node.props["component_handle"] as? Number)?.toInt() ?: return
+        // -1 means the BEAM couldn't get a native component slot (pool
+        // exhausted — MOB-100). Render nothing rather than a view whose
+        // events would go nowhere; matches iOS's MobNativeViewRegistry
+        // early-return for the same case.
+        if (handle < 0) return
         val send: MobNativeSend = { event, payload ->
             try {
                 val json = org.json.JSONObject(payload).toString()

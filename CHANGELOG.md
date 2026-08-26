@@ -8,6 +8,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.23] - 2026-08-26
+
+### Fixed
+- **Generated Android `MobNativeViewRegistry.render()` didn't guard the
+  MOB-100 exhaustion sentinel.** mob 0.7.28 fixed native component handle
+  pool exhaustion by returning a `-1` sentinel (instead of crashing) when
+  the pool is full; iOS's `MobNativeViewRegistry.view(for:)` was updated
+  to skip rendering on `-1`, but the generated Android template's
+  `render()` still treated any non-null `component_handle` as valid,
+  wiring up a native view against an unregistered handle. Now mirrors
+  iOS: `if (handle < 0) return`.
+
 ## [0.4.22] - 2026-08-26
 
 ### Fixed

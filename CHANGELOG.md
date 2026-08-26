@@ -8,6 +8,26 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.22] - 2026-08-26
+
+### Fixed
+- **Android JNI owner mismatch for tier-2 native components.**
+  `MobBridge.kt.eex` declared `nativeDeliverComponentEvent` as a bare
+  `external fun` on `MobNativeViewRegistry`, but the generated JNI export
+  is `Java_<pkg>_MobBridge_nativeDeliverComponentEvent` — JNI resolves a
+  native method by its declaring class, so a real event from a Compose
+  native component threw `UnsatisfiedLinkError`. Moved the declaration
+  onto `MobBridge` as `@JvmStatic external fun`, matching every other
+  `nativeDeliver*` callback in the file. Added
+  `MobNew.Templates.Lint.native_funs_owned_by_mob_bridge/1` (wired into
+  the standard `check_kotlin/1` lint pass) — the existing
+  `external_fun_jni_consistency/2` only checked that Kotlin and C agreed
+  on the function NAME, not which class actually owned the Kotlin
+  declaration, so it stayed green through this exact bug; the new check
+  is brace-depth aware, catching a native fun nested inside another
+  class within `object MobBridge` too, not just one declared on an
+  entirely different object. (MOB-98)
+
 ## [0.4.21] - 2026-08-25
 
 ### Added

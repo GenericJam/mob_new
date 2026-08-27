@@ -666,6 +666,19 @@ object MobBridge {
     @JvmStatic
     external fun nativeSendTap(handle: Int)
 
+    /**
+     * Routes a sheet dismissal back to BEAM as `{:dismiss, tag}`.
+     *
+     * Deliberately separate from [nativeSendTap]: `Mob.UI.sheet/2` documents
+     * `:on_dismiss` as `{:dismiss, tag}` and iOS delivers that, so sending a
+     * tap here produced a message no screen written to the contract matches
+     * (MOB-104). Must stay declared on MobBridge — the JNI symbol is
+     * `Java_<pkg>_MobBridge_nativeSendDismiss` and resolution is by declaring
+     * class, not by call site.
+     */
+    @JvmStatic
+    external fun nativeSendDismiss(handle: Int)
+
     /** Called from Compose onChange — routes change value back to BEAM via C. */
     @JvmStatic
     external fun nativeSendChangeStr(handle: Int, value: String)
@@ -3109,7 +3122,9 @@ private fun MobSheet(node: MobNode) {
     fun sendDismissOnce() {
         if (!dismissSent) {
             dismissSent = true
-            dismissHandle?.let { MobBridge.nativeSendTap(it) }
+            // {:dismiss, tag}, not {:tap, tag} — matches what Mob.UI.sheet/2
+            // documents and what iOS sends. See MOB-104.
+            dismissHandle?.let { MobBridge.nativeSendDismiss(it) }
         }
     }
 

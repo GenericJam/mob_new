@@ -234,6 +234,12 @@ defmodule MobNew.ProjectGeneratorTest do
       assert beam_jni =~ "Java_com_example_test_1app_MainActivity_nativeNotifyConnectivity"
       assert beam_jni =~ "mob_send_connectivity_changed"
 
+      # Sheet dismissal needs its own MobBridge-extern ↔ beam_jni-thunk pair:
+      # {:dismiss, tag} is a different message from {:tap, tag}, so it can't
+      # ride the tap sender (MOB-104).
+      assert beam_jni =~ "Java_com_example_test_1app_MobBridge_nativeSendDismiss"
+      assert beam_jni =~ "mob_send_dismiss"
+
       assert read.("android/app/src/main/AndroidManifest.xml") =~
                "android.permission.ACCESS_NETWORK_STATE"
     end
@@ -788,7 +794,18 @@ defmodule MobNew.ProjectGeneratorTest do
       # Exactly-once dismissal: a remembered per-presentation flag, not a
       # bare handle call that could fire twice across recompositions.
       assert content =~ "var dismissSent by remember { mutableStateOf(false) }"
-      assert content =~ "dismissHandle?.let { MobBridge.nativeSendTap(it) }"
+
+      # Dismissal must go through nativeSendDismiss ({:dismiss, tag}), NOT
+      # nativeSendTap ({:tap, tag}). Mob.UI.sheet/2 documents :on_dismiss as
+      # {:dismiss, tag} and iOS delivers that; routing it through the tap
+      # sender produced a message no screen written to the contract matches,
+      # killing the screen process with a FunctionClauseError (MOB-104).
+      assert content =~ "dismissHandle?.let { MobBridge.nativeSendDismiss(it) }"
+      refute content =~ "dismissHandle?.let { MobBridge.nativeSendTap(it) }"
+
+      # The JNI symbol resolves by declaring class, so the external fun has to
+      # stay on MobBridge itself (the MOB-98 failure mode).
+      assert content =~ "external fun nativeSendDismiss(handle: Int)"
     end
 
     test "MobBridge.kt has correct package declaration", %{tmp: tmp} do

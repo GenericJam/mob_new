@@ -138,7 +138,21 @@ Canonical process lives in
 [`mob/RELEASE.md`](https://github.com/GenericJam/mob/blob/master/RELEASE.md)
 — trigger model (mix.exs as source of truth), patch-bump default with
 mandatory permission, CHANGELOG conventions, per-step idempotency of
-`release.yml`. **mob_new specifics:**
+`release.yml`.
+
+> **Review gate is on by default.** Everything that landed since the
+> last published version gets a code review *before* you publish —
+> scoped at `v<last-published>..HEAD`, not per-PR — plus the
+> version-sanity checks (is this version already published? did
+> anything merge after the bump commit?). Skip only if the user says
+> so. See RELEASE.md → "Review gate".
+>
+> `mob_new` ships in lockstep with `mob` for anything spanning a
+> runtime change and its generator template: publishing one without
+> the other leaves generated apps mismatched against the library they
+> depend on. Check both before cutting either.
+
+**mob_new specifics:**
 
 - The generator tests that build a project from templates need
   `MOB_DIR=/Users/kevin/code/mob` set explicitly when running from

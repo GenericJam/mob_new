@@ -254,6 +254,78 @@ defmodule MobNew.Templates.LintTest do
     end
   end
 
+  describe "sheet_content_modifier_not_double_applied/1" do
+    test "passes on the correct shape — dispatch calls MobSheet(node), body strips the two keys" do
+      kt = """
+      when (node.type) {
+          "sheet"          -> MobSheet(node)
+      }
+
+      private fun MobSheet(node: MobNode) {
+          val contentProps = node.props - listOf("background", "corner_radius")
+          val contentModifier = nodeModifier(contentProps)
+      }
+      """
+
+      assert Lint.sheet_content_modifier_not_double_applied(kt) == []
+    end
+
+    test "flags the dispatch arm passing the raw m modifier through" do
+      kt = """
+      when (node.type) {
+          "sheet"          -> MobSheet(node, m)
+      }
+
+      private fun MobSheet(node: MobNode) {
+          val contentProps = node.props - listOf("background", "corner_radius")
+      }
+      """
+
+      issues = Lint.sheet_content_modifier_not_double_applied(kt)
+
+      assert Enum.any?(
+               issues,
+               &(&1.kind == :sheet_modifier_double_applied and &1.message =~ "dispatch arm")
+             )
+    end
+
+    test "flags MobSheet building its content modifier from unstripped node.props" do
+      kt = """
+      when (node.type) {
+          "sheet"          -> MobSheet(node)
+      }
+
+      private fun MobSheet(node: MobNode) {
+          val contentModifier = nodeModifier(node.props)
+      }
+      """
+
+      issues = Lint.sheet_content_modifier_not_double_applied(kt)
+
+      assert Enum.any?(
+               issues,
+               &(&1.kind == :sheet_modifier_double_applied and &1.message =~ "strip")
+             )
+    end
+
+    test "returns no issues when there's no MobSheet function at all" do
+      kt = "private fun MobButton(node: MobNode, modifier: Modifier) {}"
+      assert Lint.sheet_content_modifier_not_double_applied(kt) == []
+    end
+
+    test "accepts the keys stripped in either order" do
+      kt = """
+      "sheet"          -> MobSheet(node)
+
+      private fun MobSheet(node: MobNode) {
+          val contentProps = node.props - listOf("corner_radius", "background")
+      }
+      """
+
+      assert Lint.sheet_content_modifier_not_double_applied(kt) == []
+    end
+  end
+
   describe "check_kotlin/1 aggregate" do
     test "returns empty list on clean Kotlin" do
       content = """

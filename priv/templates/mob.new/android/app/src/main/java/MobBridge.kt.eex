@@ -212,7 +212,12 @@ import androidx.lifecycle.LifecycleOwner
  * no main-thread dispatch needed for state writes.
  *
  * Tap events: Compose onClick calls nativeSendTap(handle), which routes
- * to mob_send_tap() in mob_nif.c and sends {:tap, tag} to the registered PID.
+ * to mob_send_tap() in mob_nif.zig and sends {:tap, tag} to the registered PID.
+ *
+ * Sheet dismissal takes a parallel but distinct route: nativeSendDismiss ->
+ * mob_send_dismiss() -> {:dismiss, tag}. That is the shape Mob.UI.sheet/2
+ * documents for :on_dismiss and the one iOS sends, so it deliberately does
+ * NOT reuse the tap sender (MOB-104).
  *
  * Holds the rendered tree and the nav transition to animate.
  *

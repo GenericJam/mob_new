@@ -1129,7 +1129,13 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
     else
-      mob_dep = ~s({:mob,     "~> 0.7"})
+      # Floor at 0.7.31, not "~> 0.7": the generated Android beam_jni.c calls
+      # mob_send_dismiss, which mob only exports from 0.7.31 (MOB-104). With a
+      # looser constraint a resolvable-but-older mob fails late in
+      # `mix mob.deploy --android --native` with "call to undeclared function
+      # 'mob_send_dismiss'" and nothing pointing at the real fix. `~>` still
+      # allows the whole 0.7.x line above the floor.
+      mob_dep = ~s({:mob,     "~> 0.7.31"})
       mob_dev_dep = ~s({:mob_dev, "~> 0.6", only: :dev, runtime: false})
       mob_exs_mob_dir = "Path.join(File.cwd!(), \"deps/mob\")"
 

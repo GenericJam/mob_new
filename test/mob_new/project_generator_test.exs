@@ -803,8 +803,13 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "dismissHandle?.let { MobBridge.nativeSendDismiss(it) }"
       refute content =~ "dismissHandle?.let { MobBridge.nativeSendTap(it) }"
 
-      # The JNI symbol resolves by declaring class, so the external fun has to
-      # stay on MobBridge itself (the MOB-98 failure mode).
+      # Presence only. Ownership (the MOB-98 failure mode — JNI resolves by
+      # DECLARING class) is pinned by "every native fun in MobBridge.kt is
+      # actually owned by object MobBridge", via
+      # Lint.native_funs_owned_by_mob_bridge/1, which covers this fun
+      # automatically. Don't weaken that test on the assumption this one
+      # checks ownership: a substring match here would still pass if the
+      # declaration moved to another object.
       assert content =~ "external fun nativeSendDismiss(handle: Int)"
     end
 

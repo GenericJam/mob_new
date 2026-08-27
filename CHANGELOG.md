@@ -8,6 +8,49 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.24] - 2026-08-27
+
+### Added
+- **Android Sheet renderer** — `Mob.UI.sheet/2` now renders on Android as a
+  Material 3 `ModalBottomSheet`, matching the iOS `.sheet` primitive that
+  shipped in mob 0.7.29. Supports `:detents` (medium-only sheets included),
+  `:background`, `:scrim` (applied exactly, unlike iOS where the system owns
+  dimming opacity), `:corner_radius`, and the custom drag indicator props.
+  Until now `Mob.UI.sheet/2` was an iOS-only primitive in practice: generated
+  Android apps had no sheet case at all and rendered nothing.
+
+### Fixed
+- **Sheet dismissal delivers `{:dismiss, tag}`, not `{:tap, tag}`.** The
+  renderer routed dismissal through `MobBridge.nativeSendTap`, but
+  `Mob.UI.sheet/2` documents `:on_dismiss` as `{:dismiss, tag}` and iOS
+  delivers that. A screen written to the documented contract never matched:
+  `Mob.Screen` forwards the unmatched message to `handle_info`, raising
+  `FunctionClauseError` and killing the screen process — or a catch-all
+  swallowed it, leaving the BEAM unaware the sheet had closed and unable to
+  re-present it. Adds the `nativeSendDismiss` extern on `MobBridge` and the
+  matching `beam_jni.c` thunk (MOB-104).
+- **`detents` was never read from real BEAM data.** `detentsProp` cast
+  `props["detents"] as? List<*>`, but JSON array props arrive as
+  `org.json.JSONArray`, which is not a Kotlin `List` — so the cast always
+  failed and every sheet silently fell back to `["medium", "large"]`. The
+  medium-only detent could only ever trigger from a hand-built `MobNode` in a
+  test. Now branches on `is JSONArray`, the pattern already proven for `:tabs`.
+
+### Changed
+- **Generated projects now require `{:mob, "~> 0.7.31"}`** (was `"~> 0.7"`).
+  The generated Android `beam_jni.c` calls `mob_send_dismiss`, which mob only
+  exports from 0.7.31. With the looser constraint an older mob resolved fine
+  and then failed late in `mix mob.deploy --android --native` with
+  `call to undeclared function 'mob_send_dismiss'`.
+
+### Upgrading
+- **Existing Android projects need a hand-port.** `MobBridge.kt` and
+  `beam_jni.c` are app-owned and never re-rendered, so regenerating is not
+  enough. `mix mob.doctor` (mob_dev) warns when a project still carries the
+  old wiring and prints the two-line change. If you worked around the old
+  behaviour by matching `handle_info({:tap, tag}, ...)` for a sheet dismissal,
+  that clause is now dead — switch it to `{:dismiss, tag}`.
+
 ## [0.4.23] - 2026-08-26
 
 ### Fixed

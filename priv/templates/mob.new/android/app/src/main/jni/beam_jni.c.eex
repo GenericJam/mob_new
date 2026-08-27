@@ -64,6 +64,16 @@ Java_<%= jni_package %>_MobBridge_nativeSendTap(JNIEnv* env, jclass cls, jint ha
     mob_send_tap((int)handle);
 }
 
+// Called from MobBridge.nativeSendDismiss(handle) when a sheet is dismissed.
+// Distinct from nativeSendTap because Mob.UI.sheet/2's :on_dismiss is
+// documented as {:dismiss, tag} and iOS delivers exactly that — routing it
+// through the tap sender delivered {:tap, tag} instead, which no screen
+// written to the contract matches (MOB-104).
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendDismiss(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_dismiss((int)handle);
+}
+
 // Called from MobBridge.nativeSendChangeStr/Bool/Float when an input widget changes.
 JNIEXPORT void JNICALL
 Java_<%= jni_package %>_MobBridge_nativeSendChangeStr(JNIEnv* env, jclass cls, jint handle, jstring value) {

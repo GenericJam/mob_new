@@ -1,0 +1,57 @@
+package <%= java_package %>
+
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
+import org.junit.Rule
+import org.junit.Test
+
+/**
+ * mob_new-e30-5: Material 3 ModalBottomSheet can omit the PartiallyExpanded
+ * anchor when sheet content measures shorter than half the viewport height.
+ * A medium-only sheet (detents == ["medium"]) rejects Expanded via
+ * confirmValueChange in MobSheet — without the BoxWithConstraints fix in
+ * MobBridge.kt, a short-content medium-only sheet has no valid anchor to
+ * land on and stays hidden forever.
+ *
+ * Deliberately short content (a single short Text) — the regression this
+ * guards against only reproduces when content is under half the viewport.
+ */
+class MediumOnlySheetTest {
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    @Test
+    fun shortContentMediumOnlySheetBecomesDisplayed() {
+        val sheetNode = MobNode(
+            type = "sheet",
+            props = mapOf(
+                "detents" to listOf("medium"),
+                "background" to 0xFFFFFFFFL
+            ),
+            children = listOf(
+                MobNode(
+                    type = "text",
+                    props = mapOf("text" to "Short content"),
+                    children = emptyList()
+                )
+            )
+        )
+
+        composeTestRule.setContent {
+            RenderNode(sheetNode)
+        }
+
+        // Sheet presentation is asynchronous (LaunchedEffect -> sheetState.show()) —
+        // wait for the content to actually appear rather than asserting immediately.
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule
+                .onAllNodesWithText("Short content")
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+
+        composeTestRule.onNodeWithText("Short content").assertIsDisplayed()
+    }
+}

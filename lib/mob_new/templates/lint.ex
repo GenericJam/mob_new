@@ -50,7 +50,8 @@ defmodule MobNew.Templates.Lint do
       &balanced_brackets/1,
       &no_eex_leaks/1,
       &unique_kotlin_imports/1,
-      &native_funs_owned_by_mob_bridge/1
+      &native_funs_owned_by_mob_bridge/1,
+      &sheet_content_modifier_not_double_applied/1
     ]
     |> Enum.flat_map(& &1.(content))
   end
@@ -238,6 +239,99 @@ defmodule MobNew.Templates.Lint do
                 "native method by its declaring class"
           }
         end)
+    end
+  end
+
+  @doc """
+  `RenderNodeInner`'s `when (node.type)` dispatch computes `m` =
+  `tapModifier.then(nodeModifier(node.props))` BEFORE the dispatch runs —
+  `nodeModifier` bakes `background`/`corner_radius` into `m` as
+  `.background()`/`.clip()` for every node type uniformly. Most composables
+  just apply that `m` and move on. `MobSheet` can't: Material 3
+  `ModalBottomSheet` takes `containerColor`/`shape` as constructor
+  parameters, the same way `Button` takes `ButtonDefaults.buttonColors`/
+  `shape` — those don't compose via a `Modifier` chain, so if MobSheet's
+  content also received the pre-baked `m` (or built its own modifier
+  straight from `node.props` without stripping those two keys), the
+  background would paint twice and the corners would clip twice: once
+  from the outer modifier's full-rect rounding, once from
+  ModalBottomSheet's own top-corners-only shape.
+
+  Two structural invariants, checked directly against the rendered source
+  (not a live composition — this can't catch a visual regression, only
+  the textual shape that causes one):
+
+  1. The `"sheet" -> MobSheet(...)` dispatch arm must not pass the
+     `m`-derived modifier through.
+  2. `MobSheet`'s body must build its content modifier from a props map
+     with `"background"`/`"corner_radius"` stripped, not raw `node.props`.
+
+  Returns `[]` if the content has no `MobSheet` function at all (nothing
+  to check — e.g. C/Swift content passed by mistake, or a future template
+  restructuring that removes the "sheet" node type entirely).
+  """
+  @spec sheet_content_modifier_not_double_applied(String.t()) :: [issue()]
+  def sheet_content_modifier_not_double_applied(kotlin_content) do
+    case function_span(kotlin_content, "MobSheet") do
+      nil ->
+        []
+
+      {open, close} ->
+        dispatch_issue(kotlin_content) ++ strip_issue(kotlin_content, open, close)
+    end
+  end
+
+  defp dispatch_issue(content) do
+    if Regex.match?(~r/"sheet"\s*->\s*MobSheet\(\s*node\s*,\s*m\s*\)/, content) do
+      [
+        %{
+          kind: :sheet_modifier_double_applied,
+          message:
+            "\"sheet\" dispatch arm passes the raw nodeModifier-derived `m` to MobSheet — " <>
+              "it already has background/corner_radius baked in as .background()/.clip(), " <>
+              "which double-applies against ModalBottomSheet's own containerColor/shape. " <>
+              "Call MobSheet(node) without threading `m` through."
+        }
+      ]
+    else
+      []
+    end
+  end
+
+  defp strip_issue(content, open, close) do
+    body = binary_part(content, open, close - open)
+
+    stripped? =
+      String.contains?(body, ~s[- listOf("background", "corner_radius")]) or
+        String.contains?(body, ~s[- listOf("corner_radius", "background")])
+
+    if stripped? do
+      []
+    else
+      [
+        %{
+          kind: :sheet_modifier_double_applied,
+          message:
+            "MobSheet doesn't appear to strip background/corner_radius out of the " <>
+              "props map before building its content modifier — those belong to " <>
+              "ModalBottomSheet's own containerColor/shape params, not the child content"
+        }
+      ]
+    end
+  end
+
+  # Byte-offset span of a top-level `private fun <name>(...) { ... }`'s
+  # body, `{brace_at, matching_close_at}` — or nil if no such function
+  # exists in the content. Generic version of mob_bridge_span/1 below,
+  # for any named function rather than specifically `object MobBridge`.
+  defp function_span(content, fun_name) do
+    with {fun_at, fun_len} <- binary_match(content, "fun #{fun_name}("),
+         search_from = fun_at + fun_len,
+         {brace_at, _} <- binary_match(content, "{", search_from),
+         close_at when not is_nil(close_at) <- matching_brace_index(content, brace_at) do
+      {brace_at, close_at}
+    else
+      _ -> nil
     end
   end
 

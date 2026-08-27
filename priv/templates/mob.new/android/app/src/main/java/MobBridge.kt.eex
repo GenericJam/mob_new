@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.toArgb
 import android.graphics.Bitmap
 import android.graphics.Paint
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -62,6 +63,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -136,15 +138,19 @@ import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DividerDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
@@ -152,6 +158,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -2277,6 +2284,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         "native_view"    -> MobNativeViewRegistry.render(node)
         "canvas"         -> MobCanvas(node, m)
         "gpu_view"       -> MobGpuView(node, m)
+        "sheet"          -> MobSheet(node)
     }
 }
 
@@ -3059,6 +3067,129 @@ private fun MobGpuView(node: MobNode, modifier: Modifier) {
                 color = androidx.compose.ui.graphics.Color.White,
                 fontSize = 12.sp
             )
+        }
+    }
+}
+
+// MobSheet — native modal bottom sheet backed by Material 3 ModalBottomSheet.
+// Presentation is owned by `visible`, a Compose-`remember`ed boolean scoped
+// to this composable's own slot in the composition — the same identity-
+// preservation Compose already gives MobToggle/MobSlider for user-driven
+// state against a BEAM-pushed node rebuilt fresh every render. A rerender
+// that still dispatches to "sheet" reuses this state (content updates
+// without re-presenting); a rerender that stops dispatching here disposes
+// it entirely (removing the node dismisses it), matching the iOS
+// MobSheetView contract in ios/MobRootView.swift.
+//
+// Deliberately does NOT take the `m` (nodeModifier(node.props)-derived)
+// modifier every other composable receives from RenderNodeInner — that
+// modifier already has `background`/`corner_radius` baked in as
+// `.background()`/`.clip()`, which would double up against
+// ModalBottomSheet's own `containerColor`/`shape` params (it owns its
+// container paint the same way M3's Button does, and can't take those
+// via a modifier chain). Content-area props are read directly off
+// `node.props` with those two keys stripped instead.
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MobSheet(node: MobNode) {
+    val detents = (node.props["detents"] as? List<*>)?.map { it.toString() }
+        ?: listOf("medium", "large")
+    val allowsMedium = "medium" in detents
+    val allowsLarge = "large" in detents
+    val mediumOnly = allowsMedium && !allowsLarge
+
+    var visible by remember { mutableStateOf(true) }
+    var dismissSent by remember { mutableStateOf(false) }
+    val dismissHandle = intProp(node.props, "on_dismiss")
+
+    fun sendDismissOnce() {
+        if (!dismissSent) {
+            dismissSent = true
+            dismissHandle?.let { MobBridge.nativeSendTap(it) }
+        }
+    }
+
+    if (!visible) return
+
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = !allowsMedium,
+        confirmValueChange = { value ->
+            allowsLarge || value != SheetValue.Expanded
+        }
+    )
+
+    LaunchedEffect(sheetState) { sheetState.show() }
+
+    val containerColor = colorProp(node.props, "background")
+        .takeIf { it != Color.Unspecified } ?: BottomSheetDefaults.ContainerColor
+    val cornerRadius = floatProp(node.props, "corner_radius") ?: 0f
+    val shape = if (cornerRadius > 0f) {
+        RoundedCornerShape(topStart = cornerRadius.dp, topEnd = cornerRadius.dp)
+    } else {
+        BottomSheetDefaults.ExpandedShape
+    }
+    val scrimColor = colorProp(node.props, "scrim")
+        .takeIf { it != Color.Unspecified } ?: BottomSheetDefaults.ScrimColor
+
+    // Custom drag indicator requires all four geometry props together —
+    // Mob.UI.sheet/2 already enforces this; check defensively here too
+    // since a hand-built node map (bypassing that validation) is possible.
+    val indicatorColor = colorProp(node.props, "drag_indicator_color")
+    val indicatorWidth = floatProp(node.props, "drag_indicator_width")
+    val indicatorHeight = floatProp(node.props, "drag_indicator_height")
+    val indicatorRailHeight = floatProp(node.props, "drag_indicator_rail_height")
+    val hasCustomIndicator = indicatorColor != Color.Unspecified &&
+        indicatorWidth != null && indicatorHeight != null && indicatorRailHeight != null
+
+    // background/corner_radius belong to ModalBottomSheet's own
+    // containerColor/shape above — not the child content's modifier.
+    val contentProps = node.props - listOf("background", "corner_radius")
+    val contentModifier = nodeModifier(contentProps)
+
+    ModalBottomSheet(
+        onDismissRequest = {
+            visible = false
+            sendDismissOnce()
+        },
+        sheetState = sheetState,
+        containerColor = containerColor,
+        scrimColor = scrimColor,
+        shape = shape,
+        dragHandle = if (hasCustomIndicator) {
+            {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(indicatorRailHeight!!.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(indicatorWidth!!.dp)
+                            .height(indicatorHeight!!.dp)
+                            .background(indicatorColor, RoundedCornerShape(50))
+                    )
+                }
+            }
+        } else {
+            { BottomSheetDefaults.DragHandle() }
+        }
+    ) {
+        // MOB-follow-up (mob_new-e30-5): Material 3 can omit the
+        // PartiallyExpanded anchor when content is shorter than half the
+        // viewport. A medium-only sheet rejects Expanded (confirmValueChange
+        // above), so a too-short sheet would otherwise never get a valid
+        // anchor to land on and stay hidden. Force content to slightly over
+        // half the measured viewport height in that case only — full
+        // medium+large sheets size to their natural content height as usual.
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val mediumDetentModifier = if (mediumOnly) {
+                Modifier.heightIn(min = maxHeight * 0.5f + 1.dp)
+            } else {
+                Modifier
+            }
+
+            Column(modifier = mediumDetentModifier.then(contentModifier).fillMaxWidth()) {
+                node.children.forEach { RenderNode(it) }
+            }
         }
     }
 }

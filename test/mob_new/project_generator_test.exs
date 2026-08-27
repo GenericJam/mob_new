@@ -749,6 +749,48 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ~s|raw.optString("android", "")|
     end
 
+    test "MobBridge.kt wires the native Sheet (ModalBottomSheet) renderer", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # Composable + Material 3 imports the renderer can't compile without.
+      assert content =~ "private fun MobSheet("
+      assert content =~ "import androidx.compose.material3.ModalBottomSheet"
+      assert content =~ "import androidx.compose.material3.rememberModalBottomSheetState"
+      assert content =~ "import androidx.compose.material3.SheetValue"
+      assert content =~ "import androidx.compose.material3.BottomSheetDefaults"
+      assert content =~ "import androidx.compose.material3.ExperimentalMaterial3Api"
+      assert content =~ "import androidx.compose.foundation.layout.BoxWithConstraints"
+      assert content =~ "@OptIn(ExperimentalMaterial3Api::class)"
+
+      # Composable dispatch picks up the "sheet" node type — deliberately
+      # without threading the raw `m` modifier through (see
+      # sheet_content_modifier_not_double_applied/1 in lint.ex).
+      assert content =~ ~s|"sheet"          -> MobSheet(node)|
+
+      # Detent logic: medium-only rejects Expanded via confirmValueChange,
+      # matching Mob.UI.sheet/2's detent contract on the Elixir side.
+      assert content =~ "skipPartiallyExpanded = !allowsMedium"
+      assert content =~ "allowsLarge || value != SheetValue.Expanded"
+
+      # The short-content medium-only fix (mob_new-e30-5): forces content to
+      # slightly over half the measured viewport so Material 3 creates a
+      # partial anchor, without ever allowing Expanded.
+      assert content =~ "BoxWithConstraints(modifier = Modifier.fillMaxWidth())"
+      assert content =~ "maxHeight * 0.5f + 1.dp"
+
+      # Sheet-owned background/corner_radius must not double-apply onto the
+      # child content modifier (see the lint check for the structural guard).
+      assert content =~ ~s|node.props - listOf("background", "corner_radius")|
+
+      # Exactly-once dismissal: a remembered per-presentation flag, not a
+      # bare handle call that could fire twice across recompositions.
+      assert content =~ "var dismissSent by remember { mutableStateOf(false) }"
+      assert content =~ "dismissHandle?.let { MobBridge.nativeSendTap(it) }"
+    end
+
     test "MobBridge.kt has correct package declaration", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

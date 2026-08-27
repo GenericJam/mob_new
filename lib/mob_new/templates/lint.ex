@@ -322,18 +322,8 @@ defmodule MobNew.Templates.Lint do
 
   # Byte-offset span of a top-level `private fun <name>(...) { ... }`'s
   # body, `{brace_at, matching_close_at}` — or nil if no such function
-  # exists in the content. Generic version of mob_bridge_span/1 below,
-  # for any named function rather than specifically `object MobBridge`.
-  defp function_span(content, fun_name) do
-    with {fun_at, fun_len} <- binary_match(content, "fun #{fun_name}("),
-         search_from = fun_at + fun_len,
-         {brace_at, _} <- binary_match(content, "{", search_from),
-         close_at when not is_nil(close_at) <- matching_brace_index(content, brace_at) do
-      {brace_at, close_at}
-    else
-      _ -> nil
-    end
-  end
+  # exists in the content.
+  defp function_span(content, fun_name), do: span_after_anchor(content, "fun #{fun_name}(")
 
   # Net brace depth opened between byte offsets `from` (inclusive) and `to`
   # (exclusive). 0 at `to` means nothing between them opened an unclosed
@@ -351,9 +341,14 @@ defmodule MobNew.Templates.Lint do
 
   # Byte-offset span of `object MobBridge { ... }`'s body, `{brace_at,
   # matching_close_at}` — or nil if the content has no such block.
-  defp mob_bridge_span(content) do
-    with {obj_at, obj_len} <- binary_match(content, "object MobBridge"),
-         search_from = obj_at + obj_len,
+  defp mob_bridge_span(content), do: span_after_anchor(content, "object MobBridge")
+
+  # Shared by function_span/2 and mob_bridge_span/1: find `anchor`, then the
+  # first `{` after it, then that brace's matching `}`. `{brace_at,
+  # matching_close_at}`, or nil if the anchor or a balanced brace isn't found.
+  defp span_after_anchor(content, anchor) do
+    with {anchor_at, anchor_len} <- binary_match(content, anchor),
+         search_from = anchor_at + anchor_len,
          {brace_at, _} <- binary_match(content, "{", search_from),
          close_at when not is_nil(close_at) <- matching_brace_index(content, brace_at) do
       {brace_at, close_at}

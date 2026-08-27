@@ -787,6 +787,12 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "BoxWithConstraints(modifier = Modifier.fillMaxWidth())"
       assert content =~ "maxHeight * 0.5f + 1.dp"
 
+      # Content detents wrap short bodies, cap at either the configured
+      # maximum or viewport, then scroll overflow internally.
+      assert content =~ ~S|detent.optString("type") == "content"|
+      assert content =~ "heightIn(max = contentMaximumHeight)"
+      assert content =~ "verticalScroll(rememberScrollState())"
+
       # Sheet-owned background/corner_radius must not double-apply onto the
       # child content modifier (see the lint check for the structural guard).
       assert content =~ ~s|node.props - listOf("background", "corner_radius")|

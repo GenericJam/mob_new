@@ -3092,8 +3092,7 @@ private fun MobGpuView(node: MobNode, modifier: Modifier) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MobSheet(node: MobNode) {
-    val detents = (node.props["detents"] as? List<*>)?.map { it.toString() }
-        ?: listOf("medium", "large")
+    val detents = detentsProp(node.props)
     val allowsMedium = "medium" in detents
     val allowsLarge = "large" in detents
     val mediumOnly = allowsMedium && !allowsLarge
@@ -3715,6 +3714,19 @@ private fun tabDefsProp(props: Map<String, Any?>): List<Map<String, String>> {
         else -> emptyList()
     }
 }
+
+// MobNode's parser hands array-valued props through as org.json.JSONArray,
+// not Kotlin List — `as? List<*>` silently fails and falls through to the
+// default on every real BEAM-sent tree (see tabDefsProp above for the same
+// pattern). The `is List<*>` branch stays as a fallback purely so a
+// directly-constructed MobNode (e.g. an instrumentation test building props
+// by hand instead of through JSON parsing) still works.
+private fun detentsProp(props: Map<String, Any?>): List<String> =
+    when (val raw = props["detents"]) {
+        is JSONArray -> (0 until raw.length()).map { raw.getString(it) }
+        is List<*> -> raw.map { it.toString() }
+        else -> listOf("medium", "large")
+    }
 
 // ── Prop extraction ───────────────────────────────────────────────────────────
 

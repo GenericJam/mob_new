@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import org.json.JSONObject
 import org.junit.Rule
 import org.junit.Test
 
@@ -17,6 +18,13 @@ import org.junit.Test
  *
  * Deliberately short content (a single short Text) — the regression this
  * guards against only reproduces when content is under half the viewport.
+ *
+ * Built via JSONObject(...).toMobNode() — the real BEAM-to-native parsing
+ * path — rather than constructing MobNode directly. detents arrives as
+ * org.json.JSONArray through that path, not a Kotlin List; a hand-built
+ * MobNode with a literal listOf(...) would pass even if detentsProp's
+ * JSONArray branch were broken, which is exactly the gap that let the
+ * detents-parsing regression (mob_new-e30-6) ship undetected.
  */
 class MediumOnlySheetTest {
     @get:Rule
@@ -24,20 +32,16 @@ class MediumOnlySheetTest {
 
     @Test
     fun shortContentMediumOnlySheetBecomesDisplayed() {
-        val sheetNode = MobNode(
-            type = "sheet",
-            props = mapOf(
-                "detents" to listOf("medium"),
-                "background" to 0xFFFFFFFFL
-            ),
-            children = listOf(
-                MobNode(
-                    type = "text",
-                    props = mapOf("text" to "Short content"),
-                    children = emptyList()
-                )
-            )
-        )
+        val json = """
+            {
+                "type": "sheet",
+                "props": {"detents": ["medium"], "background": 4294967295},
+                "children": [
+                    {"type": "text", "props": {"text": "Short content"}, "children": []}
+                ]
+            }
+        """.trimIndent()
+        val sheetNode = JSONObject(json).toMobNode()
 
         composeTestRule.setContent {
             RenderNode(sheetNode)

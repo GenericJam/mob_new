@@ -2238,13 +2238,25 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     val accessibilityRole = node.props["accessibility_role"] as? String
     val isButton = node.type == "box" && accessibilityRole == "button"
     val tapModifier = when {
-        isButton ->
-            modifier.clickable(enabled = !isDisabled && tapHandle != null, role = Role.Button) {
-                if (tapHandle != null) MobBridge.nativeSendTap(tapHandle)
+        // Require a handler here. Compose's ClickableSemanticsNode publishes
+        // disabled() whenever `enabled` is false, so encoding "no tap handler"
+        // as enabled = false made a perfectly live box whose tap is handled by
+        // an ancestor announce as "…, button, disabled". With no handler we
+        // fall through to the semantics-only path below, which still sets the
+        // button role.
+        isButton && tapHandle != null ->
+            modifier.clickable(enabled = !isDisabled, role = Role.Button) {
+                MobBridge.nativeSendTap(tapHandle)
             }
 
+        // `enabled = !isDisabled` here too, not just on the button arm above.
+        // Without it a box with `disabled: true` and no explicit
+        // accessibility_role still dispatched taps, while the semantics block
+        // below simultaneously marked it disabled() — announced as disabled to
+        // TalkBack and still firing. iOS applies .disabled() to every box
+        // regardless of role, so this also keeps the platforms in step.
         tapHandle != null && node.type != "button" ->
-            modifier.clickable { MobBridge.nativeSendTap(tapHandle) }
+            modifier.clickable(enabled = !isDisabled) { MobBridge.nativeSendTap(tapHandle) }
 
         else -> modifier
     }
@@ -2274,8 +2286,13 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         "box" -> {
             val hasWidth = floatProp(node.props, "width") != null
             val accessibilityLabel = node.props["accessibility_label"] as? String
+            // Merge for a label OR an explicit button role. Setting
+            // role/disabled without merging leaves them on the container while
+            // each child stays its own node, so TalkBack walks into a
+            // "button" and reads its children as separate elements. Matches
+            // the iOS side, which collapses on the same condition.
             val accessibilityModifier = Modifier.semantics(
-                mergeDescendants = accessibilityLabel != null,
+                mergeDescendants = accessibilityLabel != null || isButton,
             ) {
                 if (accessibilityLabel != null) contentDescription = accessibilityLabel
                 if (isButton) role = Role.Button
@@ -3137,6 +3154,12 @@ private fun MobGpuView(node: MobNode, modifier: Modifier) {
 // container paint the same way M3's Button does, and can't take those
 // via a modifier chain). Content-area props are read directly off
 // `node.props` with those two keys stripped instead.
+// Node types that install their own scrollable container. A sheet must not
+// wrap these in another vertical scroll: Compose throws on a scrollable
+// measured with infinite max height.
+private fun isScrollableNode(node: MobNode): Boolean =
+    node.type == "scroll" || node.type == "lazy_list" || node.children.any(::isScrollableNode)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MobSheet(node: MobNode) {
@@ -3250,18 +3273,36 @@ private fun MobSheet(node: MobNode) {
                 Modifier
             }
 
-            val contentDetentModifier = if (contentOnly) {
-                Modifier
-                    .heightIn(max = contentMaximumHeight)
-                    .verticalScroll(rememberScrollState())
-            } else {
-                Modifier
+            // Only add our own scroll when the content doesn't already
+            // contain one. Compose's checkScrollableContainerConstraints
+            // THROWS when a scrollable is measured with an infinite max
+            // height, which is exactly what wrapping verticalScroll around a
+            // `scroll` or `lazy_list` child does — so an intrinsic sheet
+            // containing a list (the most natural use of one) crashed at first
+            // measure. iOS survives the equivalent nesting because SwiftUI
+            // tolerates it; Compose does not. Cap the height either way; let
+            // the child own the scrolling when it has its own.
+            val hasScrollableChild = node.children.any(::isScrollableNode)
+            val contentDetentModifier = when {
+                contentOnly && hasScrollableChild ->
+                    Modifier.heightIn(max = contentMaximumHeight)
+
+                contentOnly ->
+                    Modifier
+                        .heightIn(max = contentMaximumHeight)
+                        .verticalScroll(rememberScrollState())
+
+                else -> Modifier
             }
 
             Column(
+                // Cap BEFORE the node's own padding, so padding counts against
+                // max_height instead of being added outside it — otherwise a
+                // sheet with padding overshoots the documented cap, and
+                // disagrees with iOS, which caps the already-padded body.
                 modifier = mediumDetentModifier
-                    .then(contentModifier)
                     .then(contentDetentModifier)
+                    .then(contentModifier)
                     .fillMaxWidth()
             ) {
                 node.children.forEach { RenderNode(it) }

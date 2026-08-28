@@ -81,6 +81,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import android.view.PixelCopy
 import android.view.WindowManager
 import kotlinx.coroutines.CoroutineScope
@@ -2229,9 +2234,32 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     // button installs its own onClick via the Button composable. Mirrors iOS,
     // where most node types pick up onTapGesture via .ifLet(node.onTap).
     val tapHandle = intProp(node.props, "on_tap")
-    val tapModifier = if (tapHandle != null && node.type != "button") {
-        modifier.clickable { MobBridge.nativeSendTap(tapHandle) }
-    } else modifier
+    val isDisabled = boolProp(node.props, "disabled") ?: false
+    val accessibilityRole = node.props["accessibility_role"] as? String
+    val isButton = node.type == "box" && accessibilityRole == "button"
+    val tapModifier = when {
+        // Require a handler here. Compose's ClickableSemanticsNode publishes
+        // disabled() whenever `enabled` is false, so encoding "no tap handler"
+        // as enabled = false made a perfectly live box whose tap is handled by
+        // an ancestor announce as "…, button, disabled". With no handler we
+        // fall through to the semantics-only path below, which still sets the
+        // button role.
+        isButton && tapHandle != null ->
+            modifier.clickable(enabled = !isDisabled, role = Role.Button) {
+                MobBridge.nativeSendTap(tapHandle)
+            }
+
+        // `enabled = !isDisabled` here too, not just on the button arm above.
+        // Without it a box with `disabled: true` and no explicit
+        // accessibility_role still dispatched taps, while the semantics block
+        // below simultaneously marked it disabled() — announced as disabled to
+        // TalkBack and still firing. iOS applies .disabled() to every box
+        // regardless of role, so this also keeps the platforms in step.
+        tapHandle != null && node.type != "button" ->
+            modifier.clickable(enabled = !isDisabled) { MobBridge.nativeSendTap(tapHandle) }
+
+        else -> modifier
+    }
     val base = tapModifier.then(nodeModifier(node.props))
     // Track on-screen frame + set a testTag for any node carrying an :id, so the
     // agent can read positions (Mob.Test.element_frames) without a screenshot.
@@ -2257,7 +2285,21 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         // "top_leading" / etc.) — defaults to TopStart for back-compat.
         "box" -> {
             val hasWidth = floatProp(node.props, "width") != null
-            val boxModifier = if (hasWidth) m else m.fillMaxWidth()
+            val accessibilityLabel = node.props["accessibility_label"] as? String
+            // Merge for a label OR an explicit button role. Setting
+            // role/disabled without merging leaves them on the container while
+            // each child stays its own node, so TalkBack walks into a
+            // "button" and reads its children as separate elements. Matches
+            // the iOS side, which collapses on the same condition.
+            val accessibilityModifier = Modifier.semantics(
+                mergeDescendants = accessibilityLabel != null || isButton,
+            ) {
+                if (accessibilityLabel != null) contentDescription = accessibilityLabel
+                if (isButton) role = Role.Button
+                if (isDisabled) disabled()
+            }
+            val boxModifier = (if (hasWidth) m else m.fillMaxWidth())
+                .then(accessibilityModifier)
             Box(modifier = boxModifier, contentAlignment = boxAlignProp(node.props)) {
                 node.children.forEach { RenderNode(it) }
             }
@@ -3112,12 +3154,24 @@ private fun MobGpuView(node: MobNode, modifier: Modifier) {
 // container paint the same way M3's Button does, and can't take those
 // via a modifier chain). Content-area props are read directly off
 // `node.props` with those two keys stripped instead.
+// Node types that install their own scrollable container. A sheet must not
+// wrap these in another vertical scroll: Compose throws on a scrollable
+// measured with infinite max height.
+private fun isScrollableNode(node: MobNode): Boolean =
+    node.type == "scroll" || node.type == "lazy_list" || node.children.any(::isScrollableNode)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MobSheet(node: MobNode) {
-    val detents = detentsProp(node.props)
+    val rawDetents = sheetDetentsProp(node.props)
+    val contentDetent = rawDetents.filterIsInstance<JSONObject>()
+        .firstOrNull { detent -> detent.optString("type") == "content" }
+    val detents = rawDetents.filterIsInstance<String>()
+        .filter { detent -> detent == "medium" || detent == "large" }
+        .ifEmpty { if (contentDetent == null) listOf("medium", "large") else emptyList() }
+    val contentOnly = contentDetent != null
     val allowsMedium = "medium" in detents
-    val allowsLarge = "large" in detents
+    val allowsLarge = "large" in detents || contentOnly
     val mediumOnly = allowsMedium && !allowsLarge
 
     var visible by remember { mutableStateOf(true) }
@@ -3205,13 +3259,52 @@ private fun MobSheet(node: MobNode) {
         // half the measured viewport height in that case only — full
         // medium+large sheets size to their natural content height as usual.
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val configuredMaximumHeight = contentDetent
+                ?.takeIf { detent -> detent.has("max_height") }
+                ?.optDouble("max_height")
+                ?.toFloat()
+                ?.dp
+            val contentMaximumHeight = configuredMaximumHeight
+                ?.let(maxHeight::coerceAtMost)
+                ?: maxHeight
             val mediumDetentModifier = if (mediumOnly) {
                 Modifier.heightIn(min = maxHeight * 0.5f + 1.dp)
             } else {
                 Modifier
             }
 
-            Column(modifier = mediumDetentModifier.then(contentModifier).fillMaxWidth()) {
+            // Only add our own scroll when the content doesn't already
+            // contain one. Compose's checkScrollableContainerConstraints
+            // THROWS when a scrollable is measured with an infinite max
+            // height, which is exactly what wrapping verticalScroll around a
+            // `scroll` or `lazy_list` child does — so an intrinsic sheet
+            // containing a list (the most natural use of one) crashed at first
+            // measure. iOS survives the equivalent nesting because SwiftUI
+            // tolerates it; Compose does not. Cap the height either way; let
+            // the child own the scrolling when it has its own.
+            val hasScrollableChild = node.children.any(::isScrollableNode)
+            val contentDetentModifier = when {
+                contentOnly && hasScrollableChild ->
+                    Modifier.heightIn(max = contentMaximumHeight)
+
+                contentOnly ->
+                    Modifier
+                        .heightIn(max = contentMaximumHeight)
+                        .verticalScroll(rememberScrollState())
+
+                else -> Modifier
+            }
+
+            Column(
+                // Cap BEFORE the node's own padding, so padding counts against
+                // max_height instead of being added outside it — otherwise a
+                // sheet with padding overshoots the documented cap, and
+                // disagrees with iOS, which caps the already-padded body.
+                modifier = mediumDetentModifier
+                    .then(contentDetentModifier)
+                    .then(contentModifier)
+                    .fillMaxWidth()
+            ) {
                 node.children.forEach { RenderNode(it) }
             }
         }
@@ -3746,10 +3839,10 @@ private fun tabDefsProp(props: Map<String, Any?>): List<Map<String, String>> {
 // pattern). The `is List<*>` branch stays as a fallback purely so a
 // directly-constructed MobNode (e.g. an instrumentation test building props
 // by hand instead of through JSON parsing) still works.
-private fun detentsProp(props: Map<String, Any?>): List<String> =
+private fun sheetDetentsProp(props: Map<String, Any?>): List<Any?> =
     when (val raw = props["detents"]) {
-        is JSONArray -> (0 until raw.length()).map { raw.getString(it) }
-        is List<*> -> raw.map { it.toString() }
+        is JSONArray -> (0 until raw.length()).map { raw.get(it) }
+        is List<*> -> raw
         else -> listOf("medium", "large")
     }
 

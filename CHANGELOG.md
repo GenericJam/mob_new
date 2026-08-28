@@ -8,6 +8,45 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.25] - 2026-08-27
+
+### Added
+- **Generated Android intrinsic Sheet support.** The renderer parses typed
+  content detents from the JSON array, hugs short content, caps against the
+  configured `max_height` and the current parent constraint, and applies
+  internal vertical scrolling to overflow. `:medium`/`:large` behaviour is
+  unchanged.
+- **Generated Android composite Box accessibility.** `accessibility_label`
+  becomes `contentDescription`, an explicit button role is preserved even with
+  no tap handle, `disabled` semantics are exposed, disabled interaction does
+  not dispatch, and a passive labelled Box does not become a button.
+
+### Fixed
+- **A content Sheet containing a scrollable child crashed the app.** The
+  content-detent path wrapped the sheet body in `verticalScroll`
+  unconditionally, and Compose throws when a scrollable is measured with an
+  infinite max height — so a `scroll` or `lazy_list` inside `detents:
+  [:content]`, the most natural use of an intrinsic sheet, died at first
+  measure with `IllegalStateException: Vertically scrollable component was
+  measured with an infinity maximum height constraints`. The sheet now only
+  adds its own scroll when the content has none; the height cap applies either
+  way and the child keeps owning its scrolling.
+- A disabled Box dispatched taps unless it also carried an explicit button
+  role, while simultaneously reporting `disabled()` semantics — announced as
+  disabled to TalkBack and still firing. iOS disables every Box regardless of
+  role, so this was also a platform split.
+- A Box declared `accessibility_role: :button` whose tap is handled by an
+  ancestor was announced as "button, disabled", because Compose publishes
+  disabled semantics whenever `clickable`'s `enabled` is false.
+- The Sheet height cap sat outside the node's own padding, so a padded sheet
+  overshot `max_height`; iOS caps the already-padded body.
+
+### Changed
+- **Generated projects now require `{:mob, "~> 0.7.32"}`** (was `"~> 0.7.31"`).
+  Intrinsic Sheet detents and composite Box accessibility only reach the
+  generated Android renderer because mob 0.7.32 validates and encodes them; on
+  an older mob those props never arrive and the behaviour silently degrades.
+
 ## [0.4.24] - 2026-08-27
 
 ### Added

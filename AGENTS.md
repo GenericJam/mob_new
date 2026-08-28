@@ -111,6 +111,14 @@ To publish a new version: bump `version:` in `mix.exs`, then
   (brace-depth aware, not just byte-position aware) and runs as part of
   `check_kotlin/1`'s aggregate.
 
+- **Android sheet state needs node identity.** Keep `MobSheet` keyed by the
+  sheet node's stable `id`, with the constant fallback for un-ID'd sheets.
+  Otherwise different sheets in one Compose slot share dismissal state and a
+  stale callback can hide the replacement. Canonicalize every JSON-serializable
+  ID type; only a truly absent `id` uses the legacy constant-slot fallback.
+  Native stale-event protection belongs to Mob's generation-tagged handles,
+  not to generator-side root tracking.
+
 ## Tests
 
 ```bash

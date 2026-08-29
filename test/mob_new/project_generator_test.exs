@@ -491,6 +491,48 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "ACTION_REQUEST_SCHEDULE_EXACT_ALARM"
     end
 
+    test "MobBridge.kt reports screen metrics and safe-area insets in the NIF contract order",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      assert content =~ "fun screenInfo(): FloatArray"
+      assert Lint.jvm_static_fun_owned_by_mob_bridge?(content, "screenInfo")
+      assert content =~ "activity.windowManager.currentWindowMetrics"
+      assert content =~ "WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()"
+      assert content =~ "result[0] = metrics.bounds.width() / density"
+      assert content =~ "result[1] = metrics.bounds.height() / density"
+      assert content =~ "result[2] = density"
+      assert content =~ "result[3] = insets.top / density"
+      assert content =~ "result[4] = insets.bottom / density"
+      assert content =~ "result[5] = insets.left / density"
+      assert content =~ "result[6] = insets.right / density"
+
+      assert content =~
+               "val widthPx = decor.width.takeIf { it > 0 } ?: displayMetrics.widthPixels"
+
+      assert content =~
+               "val heightPx = decor.height.takeIf { it > 0 } ?: displayMetrics.heightPixels"
+
+      assert content =~ "result[0] = widthPx / density"
+      assert content =~ "result[1] = heightPx / density"
+      assert content =~ "result[2] = density"
+
+      assert content =~
+               "result[3] = maxOf(insets.systemWindowInsetTop, cutout?.safeInsetTop ?: 0) / density"
+
+      assert content =~
+               "result[4] = maxOf(insets.systemWindowInsetBottom, cutout?.safeInsetBottom ?: 0) / density"
+
+      assert content =~
+               "result[5] = maxOf(insets.systemWindowInsetLeft, cutout?.safeInsetLeft ?: 0) / density"
+
+      assert content =~
+               "result[6] = maxOf(insets.systemWindowInsetRight, cutout?.safeInsetRight ?: 0) / density"
+    end
+
     test "MobBridge.kt does not declare Bluetooth external fns (plugin-provided)", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

@@ -254,6 +254,42 @@ defmodule MobNew.Templates.LintTest do
     end
   end
 
+  describe "jvm_static_fun_owned_by_mob_bridge?/2" do
+    test "accepts a direct @JvmStatic function" do
+      kt = """
+      object MobBridge {
+          @JvmStatic
+          fun screenInfo(): FloatArray = FloatArray(7)
+      }
+      """
+
+      assert Lint.jvm_static_fun_owned_by_mob_bridge?(kt, "screenInfo")
+    end
+
+    test "rejects an absent, nested, or differently-owned function" do
+      absent = "object MobBridge {}"
+
+      nested = """
+      object MobBridge {
+          object Helper {
+              @JvmStatic fun screenInfo(): FloatArray = FloatArray(7)
+          }
+      }
+      """
+
+      other_owner = """
+      object MobBridge {}
+      object Helper {
+          @JvmStatic fun screenInfo(): FloatArray = FloatArray(7)
+      }
+      """
+
+      refute Lint.jvm_static_fun_owned_by_mob_bridge?(absent, "screenInfo")
+      refute Lint.jvm_static_fun_owned_by_mob_bridge?(nested, "screenInfo")
+      refute Lint.jvm_static_fun_owned_by_mob_bridge?(other_owner, "screenInfo")
+    end
+  end
+
   describe "sheet_content_modifier_not_double_applied/1" do
     test "passes on the correct shape — dispatch calls MobSheet(node), body strips the two keys" do
       kt = """

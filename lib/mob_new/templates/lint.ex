@@ -242,6 +242,26 @@ defmodule MobNew.Templates.Lint do
     end
   end
 
+  @doc false
+  @spec jvm_static_fun_owned_by_mob_bridge?(String.t(), String.t()) :: boolean()
+  def jvm_static_fun_owned_by_mob_bridge?(kotlin_content, function_name) do
+    case mob_bridge_span(kotlin_content) do
+      nil ->
+        false
+
+      {open, close} ->
+        pattern =
+          Regex.compile!("@JvmStatic\\s+fun\\s+#{Regex.escape(function_name)}\\s*\\(")
+
+        pattern
+        |> Regex.scan(kotlin_content, return: :index)
+        |> Enum.any?(fn [{whole_at, _}] ->
+          whole_at >= open and whole_at < close and
+            brace_depth_between(kotlin_content, open + 1, whole_at) == 0
+        end)
+    end
+  end
+
   @doc """
   `RenderNodeInner`'s `when (node.type)` dispatch computes `m` =
   `tapModifier.then(nodeModifier(node.props))` BEFORE the dispatch runs —

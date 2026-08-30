@@ -8,6 +8,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.27] - 2026-08-30
+
+### Fixed
+- **Generated projects pin the Android Zig toolchain.** `.tool-versions` now
+  includes `zig 0.17.0-dev.269+ebff43698` (derived at compile time from
+  mob_new's own pin), so a first `mix mob.deploy --native` no longer fails
+  toolchain detection on Android. LiveView-generated projects, which
+  previously received no `.tool-versions`, now get one too; an existing
+  `.tool-versions` is never clobbered. The generated header notes that the
+  zig dev pin requires mise (asdf cannot fetch historical nightlies).
+  Companion to mob_dev 0.6.29's corrected install guidance.
+
 ## [0.4.26] - 2026-08-29
 
 ### Fixed

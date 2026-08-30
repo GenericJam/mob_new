@@ -44,6 +44,11 @@ To publish a new version: bump `version:` in `mix.exs`, then
   `.tool-versions` only when `mix phx.new` did not create one; never route the
   LiveView path through the native `write_dotfiles/2` overwrite behavior.
 
+- **Archive compile-time resources must ship in the Hex package.** The exact
+  Zig pin lives in `priv/zig-version`, not the repository-root `.tool-versions`:
+  Hex includes `priv/`, but omits root dotfiles. Keep the two pins in lockstep;
+  the packed-artifact regression builds and installs from unpacked Hex source.
+
 - **Template defaults eagerly evaluate.** `System.get_env("ROOTDIR", Path.expand("~/..."))`
   inside a template raises on Android (no `HOME`). The fix used `case` /
   `||` for laziness — see `home_screen.ex.eex` `rootdir/0` helper. Don't

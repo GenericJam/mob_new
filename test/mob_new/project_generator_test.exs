@@ -18,6 +18,15 @@ defmodule MobNew.ProjectGeneratorTest do
     end)
   end
 
+  test "packaged Zig version stays in lockstep with .tool-versions" do
+    packaged_version =
+      Path.expand("../../priv/zig-version", __DIR__)
+      |> File.read!()
+      |> String.trim()
+
+    assert packaged_version == required_zig_version()
+  end
+
   # ── assigns/1 ────────────────────────────────────────────────────────────────
 
   describe "assigns/1" do

@@ -26,17 +26,9 @@ defmodule MobNew.ProjectGenerator do
   ships with `com.mob.*` would have to be renamed before reaching either store.
   """
 
-  @tool_versions_path Path.expand("../../.tool-versions", __DIR__)
-  @external_resource @tool_versions_path
-  @required_zig_version @tool_versions_path
-                        |> File.read!()
-                        |> String.split("\n")
-                        |> Enum.find_value(fn line ->
-                          case String.split(line) do
-                            ["zig", version] -> version
-                            _ -> nil
-                          end
-                        end) || raise("zig is not pinned in #{@tool_versions_path}")
+  @zig_version_path Path.expand("../../priv/zig-version", __DIR__)
+  @external_resource @zig_version_path
+  @required_zig_version @zig_version_path |> File.read!() |> String.trim()
 
   # Template + static roots. Default to the installed archive's priv dir
   # (the loaded mob_new code's :code.priv_dir/1). When the caller asks for

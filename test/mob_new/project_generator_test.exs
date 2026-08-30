@@ -175,6 +175,14 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(Path.join(dir, "mix.exs"))
     end
 
+    test "pins the Android native-build Zig version", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      tool_versions = File.read!(Path.join(dir, ".tool-versions"))
+
+      assert tool_versions =~ "zig 0.17.0-dev.269+ebff43698"
+      refute tool_versions =~ "zig 0.15"
+    end
+
     test "scaffolds a Mob.ScreenCase test for the home screen", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "test/test_helper.exs"))

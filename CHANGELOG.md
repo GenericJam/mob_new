@@ -8,6 +8,23 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.29] - 2026-08-31
+
+### Fixed
+- **Android: a replacement sheet no longer inherits its predecessor's hidden
+  or already-dismissed state.** The generated sheet renderer keys presentation
+  state (visibility + the exactly-once dismissal flag) by the sheet node's
+  `id`, canonicalized across every JSON id form (string, number, boolean,
+  explicit null, array, object — key order irrelevant; `""`, `0`, `false`,
+  and `null` are all distinct from an absent id, which keeps the previous
+  slot-scoped behavior). A replaced sheet's presentation is deactivated on
+  disposal, so a late dismiss callback can neither hide the new sheet nor
+  suppress its `{:dismiss, tag}`; re-renders that keep the same `id` update
+  content in place without re-presenting. Ships generated instrumentation
+  coverage (`SheetIdentityTest`). A narrow dismiss-races-re-render window
+  remains until mob's generation-tagged event handles land (mob#114, in
+  revision) — this fix never widens it.
+
 ## [0.4.28] - 2026-08-30
 
 ### Fixed

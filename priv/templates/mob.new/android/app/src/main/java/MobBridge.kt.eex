@@ -166,11 +166,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -233,6 +235,61 @@ import androidx.lifecycle.LifecycleOwner
  * composable in place — no content swap, no focus loss, no keyboard dismissal.
  */
 data class RootState(val navKey: Int, val transition: String, val node: MobNode?)
+
+internal data class MobSheetNodeIdentityKey(val canonical: String)
+
+internal object MobSheetNodeIdentity {
+    fun keyFor(node: MobNode): MobSheetNodeIdentityKey? {
+        if (!node.props.containsKey("id")) return null
+        return MobSheetNodeIdentityKey(canonicalJsonValue(node.props["id"]))
+    }
+
+    private fun canonicalJsonValue(value: Any?): String = when (value) {
+        null, JSONObject.NULL -> "z"
+        is String -> framed("s", listOf(value))
+        is Boolean -> if (value) "b1" else "b0"
+        is Number -> framed("n", listOf(value.toString()))
+        is JSONArray -> framed(
+            "a",
+            (0 until value.length()).map { index -> canonicalJsonValue(value.get(index)) }
+        )
+        is JSONObject -> {
+            val keys = value.keys().asSequence().toList().sorted()
+            framed(
+                "o",
+                keys.map { key ->
+                    framed(
+                        "e",
+                        listOf(canonicalJsonValue(key), canonicalJsonValue(value.get(key)))
+                    )
+                }
+            )
+        }
+        is Map<*, *> -> {
+            val entries = value.entries
+                .map { entry ->
+                    framed(
+                        "e",
+                        listOf(canonicalJsonValue(entry.key), canonicalJsonValue(entry.value))
+                    )
+                }
+                .sorted()
+            framed("o", entries)
+        }
+        is Iterable<*> -> framed("a", value.map(::canonicalJsonValue))
+        is Array<*> -> framed("a", value.map(::canonicalJsonValue))
+        else -> error("Unsupported sheet id value: ${value::class.java.name}")
+    }
+
+    private fun framed(type: String, values: List<String>): String = buildString {
+        append(type)
+        values.forEach { value ->
+            append(value.length)
+            append(':')
+            append(value)
+        }
+    }
+}
 
 object MobBridge {
 
@@ -2397,7 +2454,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         "native_view"    -> MobNativeViewRegistry.render(node)
         "canvas"         -> MobCanvas(node, m)
         "gpu_view"       -> MobGpuView(node, m)
-        "sheet"          -> MobSheet(node)
+        "sheet"          -> MobSheetSlot(node) { state -> MobSheet(node, state) }
     }
 }
 
@@ -3185,14 +3242,13 @@ private fun MobGpuView(node: MobNode, modifier: Modifier) {
 }
 
 // MobSheet — native modal bottom sheet backed by Material 3 ModalBottomSheet.
-// Presentation is owned by `visible`, a Compose-`remember`ed boolean scoped
-// to this composable's own slot in the composition — the same identity-
-// preservation Compose already gives MobToggle/MobSlider for user-driven
-// state against a BEAM-pushed node rebuilt fresh every render. A rerender
-// that still dispatches to "sheet" reuses this state (content updates
-// without re-presenting); a rerender that stops dispatching here disposes
-// it entirely (removing the node dismisses it), matching the iOS
-// MobSheetView contract in ios/MobRootView.swift.
+// Presentation is owned by `visible`, a Compose-`remember`ed boolean. The
+// dispatch site keys this whole composable by the sheet's stable node id so a
+// different sheet rendered into the same tree slot gets fresh presentation
+// state. Without that boundary, a late dismiss callback from the old sheet can
+// hide its replacement and its `dismissSent` flag can suppress the new
+// sheet's callback. Sheets without an id keep the former slot-based behavior
+// through the constant Unit fallback.
 //
 // Deliberately does NOT take the `m` (nodeModifier(node.props)-derived)
 // modifier every other composable receives from RenderNodeInner — that
@@ -3208,9 +3264,46 @@ private fun MobGpuView(node: MobNode, modifier: Modifier) {
 private fun isScrollableNode(node: MobNode): Boolean =
     node.type == "scroll" || node.type == "lazy_list" || node.children.any(::isScrollableNode)
 
+internal class MobSheetPresentationState {
+    var visible by mutableStateOf(true)
+        private set
+
+    private var active = true
+    private var dismissSent = false
+
+    fun deactivate() {
+        active = false
+    }
+
+    fun dismiss(sendDismiss: () -> Unit) {
+        if (!active) return
+
+        visible = false
+        if (!dismissSent) {
+            dismissSent = true
+            sendDismiss()
+        }
+    }
+}
+
+@Composable
+internal fun MobSheetSlot(
+    node: MobNode,
+    content: @Composable (MobSheetPresentationState) -> Unit
+) {
+    val identityKey = MobSheetNodeIdentity.keyFor(node)
+    key(identityKey ?: Unit) {
+        val presentation = remember { MobSheetPresentationState() }
+        DisposableEffect(presentation) {
+            onDispose { presentation.deactivate() }
+        }
+        content(presentation)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MobSheet(node: MobNode) {
+private fun MobSheet(node: MobNode, presentation: MobSheetPresentationState) {
     val rawDetents = sheetDetentsProp(node.props)
     val contentDetent = rawDetents.filterIsInstance<JSONObject>()
         .firstOrNull { detent -> detent.optString("type") == "content" }
@@ -3222,20 +3315,9 @@ private fun MobSheet(node: MobNode) {
     val allowsLarge = "large" in detents || contentOnly
     val mediumOnly = allowsMedium && !allowsLarge
 
-    var visible by remember { mutableStateOf(true) }
-    var dismissSent by remember { mutableStateOf(false) }
     val dismissHandle = intProp(node.props, "on_dismiss")
 
-    fun sendDismissOnce() {
-        if (!dismissSent) {
-            dismissSent = true
-            // {:dismiss, tag}, not {:tap, tag} — matches what Mob.UI.sheet/2
-            // documents and what iOS sends. See MOB-104.
-            dismissHandle?.let { MobBridge.nativeSendDismiss(it) }
-        }
-    }
-
-    if (!visible) return
+    if (!presentation.visible) return
 
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = !allowsMedium,
@@ -3274,8 +3356,11 @@ private fun MobSheet(node: MobNode) {
 
     ModalBottomSheet(
         onDismissRequest = {
-            visible = false
-            sendDismissOnce()
+            presentation.dismiss {
+                // {:dismiss, tag}, not {:tap, tag} — matches what Mob.UI.sheet/2
+                // documents and what iOS sends. See MOB-104.
+                dismissHandle?.let { MobBridge.nativeSendDismiss(it) }
+            }
         },
         sheetState = sheetState,
         containerColor = containerColor,

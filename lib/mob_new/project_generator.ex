@@ -26,6 +26,18 @@ defmodule MobNew.ProjectGenerator do
   ships with `com.mob.*` would have to be renamed before reaching either store.
   """
 
+  @tool_versions_path Path.expand("../../.tool-versions", __DIR__)
+  @external_resource @tool_versions_path
+  @required_zig_version @tool_versions_path
+                        |> File.read!()
+                        |> String.split("\n")
+                        |> Enum.find_value(fn line ->
+                          case String.split(line) do
+                            ["zig", version] -> version
+                            _ -> nil
+                          end
+                        end) || raise("zig is not pinned in #{@tool_versions_path}")
+
   # Template + static roots. Default to the installed archive's priv dir
   # (the loaded mob_new code's :code.priv_dir/1). When the caller asks for
   # local-override behaviour AND a usable mob_new checkout is reachable,
@@ -375,9 +387,11 @@ defmodule MobNew.ProjectGenerator do
     #   asdf install    https://asdf-vm.com
     #
     # OTP 29 matches the device runtime tarballs. Java 17 LTS is required for Gradle.
+    # The exact Zig dev version is deliberate: generated native build files track it.
     erlang 29.0
     elixir 1.20.0-otp-29
     java temurin-17.0.18
+    zig #{@required_zig_version}
     """,
     ".formatter.exs" => """
     [
@@ -433,6 +447,18 @@ defmodule MobNew.ProjectGenerator do
     end)
   end
 
+  @doc false
+  @spec write_tool_versions(String.t()) :: :ok
+  def write_tool_versions(project_dir) do
+    path = Path.join(project_dir, ".tool-versions")
+
+    if not File.exists?(path) do
+      File.write!(path, Map.fetch!(@dotfiles, ".tool-versions"))
+    end
+
+    :ok
+  end
+
   @doc """
   Generates a LiveView-wrapped Mob project at `dest_dir/<app_name>`.
 
@@ -463,6 +489,7 @@ defmodule MobNew.ProjectGenerator do
       with :ok <- run_phx_new(app_name, dest_dir, opts),
            :ok <- patch_mix_exs(project_dir, opts),
            :ok <- copy_native_boilerplate(app_name, project_dir, liveview_opts),
+           :ok <- write_tool_versions(project_dir),
            :ok <- apply_liveview_patches(app_name, project_dir, opts) do
         {:ok, project_dir}
       end

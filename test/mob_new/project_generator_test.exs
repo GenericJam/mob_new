@@ -6,6 +6,18 @@ defmodule MobNew.ProjectGeneratorTest do
   alias MobNew.ProjectGenerator
   alias MobNew.Templates.Lint
 
+  defp required_zig_version do
+    Path.expand("../../.tool-versions", __DIR__)
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.find_value(fn line ->
+      case String.split(line) do
+        ["zig", version] -> version
+        _ -> nil
+      end
+    end)
+  end
+
   # ── assigns/1 ────────────────────────────────────────────────────────────────
 
   describe "assigns/1" do
@@ -173,6 +185,23 @@ defmodule MobNew.ProjectGeneratorTest do
     test "generates mix.exs", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "mix.exs"))
+    end
+
+    test "pins the Android native-build Zig version", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      tool_versions = File.read!(Path.join(dir, ".tool-versions"))
+
+      assert tool_versions =~ "zig #{required_zig_version()}"
+      refute tool_versions =~ "zig 0.15"
+    end
+
+    test "preserves an existing toolchain file when requested", %{tmp: tmp} do
+      project_dir = Path.join(tmp, "existing_toolchain")
+      File.mkdir_p!(project_dir)
+      File.write!(Path.join(project_dir, ".tool-versions"), "nodejs 24.0.0\n")
+
+      assert :ok = ProjectGenerator.write_tool_versions(project_dir)
+      assert File.read!(Path.join(project_dir, ".tool-versions")) == "nodejs 24.0.0\n"
     end
 
     test "scaffolds a Mob.ScreenCase test for the home screen", %{tmp: tmp} do
@@ -1620,6 +1649,16 @@ defmodule MobNew.ProjectGeneratorTest do
       content = File.read!(Path.join(dir, "mix.exs"))
       assert content =~ ":mob"
       assert content =~ ":mob_dev"
+    end
+
+    @tag :integration
+    test "adds the exact Zig pin without replacing Phoenix-owned dotfiles", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+
+      assert File.read!(Path.join(dir, ".tool-versions")) =~
+               "zig #{required_zig_version()}"
+
+      assert File.read!(Path.join(dir, ".gitignore")) =~ "/deps/"
     end
 
     @tag :integration

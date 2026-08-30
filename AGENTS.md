@@ -40,6 +40,10 @@ To publish a new version: bump `version:` in `mix.exs`, then
   to the native template and don't update the blocklist, LV projects ship
   with a broken (overwritten) Phoenix config.
 
+- **LiveView generation preserves existing dotfiles.** It adds Mob's
+  `.tool-versions` only when `mix phx.new` did not create one; never route the
+  LiveView path through the native `write_dotfiles/2` overwrite behavior.
+
 - **Template defaults eagerly evaluate.** `System.get_env("ROOTDIR", Path.expand("~/..."))`
   inside a template raises on Android (no `HOME`). The fix used `case` /
   `||` for laziness — see `home_screen.ex.eex` `rootdir/0` helper. Don't

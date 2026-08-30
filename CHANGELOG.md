@@ -8,6 +8,19 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.26] - 2026-08-29
+
+### Fixed
+- **Generated Android bridge now exposes `MobBridge.screenInfo()`.** Mob's
+  optional JNI binding (`nif_screen_info`, mob 0.7+) expects a static
+  `screenInfo(): FloatArray` returning `[w, h, density, top, bottom, left,
+  right]` in dp; generated bridges omitted it, so `Mob.Test.screen_info/1`
+  returned all zeros on Android. Uses `currentWindowMetrics` +
+  `getInsetsIgnoringVisibility(systemBars | displayCutout)` on API 30+, with a
+  `decorView`/`rootWindowInsets` fallback below. Template lint rejects
+  generated bridges that omit or misplace the entrypoint. Existing apps must
+  regenerate or hand-port the bridge to pick this up.
+
 ## [0.4.25] - 2026-08-27
 
 ### Added

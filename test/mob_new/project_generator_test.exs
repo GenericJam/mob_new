@@ -854,7 +854,10 @@ defmodule MobNew.ProjectGeneratorTest do
       # Composable dispatch picks up the "sheet" node type — deliberately
       # without threading the raw `m` modifier through (see
       # sheet_content_modifier_not_double_applied/1 in lint.ex).
-      assert content =~ ~s|"sheet"          -> MobSheet(node)|
+      assert content =~
+               ~s|"sheet"          -> MobSheetSlot(node) { state -> MobSheet(node, state) }|
+
+      assert content =~ "import androidx.compose.runtime.key"
 
       # Detent logic: medium-only rejects Expanded via confirmValueChange,
       # matching Mob.UI.sheet/2's detent contract on the Elixir side.
@@ -879,7 +882,26 @@ defmodule MobNew.ProjectGeneratorTest do
 
       # Exactly-once dismissal: a remembered per-presentation flag, not a
       # bare handle call that could fire twice across recompositions.
-      assert content =~ "var dismissSent by remember { mutableStateOf(false) }"
+      assert content =~ "private var dismissSent = false"
+      assert content =~ "private var active = true"
+      assert content =~ "onDispose { presentation.deactivate() }"
+      assert content =~ "if (!active) return"
+      assert content =~ "var visible by mutableStateOf(true)"
+      assert content =~ "presentation.dismiss {"
+
+      # The keyed composition owns both remembered flags and the Material
+      # sheet state. A constant fallback preserves the previous behavior for
+      # ordinary sheets that do not carry an id.
+      assert content =~ "key(identityKey ?: Unit) {"
+      assert content =~ "val identityKey = MobSheetNodeIdentity.keyFor(node)"
+      assert content =~ "val presentation = remember { MobSheetPresentationState() }"
+      assert content =~ ~S|if (!node.props.containsKey("id")) return null|
+      assert content =~ "is Number -> framed(\"n\", listOf(value.toString()))"
+      assert content =~ "is JSONArray -> framed("
+      assert content =~ "is JSONObject ->"
+      assert content =~ "content(presentation)"
+      refute content =~ "sheetIdentities.acceptRoot(root)"
+      refute content =~ "identityIsActive"
 
       # Dismissal must go through nativeSendDismiss ({:dismiss, tag}), NOT
       # nativeSendTap ({:tap, tag}). Mob.UI.sheet/2 documents :on_dismiss as

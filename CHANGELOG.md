@@ -8,6 +8,17 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [0.4.28] - 2026-08-30
+
+### Fixed
+- **0.4.27's published package could not compile.** The compile-time Zig-pin
+  reader loaded the repository-root `.tool-versions`, which Hex omits from
+  packages, so a clean compile of the published artifact raised `File.read!`.
+  The pin now ships in `priv/zig-version` (included in the package), a
+  lockstep test guards drift against the repo's `.tool-versions`, and a
+  packed-archive regression builds and installs the archive from real
+  unpacked Hex source. Use 0.4.28 instead of 0.4.27.
+
 ## [0.4.27] - 2026-08-30
 
 ### Fixed

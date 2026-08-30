@@ -87,6 +87,7 @@ import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import android.view.PixelCopy
+import android.view.WindowInsets
 import android.view.WindowManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -1546,6 +1547,53 @@ object MobBridge {
                 result[1] = insets.systemWindowInsetRight  / density
                 result[2] = insets.systemWindowInsetBottom / density
                 result[3] = insets.systemWindowInsetLeft   / density
+            }
+            latch.countDown()
+        }
+        try { latch.await() } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
+        return result
+    }
+
+    /**
+     * Called from nif_screen_info via JNI. Returns
+     * [width, height, density, top, bottom, left, right] in dp.
+     */
+    @JvmStatic
+    fun screenInfo(): FloatArray {
+        val activity = activityRef?.get() ?: return FloatArray(7)
+        val displayMetrics = activity.resources.displayMetrics
+        val density = displayMetrics.density
+        val result = FloatArray(7)
+        val latch = java.util.concurrent.CountDownLatch(1)
+        activity.runOnUiThread {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val metrics = activity.windowManager.currentWindowMetrics
+                val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+                )
+                result[0] = metrics.bounds.width() / density
+                result[1] = metrics.bounds.height() / density
+                result[2] = density
+                result[3] = insets.top / density
+                result[4] = insets.bottom / density
+                result[5] = insets.left / density
+                result[6] = insets.right / density
+            } else {
+                val decor = activity.window.decorView
+                val widthPx = decor.width.takeIf { it > 0 } ?: displayMetrics.widthPixels
+                val heightPx = decor.height.takeIf { it > 0 } ?: displayMetrics.heightPixels
+                result[0] = widthPx / density
+                result[1] = heightPx / density
+                result[2] = density
+
+                val insets = decor.rootWindowInsets
+                if (insets != null) {
+                    val cutout = insets.displayCutout
+                    result[3] = maxOf(insets.systemWindowInsetTop, cutout?.safeInsetTop ?: 0) / density
+                    result[4] = maxOf(insets.systemWindowInsetBottom, cutout?.safeInsetBottom ?: 0) / density
+                    result[5] = maxOf(insets.systemWindowInsetLeft, cutout?.safeInsetLeft ?: 0) / density
+                    result[6] = maxOf(insets.systemWindowInsetRight, cutout?.safeInsetRight ?: 0) / density
+                }
             }
             latch.countDown()
         }

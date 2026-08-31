@@ -76,9 +76,9 @@ class SheetIdentityTest {
         val replacement = sheet("confirmation", "Confirmation")
         val reappeared = sheet("actions", "Actions again")
 
-        assertEquals(MobSheetNodeIdentity.keyFor(first), MobSheetNodeIdentity.keyFor(rerender))
-        assertEquals(false, MobSheetNodeIdentity.keyFor(first) == MobSheetNodeIdentity.keyFor(replacement))
-        assertEquals(MobSheetNodeIdentity.keyFor(first), MobSheetNodeIdentity.keyFor(reappeared))
+        assertEquals(MobNodeIdentity.keyFor(first), MobNodeIdentity.keyFor(rerender))
+        assertEquals(false, MobNodeIdentity.keyFor(first) == MobNodeIdentity.keyFor(replacement))
+        assertEquals(MobNodeIdentity.keyFor(first), MobNodeIdentity.keyFor(reappeared))
     }
 
     @Test
@@ -88,9 +88,9 @@ class SheetIdentityTest {
         val replacement = sheet(43, "Replacement")
         val reappeared = sheet(42, "Numeric again")
 
-        assertEquals(MobSheetNodeIdentity.keyFor(first), MobSheetNodeIdentity.keyFor(rerender))
-        assertEquals(false, MobSheetNodeIdentity.keyFor(first) == MobSheetNodeIdentity.keyFor(replacement))
-        assertEquals(MobSheetNodeIdentity.keyFor(first), MobSheetNodeIdentity.keyFor(reappeared))
+        assertEquals(MobNodeIdentity.keyFor(first), MobNodeIdentity.keyFor(rerender))
+        assertEquals(false, MobNodeIdentity.keyFor(first) == MobNodeIdentity.keyFor(replacement))
+        assertEquals(MobNodeIdentity.keyFor(first), MobNodeIdentity.keyFor(reappeared))
     }
 
     @Test
@@ -106,9 +106,9 @@ class SheetIdentityTest {
         val replacement = sheet(JSONArray().put("different"), "Replacement")
         val reappeared = sheet(firstId, "Structured again")
 
-        assertEquals(MobSheetNodeIdentity.keyFor(first), MobSheetNodeIdentity.keyFor(rerender))
-        assertEquals(false, MobSheetNodeIdentity.keyFor(first) == MobSheetNodeIdentity.keyFor(replacement))
-        assertEquals(MobSheetNodeIdentity.keyFor(first), MobSheetNodeIdentity.keyFor(reappeared))
+        assertEquals(MobNodeIdentity.keyFor(first), MobNodeIdentity.keyFor(rerender))
+        assertEquals(false, MobNodeIdentity.keyFor(first) == MobNodeIdentity.keyFor(replacement))
+        assertEquals(MobNodeIdentity.keyFor(first), MobNodeIdentity.keyFor(reappeared))
     }
 
     @Test
@@ -118,9 +118,28 @@ class SheetIdentityTest {
         val rerenderedNull = sheet(JSONObject.NULL, "Updated null")
         val absentSheet = sheet(null, "Absent", includeId = false)
 
-        assertEquals(false, MobSheetNodeIdentity.keyFor(booleanSheet) == MobSheetNodeIdentity.keyFor(nullSheet))
-        assertEquals(null, MobSheetNodeIdentity.keyFor(absentSheet))
-        assertEquals(MobSheetNodeIdentity.keyFor(nullSheet), MobSheetNodeIdentity.keyFor(rerenderedNull))
+        assertEquals(false, MobNodeIdentity.keyFor(booleanSheet) == MobNodeIdentity.keyFor(nullSheet))
+        assertEquals(null, MobNodeIdentity.keyFor(absentSheet))
+        assertEquals(MobNodeIdentity.keyFor(nullSheet), MobNodeIdentity.keyFor(rerenderedNull))
+    }
+
+    @Test
+    fun listStateIdentityIgnoresHandleGenerationAndPrefersNodeId() {
+        val untagged = list(null, includeId = false)
+        val firstHandle = (41 shl 8) or 7
+        val nextHandle = (42 shl 8) or 7
+
+        assertEquals(
+            MobLazyListStateIdentity.keyFor(untagged, firstHandle),
+            MobLazyListStateIdentity.keyFor(untagged, nextHandle)
+        )
+        assertEquals(null, MobLazyListStateIdentity.keyFor(untagged, -1))
+
+        val tagged = list("holdings")
+        assertEquals(
+            MobLazyListStateIdentity.keyFor(tagged, firstHandle),
+            MobLazyListStateIdentity.keyFor(tagged, (99 shl 8) or 12)
+        )
     }
 
     @Test
@@ -150,6 +169,16 @@ class SheetIdentityTest {
                         .put("children", JSONArray())
                 )
             )
+            .toMobNode()
+    }
+
+    private fun list(id: Any?, includeId: Boolean = true): MobNode {
+        val props = JSONObject()
+        if (includeId) props.put("id", id ?: JSONObject.NULL)
+        return JSONObject()
+            .put("type", "lazy_list")
+            .put("props", props)
+            .put("children", JSONArray())
             .toMobNode()
     }
 

@@ -893,7 +893,7 @@ defmodule MobNew.ProjectGeneratorTest do
       # sheet state. A constant fallback preserves the previous behavior for
       # ordinary sheets that do not carry an id.
       assert content =~ "key(identityKey ?: Unit) {"
-      assert content =~ "val identityKey = MobSheetNodeIdentity.keyFor(node)"
+      assert content =~ "val identityKey = MobNodeIdentity.keyFor(node)"
       assert content =~ "val presentation = remember { MobSheetPresentationState() }"
       assert content =~ ~S|if (!node.props.containsKey("id")) return null|
       assert content =~ "is Number -> framed(\"n\", listOf(value.toString()))"
@@ -919,6 +919,16 @@ defmodule MobNew.ProjectGeneratorTest do
       # checks ownership: a substring match here would still pass if the
       # declaration moved to another object.
       assert content =~ "external fun nativeSendDismiss(handle: Int)"
+
+      # Event handles carry a render generation, so persistent list state may
+      # use a stable node id or the low-byte event slot, never the full handle.
+      assert content =~ "private val lazyListStates = mutableMapOf<Any, LazyListState>()"
+      assert content =~ "MobLazyListStateIdentity.keyFor(node, handle)"
+
+      assert content =~
+               "if (handle != null && handle >= 0) MobEventSlotIdentityKey(handle and 0xff) else null"
+
+      refute content =~ "remember(handle) {"
     end
 
     test "MobBridge.kt has correct package declaration", %{tmp: tmp} do

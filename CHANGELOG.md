@@ -8,6 +8,15 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Generated Android lists preserve state by stable identity.** Lazy lists
+  retain scroll position across generation-tagged event-handle changes and no
+  longer allocate one state object per render. Canonical node IDs take
+  precedence, with a non-negative event slot as fallback; negative unhandled
+  sentinels do not collide with valid slots.
+
 ## [0.4.29] - 2026-08-31
 
 ### Fixed
@@ -24,7 +33,6 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   coverage (`SheetIdentityTest`). A narrow dismiss-races-re-render window
   remains until mob's generation-tagged event handles land (mob#114, in
   revision) — this fix never widens it.
-
 ## [0.4.28] - 2026-08-30
 
 ### Fixed

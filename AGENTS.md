@@ -119,6 +119,12 @@ To publish a new version: bump `version:` in `mix.exs`, then
   Native stale-event protection belongs to Mob's generation-tagged handles,
   not to generator-side root tracking.
 
+- **Android list state must not use a full event handle as identity.** Native
+  handles include a render generation and change on every render. Prefer the
+  list node's canonical `id`; for an un-ID'd list with `on_end_reached`, retain
+  only the low-byte slot. Using the full handle resets scroll and leaks one
+  `LazyListState` per render.
+
 ## Tests
 
 ```bash

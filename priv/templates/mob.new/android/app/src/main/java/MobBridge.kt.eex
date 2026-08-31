@@ -236,12 +236,12 @@ import androidx.lifecycle.LifecycleOwner
  */
 data class RootState(val navKey: Int, val transition: String, val node: MobNode?)
 
-internal data class MobSheetNodeIdentityKey(val canonical: String)
+internal data class MobNodeIdentityKey(val canonical: String)
 
-internal object MobSheetNodeIdentity {
-    fun keyFor(node: MobNode): MobSheetNodeIdentityKey? {
+internal object MobNodeIdentity {
+    fun keyFor(node: MobNode): MobNodeIdentityKey? {
         if (!node.props.containsKey("id")) return null
-        return MobSheetNodeIdentityKey(canonicalJsonValue(node.props["id"]))
+        return MobNodeIdentityKey(canonicalJsonValue(node.props["id"]))
     }
 
     private fun canonicalJsonValue(value: Any?): String = when (value) {
@@ -278,7 +278,7 @@ internal object MobSheetNodeIdentity {
         }
         is Iterable<*> -> framed("a", value.map(::canonicalJsonValue))
         is Array<*> -> framed("a", value.map(::canonicalJsonValue))
-        else -> error("Unsupported sheet id value: ${value::class.java.name}")
+        else -> error("Unsupported node id value: ${value::class.java.name}")
     }
 
     private fun framed(type: String, values: List<String>): String = buildString {
@@ -289,6 +289,14 @@ internal object MobSheetNodeIdentity {
             append(value)
         }
     }
+}
+
+internal data class MobEventSlotIdentityKey(val slot: Int)
+
+internal object MobLazyListStateIdentity {
+    fun keyFor(node: MobNode, handle: Int?): Any? =
+        MobNodeIdentity.keyFor(node) ?:
+            if (handle != null && handle >= 0) MobEventSlotIdentityKey(handle and 0xff) else null
 }
 
 object MobBridge {
@@ -349,14 +357,13 @@ object MobBridge {
         }
     }
 
-    // Persists LazyListState across re-renders so scroll position survives data
-    // updates. Keyed by the on_end_reached handle integer, which is stable within
-    // a screen (same render-order index after each clear_taps). Cleared on
-    // navigation transitions (push/pop/reset) where the list is genuinely new.
-    private val lazyListStates = mutableMapOf<Int, LazyListState>()
+    // Event handles include a changing render generation. Stable node identity
+    // wins when present; otherwise MobLazyListStateIdentity retains only the
+    // stable low-byte event slot. Navigation still clears all retained state.
+    private val lazyListStates = mutableMapOf<Any, LazyListState>()
 
-    fun getOrCreateLazyListState(handle: Int): LazyListState =
-        lazyListStates.getOrPut(handle) { LazyListState() }
+    fun getOrCreateLazyListState(identity: Any): LazyListState =
+        lazyListStates.getOrPut(identity) { LazyListState() }
 
     // ── Test harness: id-addressable scroll registry + in-process capture ──────
     //
@@ -3291,7 +3298,7 @@ internal fun MobSheetSlot(
     node: MobNode,
     content: @Composable (MobSheetPresentationState) -> Unit
 ) {
-    val identityKey = MobSheetNodeIdentity.keyFor(node)
+    val identityKey = MobNodeIdentity.keyFor(node)
     key(identityKey ?: Unit) {
         val presentation = remember { MobSheetPresentationState() }
         DisposableEffect(presentation) {
@@ -3705,12 +3712,11 @@ private fun MobVideoPlayer(node: MobNode, modifier: Modifier) {
 @Composable
 private fun MobLazyList(node: MobNode, modifier: Modifier) {
     val handle    = intProp(node.props, "on_end_reached")
-    // Use a persistent LazyListState keyed by handle so scroll position survives
-    // BEAM re-renders. rememberLazyListState() would reset to 0 on every data
-    // update because AnimatedContent creates a fresh composition for each new
-    // RootState, even when only list items changed (no navigation).
-    val listState = remember(handle) {
-        if (handle != null) MobBridge.getOrCreateLazyListState(handle)
+    val stateIdentity = MobLazyListStateIdentity.keyFor(node, handle)
+    // Persist by stable node/slot identity so render-generation changes do not
+    // reset scroll position or leak one LazyListState per frame.
+    val listState = remember(stateIdentity) {
+        if (stateIdentity != null) MobBridge.getOrCreateLazyListState(stateIdentity)
         else LazyListState()
     }
 

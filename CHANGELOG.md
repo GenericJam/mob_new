@@ -17,6 +17,20 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   precedence, with a non-negative event slot as fallback; negative unhandled
   sentinels do not collide with valid slots.
 
+## [0.4.30] - 2026-08-31
+
+### Fixed
+- **Generated lazy-list scroll state survives event-handle generation changes.**
+  List state is retained by the node's canonical `:id` when one exists,
+  otherwise by the stable event slot instead of the raw handle (which becomes
+  generation-tagged in mob 0.7.38+), and negative unhandled sentinels map to
+  no key rather than colliding with slot 255. Scroll position is preserved
+  across re-renders with no per-frame growth of the retained-state map. With
+  mob ≤ 0.7.37 this degrades to exactly the previous slot behavior; **mob
+  0.7.38+ requires a template generated at 0.4.30+** or lazy lists reset
+  scroll position on every re-render. Ships a generated instrumentation test.
+  Companion to mob#114.
+
 ## [0.4.29] - 2026-08-31
 
 ### Fixed
@@ -33,6 +47,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   coverage (`SheetIdentityTest`). A narrow dismiss-races-re-render window
   remains until mob's generation-tagged event handles land (mob#114, in
   revision) — this fix never widens it.
+
 ## [0.4.28] - 2026-08-30
 
 ### Fixed

@@ -80,6 +80,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -377,6 +378,15 @@ object MobBridge {
         var lazyState: LazyListState? = null // item-indexed list
         var viewportPx: Int = 0 // measured viewport extent (for ScrollState kind)
         var horizontal: Boolean = false
+
+        // Unclipped window origin of the viewport, so a caller holding a
+        // descendant's positionInWindow() can convert it to a content offset:
+        // content = descendantWindow - viewportOrigin + scrollState.value.
+        // Deliberately not boundsInWindow() (the element frame registry) —
+        // those bounds are clipped, so a descendant scrolled out of view
+        // reports an empty rect and the conversion silently yields garbage.
+        var viewportOriginXPx: Float = 0f
+        var viewportOriginYPx: Float = 0f
     }
 
     // Concurrent: written from the Compose main thread (registration), read from
@@ -2429,6 +2439,9 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                     handle.horizontal = horizontal
                     Modifier.onGloballyPositioned {
                         handle.viewportPx = if (horizontal) it.size.width else it.size.height
+                        val origin = it.positionInWindow()
+                        handle.viewportOriginXPx = origin.x
+                        handle.viewportOriginYPx = origin.y
                     }
                 } else {
                     Modifier

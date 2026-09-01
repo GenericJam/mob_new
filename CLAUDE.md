@@ -159,7 +159,11 @@ mandatory permission, CHANGELOG conventions, per-step idempotency of
   a worktree — the resolver looks for `mob` alongside the project
   and the worktree path breaks that assumption. Two tests
   (`project_generator_test.exs:1226` and `:1537`) demonstrate this
-  pattern.
+  pattern. The `--local` and `--python` tests resolve `mob_dev` the
+  same way, so a worktree run needs
+  `MOB_DEV_DIR=/Users/kevin/code/mob_dev` too — without it they fail
+  with `Could not find local mob_dev directory`, which looks like a
+  real regression and isn't.
 - The published Hex package is the project generator itself; new
   apps built via `mix mob.new` from a fresh install pick up the
   latest published template the moment a version lands.

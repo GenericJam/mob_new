@@ -517,6 +517,28 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "fun ttsStop()"
     end
 
+    test "MobBridge.kt records the scroll viewport's unclipped window origin", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # Lets a plugin holding a descendant's positionInWindow() convert it to a
+      # content offset (content = descendantWindow - viewportOrigin + value) and
+      # scroll that descendant to the TOP of the viewport. Compose's
+      # BringIntoViewRequester only scrolls minimally, which parks a downward
+      # jump at the bottom edge instead.
+      assert content =~ "var viewportOriginXPx: Float = 0f"
+      assert content =~ "var viewportOriginYPx: Float = 0f"
+      assert content =~ "import androidx.compose.ui.layout.positionInWindow"
+      assert content =~ "val origin = it.positionInWindow()"
+      assert content =~ "handle.viewportOriginYPx = origin.y"
+
+      # Must be the unclipped position: boundsInWindow() clips to the window, so
+      # a descendant scrolled out of view reports an empty rect.
+      refute content =~ "handle.viewportOriginYPx = it.boundsInWindow()"
+    end
+
     test "MobBridge.kt declares openSettings for Mob.Device.open_settings", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

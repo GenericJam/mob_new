@@ -85,3 +85,50 @@ magnitude was a warm-up artefact, and it is why the estimate of 3-5x was wrong.
   against MobJson directly.
 - `NewStringUTF` is untouched. It costs 2 ms of this stage — an earlier plan
   named it as a target, and it is not one.
+
+## Verification, after adversarial review
+
+The review built a **faithful oracle** rather than trusting the Maven artifact:
+it vendored the real AOSP `org.json` out of the Android SDK sources and ran
+against both. Against that it found **no correctness bug**:
+
+- 40,000 fuzzed node trees (22 MB of JSON) compared against both oracles on node
+  type, prop key set, prop **insertion order**, every value's **runtime class**
+  and container contents — no divergence.
+- 300,000 byte-level mutants and 413 truncation prefixes — zero non-`JSONException`
+  outcomes. No `StringIndexOutOfBoundsException`, no hang.
+- Stack depth is not a regression: `StackOverflowError` at ~1664 children deep
+  vs org.json's ~1158, and the skipped-key path is iterative where org.json blows
+  at 5269.
+
+It did find four things, all fixed here.
+
+**A performance regression I introduced.** The escaped-string path appended
+character by character, where AOSP's `nextString` bulk-copies each run between
+escapes. An escape near the front of a 400 KB string was **1.85x slower than the
+org.json this replaces** (694 µs vs 375 µs), and even escape-every-10-characters
+was slower. Now bulk-appends runs.
+
+**The compatibility claim was broader than the evidence.** The KDoc said
+"throws JSONException, as `JSONObject(String)` did". Against real AOSP that is
+false for about twenty input shapes — this reader is stricter (invalid escapes,
+trailing content, unparseable numbers, comments, unquoted keys) and, in one
+place, more lenient (a missing `type`). Documented explicitly now, including the
+three inputs that parse on both sides with different answers (`010` is octal to
+AOSP; `09` is a `Double` there and an `Int` here — a runtime class change; `1e400`
+throws there and yields infinity here). None is emitted by Elixir's JSON encoder.
+
+**A shipped test pinned a divergence without saying so.** It asserted `\q`
+throws, which is true of MobJson and **false of Android**, where it yields `"q"`.
+The Maven oracle throws, so the test passed for the wrong reason. Now labelled.
+
+**Mutation testing found four gaps**, all closed and each re-verified to fail
+when its behaviour is broken: whitespace other than a space, the NULL sentinel
+inside a nested *array* (the object case was pinned, the array case was not),
+duplicate-key last-wins, and prop insertion order.
+
+Also corrected: the Maven-vs-AOSP divergence is not just `BigDecimal` — it is
+about ten differences including `-0`, `+5`, duplicate keys, and raw control
+characters. "Fair except for numbers" was wrong; it is fair for the conservative
+inputs the suite uses, and the fuzzer against vendored AOSP is what actually
+establishes fidelity.

@@ -251,6 +251,43 @@ class MobJsonTest {
     }
 
     @Test
+    fun `a null inside a nested array is the NULL sentinel too`() {
+        // `detents: ["content", null]` is a real shape. The object case was
+        // pinned; the array case was not, and a mutant returning Kotlin null
+        // here survived the whole suite.
+        val node = MobJson.parseNode("""{"type":"x","props":{"a":[1,null]},"children":[]}""")
+        val a = node.props["a"] as JSONArray
+        assertTrue(a.isNull(1))
+        assertSame(JSONObject.NULL, a.get(1))
+    }
+
+    @Test
+    fun `every JSON whitespace character is skipped, not just spaces`() {
+        // A mutant dropping tab or carriage return from skipWhitespace survived,
+        // because the tolerance test used only spaces.
+        val json = "{\"type\":\"x\",\r\n\t\"props\":{\r\n\t\"a\":\t1\r\n},\"children\":[]}"
+        val node = MobJson.parseNode(json)
+        assertEquals("x", node.type)
+        assertEquals(1, node.props["a"])
+    }
+
+    @Test
+    fun `a duplicate props key keeps the last value, as org_json does`() {
+        val json = """{"type":"x","props":{"a":1,"a":2},"children":[]}"""
+        assertEquals(2, MobJson.parseNode(json).props["a"])
+    }
+
+    @Test
+    fun `props keep their insertion order`() {
+        // Android backs JSONObject with a LinkedHashMap, so iteration order is
+        // insertion order. Nothing depended on that when this was written, but a
+        // TreeMap mutant survived the suite, which means the property was free
+        // to change silently.
+        val json = """{"type":"x","props":{"z":1,"a":2,"m":3},"children":[]}"""
+        assertEquals(listOf("z", "a", "m"), MobJson.parseNode(json).props.keys.toList())
+    }
+
+    @Test
     fun `deep nesting is preserved`() {
         val depth = 40
         val json = StringBuilder()
@@ -281,6 +318,12 @@ class MobJsonTest {
 
     @Test
     fun `malformed input throws JSONException`() {
+        // NOTE: this asserts MobJson's contract, which is deliberately STRICTER
+        // than Android's JSONObject(String). Several of these — an invalid
+        // escape like \q, trailing content after the root, an unparseable
+        // number — are accepted by AOSP org.json, which returns "q", ignores
+        // the trailing text, and keeps the number as a raw String respectively.
+        // Rejecting them is the intended behaviour, not accidental parity.
         val bad = listOf(
             "",
             "   ",
@@ -290,7 +333,9 @@ class MobJsonTest {
             """{"type":"x","props":{"a":}}""",
             """{"type":"x","children":[{"type":"y"}}""",
             """{"type":"x"} trailing""",
-            """{"type":"x","props":{"a":"unterminated}""",
+            // Unterminated at the very end of input, so the string scan runs
+            // off the end rather than being caught by a later bounds check.
+            """{"type":"x","props":{"a":"unterminated""",
             """{"type":"x","props":{"a":tru}}""",
             """{"type":"x","props":{"a":"\q"}}""",
             """{"type":"x","props":{"a":"\u00zz"}}"""

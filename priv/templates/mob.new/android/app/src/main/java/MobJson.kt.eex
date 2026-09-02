@@ -44,12 +44,27 @@ import org.json.JSONObject
  * They are rare — a handful of nodes per screen — so they cost nothing next to
  * the per-node work this avoids.
  *
- * Malformed input throws [JSONException], as `JSONObject(String)` did.
+ * ## Where this deliberately differs from org.json
+ *
+ * Malformed input throws [JSONException], but this reader is **stricter** than
+ * Android's `JSONObject(String)`, which accepts a good deal that RFC 8259 does
+ * not: unquoted and single-quoted keys, comments, `=` and `;` as separators,
+ * trailing content after the root, invalid escapes (`\q` becomes `q`), and
+ * unparseable numbers kept as raw strings. Those are all rejected here.
+ *
+ * It is also **more lenient** in one place: a node with no `type` becomes `""`
+ * rather than throwing, so one malformed node renders as unknown instead of
+ * taking the whole screen down.
+ *
+ * Three inputs parse on both sides with different answers, all of them shapes
+ * no conformant encoder emits — a leading zero (`010` is octal 8 to AOSP, ten
+ * here), `09` (a `Double` to AOSP, an `Int` here), and an overflowing exponent
+ * (`1e400` throws on AOSP, yields infinity here). The payload comes from
+ * Elixir's JSON encoder, which emits none of them.
  */
 object MobJson {
 
     /** Parse a complete node tree. The text must be a single JSON object. */
-    @JvmStatic
     fun parseNode(text: String): MobNode {
         val r = Reader(text)
         r.skipWhitespace()
@@ -132,8 +147,8 @@ object MobJson {
                 i++
                 return emptyMap()
             }
-            // Sized for the handful of props a node actually carries. Never
-            // mutated after construction, matching MobNode's @Immutable promise.
+            // Sized for the handful of props a node actually carries, and
+            // never mutated after this function returns.
             val m = LinkedHashMap<String, Any?>(8)
             while (true) {
                 skipWhitespace()
@@ -318,13 +333,20 @@ object MobJson {
         private fun readEscapedString(start: Int): String {
             val sb = StringBuilder(32)
             sb.append(s, start, i)
+            // Bulk-append each run between escapes. Appending character by
+            // character made an escape near the front of a long string up to
+            // 1.85x slower than the org.json this replaces, because AOSP's
+            // nextString copies whole runs.
+            var runStart = i
             while (i < s.length) {
                 when (val c = s[i]) {
                     '"' -> {
+                        sb.append(s, runStart, i)
                         i++
                         return sb.toString()
                     }
                     '\\' -> {
+                        sb.append(s, runStart, i)
                         i++
                         if (i >= s.length) fail("unterminated escape")
                         when (val e = s[i]) {
@@ -373,9 +395,10 @@ object MobJson {
                             }
                             else -> fail("unknown escape")
                         }
+                        runStart = i
                     }
                     else -> {
-                        sb.append(c)
+                        // Part of the current run; copied in bulk above.
                         i++
                     }
                 }

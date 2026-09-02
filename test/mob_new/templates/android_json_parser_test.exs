@@ -41,6 +41,25 @@ defmodule MobNew.Templates.AndroidJsonParserTest do
     assert src =~ "if (expected === null || actual === null)"
   end
 
+  test "both Kotlin files land in a generated project, at the right paths" do
+    # The generator's file list in mob.new.ex is only console output; templates
+    # are actually picked up by a `**/*.eex` glob. So nothing in that list
+    # guarantees these files ship — this does.
+    tmp = Path.join(System.tmp_dir!(), "mobjson_gen_#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf(tmp) end)
+
+    assert {:ok, _dir} = MobNew.ProjectGenerator.generate("genapp", tmp, no_ios: true)
+
+    base = Path.join([tmp, "genapp", "android", "app", "src"])
+    parser = Path.join([base, "main", "java", "com", "example", "genapp", "MobJson.kt"])
+    tests = Path.join([base, "test", "java", "com", "example", "genapp", "MobJsonTest.kt"])
+
+    assert File.exists?(parser), "MobJson.kt should be generated"
+    assert File.exists?(tests), "MobJsonTest.kt should be generated"
+    assert File.read!(parser) =~ "package com.example.genapp"
+    refute File.read!(parser) =~ "<%="
+  end
+
   test "the unit-test source set has a real org.json on its classpath" do
     # The Android SDK jar stubs org.json — every method throws — so without a
     # real implementation the parser's tests cannot run at all.

@@ -76,4 +76,52 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
     # make the platforms disagree in the opposite direction.
     assert src =~ ~s|node.type != "button" ->|
   end
+
+  test "swipe is attached only when a swipe handler is declared", %{bridge: src} do
+    # detectDragGestures consumes the drag. An unconditional pointerInput would
+    # swallow scrolling on every node in the app. iOS gates its DragGesture on
+    # exactly this condition for the same reason.
+    assert src =~ "val hasSwipe = swipeAny != null || swipeLeft != null"
+    assert src =~ "if (!hasSwipe) tapModifier else"
+  end
+
+  test "swipe fires the generic handler and the direction-specific one", %{bridge: src} do
+    # iOS calls n.onSwipe?(direction) and THEN the matching n.onSwipeLeft?() —
+    # a node may declare both and expects both for one gesture. Dropping either
+    # would be a silent half-delivery.
+    combined =
+      src |> String.split("if (direction != null) {") |> Enum.at(1)
+          |> String.split("            }\n        }") |> Enum.at(0)
+
+    assert combined =~ "swipeAny?.let { MobBridge.nativeSendSwipe(it, direction) }"
+    assert combined =~ "swipeLeft?.let  { MobBridge.nativeSendSwipeLeft(it) }"
+    assert combined =~ "swipeDown?.let  { MobBridge.nativeSendSwipeDown(it) }"
+  end
+
+  test "swipe direction resolves on the dominant axis with a distance floor", %{bridge: src} do
+    # Mirrors iOS: abs(dx) > abs(dy) picks horizontal, everything else falls to
+    # vertical, and 30dp matches DragGesture(minimumDistance: 30). Without the
+    # floor, touch slop alone would emit a swipe for an almost stationary press.
+    assert src =~ "val minDistance = 30.dp.toPx()"
+    assert src =~ "abs(dx) > abs(dy) && abs(dx) >= minDistance"
+    assert src =~ "abs(dy) >= abs(dx) && abs(dy) >= minDistance"
+  end
+
+  test "every swipe sender has a JNI stub and reaches the right native fn", %{jni: jni} do
+    assert jni =~ "mob_send_swipe_with_direction((int)handle, dir)"
+    for d <- ~w(Left Right Up Down) do
+      assert jni =~ "Java_<%= jni_package %>_MobBridge_nativeSendSwipe#{d}"
+    end
+    for d <- ~w(left right up down) do
+      assert jni =~ "mob_send_swipe_#{d}((int)handle)"
+    end
+  end
+
+  test "the swipe direction string is released back to the JVM", %{jni: jni} do
+    # GetStringUTFChars without a matching Release leaks a local ref per swipe.
+    # A drag-heavy screen would leak steadily and only show up as pressure much
+    # later, far from the cause.
+    assert jni =~ "ReleaseStringUTFChars(env, direction, dir)"
+    assert jni =~ "if (dir == NULL) return;"
+  end
 end

@@ -78,6 +78,39 @@ Java_<%= jni_package %>_MobBridge_nativeSendDoubleTap(JNIEnv* env, jclass cls, j
     mob_send_double_tap((int)handle);
 }
 
+// Swipe. nativeSendSwipe carries the direction string through to
+// mob_send_swipe_with_direction, which emits {:swipe, tag, direction_atom};
+// the four fixed senders emit {:swipe_left, tag} and friends. A node can
+// declare both and iOS delivers both, so Kotlin calls both.
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendSwipe(JNIEnv* env, jclass cls, jint handle,
+                                                  jstring direction) {
+    const char* dir = (*env)->GetStringUTFChars(env, direction, NULL);
+    if (dir == NULL) return;
+    mob_send_swipe_with_direction((int)handle, dir);
+    (*env)->ReleaseStringUTFChars(env, direction, dir);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendSwipeLeft(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_swipe_left((int)handle);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendSwipeRight(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_swipe_right((int)handle);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendSwipeUp(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_swipe_up((int)handle);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendSwipeDown(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_swipe_down((int)handle);
+}
+
 // Called from MobBridge.nativeSendDismiss(handle) when a sheet is dismissed.
 // Distinct from nativeSendTap because Mob.UI.sheet/2's :on_dismiss is
 // documented as {:dismiss, tag} and iOS delivers exactly that — routing it

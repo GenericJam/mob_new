@@ -38,7 +38,9 @@ import java.nio.ByteOrder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size as ComposeSize
 import androidx.compose.ui.graphics.Path
@@ -753,6 +755,18 @@ object MobBridge {
      */
     @JvmStatic
     external fun nativeSendDismiss(handle: Int)
+
+    /**
+     * `on_long_press` / `on_double_tap`. The native senders existed all along;
+     * what was missing was any Kotlin path to them, so these two were
+     * registered by the renderer, carried in the JSON, and silently never fired
+     * (MOB-138).
+     */
+    @JvmStatic
+    external fun nativeSendLongPress(handle: Int)
+
+    @JvmStatic
+    external fun nativeSendDoubleTap(handle: Int)
 
     /** Called from Compose onChange — routes change value back to BEAM via C. */
     @JvmStatic
@@ -2340,16 +2354,33 @@ fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     // Apply on_tap as a clickable modifier for any node type except button —
     // button installs its own onClick via the Button composable. Mirrors iOS,
     // where most node types pick up onTapGesture via .ifLet(node.onTap).
     val tapHandle = intProp(node.props, "on_tap")
+    val longPressHandle = intProp(node.props, "on_long_press")
+    val doubleTapHandle = intProp(node.props, "on_double_tap")
     val isDisabled = boolProp(node.props, "disabled") ?: false
     val accessibilityRole = node.props["accessibility_role"] as? String
     val isButton = node.type == "box" && accessibilityRole == "button"
     val tapModifier = when {
+        // Only when a long-press or double-tap is actually declared.
+        // combinedClickable installs a detector that delays the click to wait
+        // for a possible second tap, so making it the default would add latency
+        // to every ordinary tap in the app. Role and `enabled` are carried over
+        // from the plain arms below so accessibility behaviour does not change
+        // just because a node gained a long-press.
+        (longPressHandle != null || doubleTapHandle != null) && node.type != "button" ->
+            modifier.combinedClickable(
+                enabled = !isDisabled,
+                role = if (isButton) Role.Button else null,
+                onLongClick = longPressHandle?.let { h -> { MobBridge.nativeSendLongPress(h) } },
+                onDoubleClick = doubleTapHandle?.let { h -> { MobBridge.nativeSendDoubleTap(h) } }
+            ) { tapHandle?.let { MobBridge.nativeSendTap(it) } }
+
         // Require a handler here. Compose's ClickableSemanticsNode publishes
         // disabled() whenever `enabled` is false, so encoding "no tap handler"
         // as enabled = false made a perfectly live box whose tap is handled by

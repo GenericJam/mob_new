@@ -64,6 +64,20 @@ Java_<%= jni_package %>_MobBridge_nativeSendTap(JNIEnv* env, jclass cls, jint ha
     mob_send_tap((int)handle);
 }
 
+// Called from MobBridge.nativeSendLongPress(handle) / nativeSendDoubleTap.
+// The senders have existed on this platform all along; what was missing was any
+// Kotlin path to them, so `on_long_press` and `on_double_tap` were registered by
+// the renderer, carried in the JSON, and then silently never fired (MOB-138).
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendLongPress(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_long_press((int)handle);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendDoubleTap(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_double_tap((int)handle);
+}
+
 // Called from MobBridge.nativeSendDismiss(handle) when a sheet is dismissed.
 // Distinct from nativeSendTap because Mob.UI.sheet/2's :on_dismiss is
 // documented as {:dismiss, tag} and iOS delivers exactly that — routing it

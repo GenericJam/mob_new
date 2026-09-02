@@ -10,15 +10,21 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
-### Performance
-- **Generated Android `:scroll` composes only the rows on screen.** It rendered
-  as `Column(...).verticalScroll(...)`, composing every child regardless of the
-  viewport — a 200-row list composed all 200 rows to show about ten. Vertical
-  scrolls whose content can be lazified now render through `MobLazyList`
-  (`LazyColumn`). On a Moto G Power the main-thread cost of a 200-row screen
-  drops from 141 ms to 82 ms, and becomes flat in list length (83/81/92 ms at
-  50/200/500 rows) where it previously grew. Short lists are unaffected or
-  marginally slower — the win is for long ones. See
+### Added
+- **`:scroll` can compose only the rows on screen, with `lazy: true`.** A vertical
+  scroll whose sole child is a bare column (props limited to `fill_width` /
+  `fill_height`, no child carrying `weight`) renders through `MobLazyList`
+  instead of `Column` + `verticalScroll`. On a Moto G Power, toggling only this
+  prop on a 500-row screen takes the main-thread frame cost from 498.9 ms to
+  115.8 ms (p50) and from 1385.9 ms to 164.8 ms (worst frame). Lazy cost is flat
+  in list length where eager grows; short lists are unaffected or marginally
+  slower, so this is a long-list optimisation.
+
+  **Opt-in on purpose.** Rows below the fold are never composed, so they never
+  register a frame — `Mob.Test.element_frames` and `tap_id` cannot address them
+  — and scroll position becomes index-based rather than pixel-based. `lazy_list`
+  already makes that trade explicitly; making it the silent default would change
+  harness behaviour under apps that never asked for it. See
   `decisions/2026-09-02-lazy-scroll-on-android.md`.
 
 ### Fixed
@@ -28,10 +34,6 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   precedence, with a non-negative event slot as fallback; negative unhandled
   sentinels do not collide with valid slots.
 
-- **A `fill_height` `:scroll` child now gets a bounded height from its parent
-  column.** `Column` only measures a child against the remaining space when that
-  child is weighted, so `fill_height` alone left it unbounded. `verticalScroll`
-  tolerated that; a lazy container does not, and would have composed zero items.
 
 ## [0.4.30] - 2026-08-31
 

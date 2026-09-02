@@ -10,6 +10,22 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Performance
+- **The render payload is parsed in one pass on Android.** `setRootJson` went
+  through `JSONObject(json).toMobNode()`, which materialised the same payload
+  three times: an `org.json` tree, a second copy of every props map, then the
+  nodes. `MobJson.parseNode` walks the text once and builds `MobNode`s directly.
+  On a Moto G Power with a 148 KB payload, measured in isolation and at steady
+  state, p50 drops from 26.1 ms to 18.2 ms — about 8 ms per frame on a dense
+  screen. See `decisions/2026-09-02-single-pass-json-parser.md`.
+
+  Prop values keep the exact runtime types `org.json` produced — `Int`/`Long`
+  for integrals, `Double` for reals, real `JSONObject`/`JSONArray` for nested
+  containers, and `JSONObject.NULL` for a JSON null — because `MobBridge` reads
+  them by type and a wrong type reads as null rather than failing loudly. The
+  generated app ships 15 JVM unit tests for this, including a differential
+  comparison against the old parser.
+
 ### Added
 - **`:scroll` can compose only the rows on screen, with `lazy: true`.** A vertical
   scroll whose sole child is a bare column (props limited to `fill_width` /

@@ -1,0 +1,424 @@
+package <%= java_package %>
+
+import org.json.JSONArray
+import org.json.JSONException
+import org.json.JSONObject
+
+/**
+ * A single-pass JSON reader that builds [MobNode]s directly from the wire text.
+ *
+ * ## Why this exists
+ *
+ * `JSONObject(json).toMobNode()` materialised the same payload three times: a
+ * `LinkedHashMap` per node with a boxed value per entry (org.json), then a
+ * second map copy per node, then the node itself. Measured on a Moto G Power
+ * with a 148 KB payload, that was 82 ms of an 84 ms `set_root` — 50 ms building
+ * the org.json tree and 32 ms walking it — against 2 ms for the JNI string copy
+ * that an earlier plan had wrongly blamed.
+ *
+ * This reader walks the text once and emits nodes as it goes. No intermediate
+ * tree, no second copy.
+ *
+ * ## The compatibility contract
+ *
+ * `MobBridge` reads props by their runtime type — `as? String`, `as? Number`,
+ * `is JSONArray`, `is JSONObject`. Values here must therefore be **exactly**
+ * what org.json would have produced, or those reads start returning null and
+ * props silently stop working:
+ *
+ *  - strings   -> `String`
+ *  - integrals -> `Int`, or `Long` when they do not fit, matching JSONTokener
+ *  - reals     -> `Double`
+ *  - booleans  -> `Boolean`
+ *  - null      -> `JSONObject.NULL`, NOT Kotlin null. `toMobNode` stored what
+ *                 `JSONObject.get` returned, and that is the NULL sentinel.
+ *                 The distinction is easy to miss because `JSONObject.NULL`
+ *                 equals Kotlin null, so `props["k"] == null` is true either
+ *                 way — but `props["k"]?.let { }` runs for the sentinel and not
+ *                 for a real null.
+ *  - objects   -> `JSONObject`
+ *  - arrays    -> `JSONArray`
+ *
+ * Nested objects and arrays inside props (`tabs`, `uniforms`, `detents`, the
+ * `*_config` throttle maps) are therefore still built as real org.json values.
+ * They are rare — a handful of nodes per screen — so they cost nothing next to
+ * the per-node work this avoids.
+ *
+ * Malformed input throws [JSONException], as `JSONObject(String)` did.
+ */
+object MobJson {
+
+    /** Parse a complete node tree. The text must be a single JSON object. */
+    @JvmStatic
+    fun parseNode(text: String): MobNode {
+        val r = Reader(text)
+        r.skipWhitespace()
+        val node = r.readNode()
+        r.skipWhitespace()
+        if (!r.atEnd()) r.fail("trailing content after the root object")
+        return node
+    }
+
+    private class Reader(private val s: String) {
+        private var i = 0
+
+        fun atEnd(): Boolean = i >= s.length
+
+        fun fail(why: String): Nothing = throw JSONException("MobJson: $why at offset $i")
+
+        fun skipWhitespace() {
+            while (i < s.length) {
+                when (s[i]) {
+                    ' ', '\t', '\n', '\r' -> i++
+                    else -> return
+                }
+            }
+        }
+
+        private fun expect(c: Char) {
+            if (i >= s.length || s[i] != c) fail("expected '$c'")
+            i++
+        }
+
+        /**
+         * A node object. Only `type`, `props` and `children` are meaningful —
+         * any other key is skipped, which is what `toMobNode` did by only ever
+         * asking for those three.
+         */
+        fun readNode(): MobNode {
+            expect('{')
+            var type: String? = null
+            var props: Map<String, Any?> = emptyMap()
+            var children: List<MobNode> = emptyList()
+
+            skipWhitespace()
+            if (i < s.length && s[i] == '}') {
+                i++
+                return MobNode(type ?: "", props, children)
+            }
+
+            while (true) {
+                skipWhitespace()
+                val key = readString()
+                skipWhitespace()
+                expect(':')
+                skipWhitespace()
+                when (key) {
+                    "type" -> type = readString()
+                    "props" -> props = readProps()
+                    "children" -> children = readChildren()
+                    else -> skipValue()
+                }
+                skipWhitespace()
+                if (i >= s.length) fail("unterminated object")
+                when (s[i]) {
+                    ',' -> i++
+                    '}' -> {
+                        i++
+                        // An absent `type` becomes "", which renders as an
+                        // unknown node. org.json's getString would have thrown;
+                        // a malformed tree should not take the screen down.
+                        return MobNode(type ?: "", props, children)
+                    }
+                    else -> fail("expected ',' or '}'")
+                }
+            }
+        }
+
+        private fun readProps(): Map<String, Any?> {
+            expect('{')
+            skipWhitespace()
+            if (i < s.length && s[i] == '}') {
+                i++
+                return emptyMap()
+            }
+            // Sized for the handful of props a node actually carries. Never
+            // mutated after construction, matching MobNode's @Immutable promise.
+            val m = LinkedHashMap<String, Any?>(8)
+            while (true) {
+                skipWhitespace()
+                val key = readString()
+                skipWhitespace()
+                expect(':')
+                skipWhitespace()
+                // JSONObject.NULL, not Kotlin null: `toMobNode` stored
+                // whatever `JSONObject.get` returned, and for a JSON null that
+                // is the sentinel. They compare equal to null, so this is
+                // invisible to `== null` checks and visible to `?.let`.
+                m[key] = readValue() ?: JSONObject.NULL
+                skipWhitespace()
+                if (i >= s.length) fail("unterminated props object")
+                when (s[i]) {
+                    ',' -> i++
+                    '}' -> {
+                        i++
+                        return m
+                    }
+                    else -> fail("expected ',' or '}' in props")
+                }
+            }
+        }
+
+        private fun readChildren(): List<MobNode> {
+            expect('[')
+            skipWhitespace()
+            if (i < s.length && s[i] == ']') {
+                i++
+                return emptyList()
+            }
+            val out = ArrayList<MobNode>(4)
+            while (true) {
+                skipWhitespace()
+                out.add(readNode())
+                skipWhitespace()
+                if (i >= s.length) fail("unterminated children array")
+                when (s[i]) {
+                    ',' -> i++
+                    ']' -> {
+                        i++
+                        return out
+                    }
+                    else -> fail("expected ',' or ']' in children")
+                }
+            }
+        }
+
+        /** A prop value. Nested containers become real org.json values. */
+        fun readValue(): Any? {
+            if (i >= s.length) fail("expected a value")
+            return when (s[i]) {
+                '"' -> readString()
+                '{' -> readJsonObject()
+                '[' -> readJsonArray()
+                't' -> {
+                    readLiteral("true")
+                    true
+                }
+                'f' -> {
+                    readLiteral("false")
+                    false
+                }
+                'n' -> {
+                    readLiteral("null")
+                    null
+                }
+                else -> readNumber()
+            }
+        }
+
+        private fun readJsonObject(): JSONObject {
+            expect('{')
+            val o = JSONObject()
+            skipWhitespace()
+            if (i < s.length && s[i] == '}') {
+                i++
+                return o
+            }
+            while (true) {
+                skipWhitespace()
+                val key = readString()
+                skipWhitespace()
+                expect(':')
+                skipWhitespace()
+                // put(key, null) REMOVES the key, so a JSON null has to go in as
+                // JSONObject.NULL to survive — which is what org.json's own
+                // parser stores for it.
+                val v = readValue()
+                o.put(key, v ?: JSONObject.NULL)
+                skipWhitespace()
+                if (i >= s.length) fail("unterminated object")
+                when (s[i]) {
+                    ',' -> i++
+                    '}' -> {
+                        i++
+                        return o
+                    }
+                    else -> fail("expected ',' or '}'")
+                }
+            }
+        }
+
+        private fun readJsonArray(): JSONArray {
+            expect('[')
+            val a = JSONArray()
+            skipWhitespace()
+            if (i < s.length && s[i] == ']') {
+                i++
+                return a
+            }
+            while (true) {
+                skipWhitespace()
+                a.put(readValue() ?: JSONObject.NULL)
+                skipWhitespace()
+                if (i >= s.length) fail("unterminated array")
+                when (s[i]) {
+                    ',' -> i++
+                    ']' -> {
+                        i++
+                        return a
+                    }
+                    else -> fail("expected ',' or ']'")
+                }
+            }
+        }
+
+        private fun readLiteral(lit: String) {
+            if (!s.startsWith(lit, i)) fail("expected '$lit'")
+            i += lit.length
+        }
+
+        /**
+         * Integral values become Int, or Long when they do not fit; anything
+         * with a fraction or exponent becomes Double. That is JSONTokener's
+         * ordering, and it is what `as? Number` consumers were already given.
+         */
+        private fun readNumber(): Any {
+            val start = i
+            if (i < s.length && (s[i] == '-' || s[i] == '+')) i++
+            var isReal = false
+            while (i < s.length) {
+                val c = s[i]
+                if (c in '0'..'9') {
+                    i++
+                } else if (c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') {
+                    isReal = true
+                    i++
+                } else {
+                    break
+                }
+            }
+            if (i == start) fail("expected a number")
+            val token = s.substring(start, i)
+            if (!isReal) {
+                token.toIntOrNull()?.let { return it }
+                token.toLongOrNull()?.let { return it }
+            }
+            return token.toDoubleOrNull() ?: fail("malformed number '$token'")
+        }
+
+        fun readString(): String {
+            expect('"')
+            // Fast path: no escapes, so the run is one substring and no
+            // StringBuilder is allocated. This is overwhelmingly the common case
+            // for prop keys and short values.
+            val start = i
+            while (i < s.length) {
+                val c = s[i]
+                if (c == '"') {
+                    val out = s.substring(start, i)
+                    i++
+                    return out
+                }
+                if (c == '\\') return readEscapedString(start)
+                i++
+            }
+            fail("unterminated string")
+        }
+
+        private fun readEscapedString(start: Int): String {
+            val sb = StringBuilder(32)
+            sb.append(s, start, i)
+            while (i < s.length) {
+                when (val c = s[i]) {
+                    '"' -> {
+                        i++
+                        return sb.toString()
+                    }
+                    '\\' -> {
+                        i++
+                        if (i >= s.length) fail("unterminated escape")
+                        when (val e = s[i]) {
+                            '"' -> {
+                                sb.append('"')
+                                i++
+                            }
+                            '\\' -> {
+                                sb.append('\\')
+                                i++
+                            }
+                            '/' -> {
+                                sb.append('/')
+                                i++
+                            }
+                            'b' -> {
+                                sb.append('\b')
+                                i++
+                            }
+                            'f' -> {
+                                sb.append('\u000C')
+                                i++
+                            }
+                            'n' -> {
+                                sb.append('\n')
+                                i++
+                            }
+                            'r' -> {
+                                sb.append('\r')
+                                i++
+                            }
+                            't' -> {
+                                sb.append('\t')
+                                i++
+                            }
+                            'u' -> {
+                                if (i + 4 >= s.length) fail("truncated unicode escape")
+                                val hex = s.substring(i + 1, i + 5)
+                                val code = hex.toIntOrNull(16) ?: fail("bad unicode escape '$hex'")
+                                // Appended as a UTF-16 code unit. A surrogate
+                                // pair arrives as two escapes and reassembles
+                                // itself, because that is exactly how Kotlin
+                                // stores it in a String.
+                                sb.append(code.toChar())
+                                i += 5
+                            }
+                            else -> fail("unknown escape")
+                        }
+                    }
+                    else -> {
+                        sb.append(c)
+                        i++
+                    }
+                }
+            }
+            fail("unterminated string")
+        }
+
+        /** Skip a value without building it — for keys a node does not use. */
+        fun skipValue() {
+            when {
+                i >= s.length -> fail("expected a value")
+                s[i] == '"' -> readString()
+                s[i] == '{' || s[i] == '[' -> skipContainer()
+                s.startsWith("true", i) -> i += 4
+                s.startsWith("false", i) -> i += 5
+                s.startsWith("null", i) -> i += 4
+                else -> readNumber()
+            }
+        }
+
+        private fun skipContainer() {
+            val open = s[i]
+            val close = if (open == '{') '}' else ']'
+            var depth = 0
+            while (i < s.length) {
+                when (s[i]) {
+                    '"' -> {
+                        // Strings can contain braces; consume them properly.
+                        readString()
+                        continue
+                    }
+                    open -> depth++
+                    close -> {
+                        depth--
+                        if (depth == 0) {
+                            i++
+                            return
+                        }
+                    }
+                }
+                i++
+            }
+            fail("unterminated container")
+        }
+    }
+}

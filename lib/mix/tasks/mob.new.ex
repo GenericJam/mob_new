@@ -85,6 +85,7 @@ defmodule Mix.Tasks.Mob.New do
               AndroidManifest.xml
               java/com/mob/APP_NAME/MainActivity.kt
               java/com/mob/APP_NAME/MobBridge.kt
+              java/com/mob/APP_NAME/MobJson.kt
               java/com/mob/APP_NAME/MobNode.kt
               java/com/mob/APP_NAME/MobScannerActivity.kt
           gradle.properties
@@ -319,6 +320,7 @@ defmodule Mix.Tasks.Mob.New do
           "android/app/src/main/AndroidManifest.xml",
           "android/app/src/main/java/com/mob/#{app_name}/MainActivity.kt",
           "android/app/src/main/java/com/mob/#{app_name}/MobBridge.kt",
+          "android/app/src/main/java/com/mob/#{app_name}/MobJson.kt",
           "android/app/src/main/java/com/mob/#{app_name}/MobNode.kt",
           "android/app/src/main/java/com/mob/#{app_name}/MobScannerActivity.kt",
           "android/gradle.properties"

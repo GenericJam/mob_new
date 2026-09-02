@@ -734,7 +734,7 @@ object MobBridge {
         } else {
             _rootState.value.navKey
         }
-        _rootState.value = RootState(newKey, transition, JSONObject(json).toMobNode())
+        _rootState.value = RootState(newKey, transition, MobJson.parseNode(json))
     }
 
     /** Called from Compose onClick — routes tap back to BEAM via C. */

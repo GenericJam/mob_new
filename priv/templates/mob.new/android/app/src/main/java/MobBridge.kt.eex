@@ -96,6 +96,8 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -179,7 +181,9 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -791,6 +795,39 @@ object MobBridge {
 
     @JvmStatic
     external fun nativeSendSwipeDown(handle: Int)
+
+    /**
+     * Scroll. Throttling and delta-thresholding happen native-side in
+     * mob_send_scroll, so Kotlin forwards every sample it observes and lets the
+     * zig layer decide what is worth a BEAM crossing.
+     */
+    @JvmStatic
+    external fun nativeSendScroll(handle: Int, x: Double, y: Double, dx: Double, dy: Double,
+                                  vx: Double, vy: Double, phase: String)
+
+    @JvmStatic
+    external fun nativeSendScrollBegan(handle: Int)
+
+    @JvmStatic
+    external fun nativeSendScrollEnded(handle: Int)
+
+    @JvmStatic
+    external fun nativeSendScrollSettled(handle: Int)
+
+    @JvmStatic
+    external fun nativeSendTopReached(handle: Int)
+
+    @JvmStatic
+    external fun nativeSendScrolledPast(handle: Int)
+
+    /**
+     * Drag, for `:canvas`. Coordinates are dp, matching the canvas's own
+     * coordinate space (width/height props are dp) and iOS's points — Compose
+     * hands the gesture raw pixels, so the caller converts before this point.
+     */
+    @JvmStatic
+    external fun nativeSendDrag(handle: Int, x: Double, y: Double, dx: Double, dy: Double,
+                                phase: String)
 
     /** Called from Compose onChange — routes change value back to BEAM via C. */
     @JvmStatic
@@ -2378,6 +2415,139 @@ fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
     }
 }
 
+/** Swipe handles for one node, re-read each composition. See MobScrollHandlers. */
+private data class MobSwipeHandlers(
+    val any: Int?,
+    val left: Int?,
+    val right: Int?,
+    val up: Int?,
+    val down: Int?,
+)
+
+/**
+ * The scroll handlers for one node, re-read on every composition.
+ *
+ * Exists so MobScrollEvents can hold the *latest* handles without keying its
+ * LaunchedEffect on them: handles are re-registered every render and would
+ * otherwise restart the effect and wipe its accumulated scroll state.
+ */
+private data class MobScrollHandlers(
+    val scroll: Int?,
+    val began: Int?,
+    val ended: Int?,
+    val settled: Int?,
+    val top: Int?,
+    val past: Int?,
+    val threshold: Float,
+)
+
+/**
+ * Emits the scroll event family for a `:scroll` node (MOB-138).
+ *
+ * Mirrors iOS's MobScrollObserver: first sample opens the scroll with
+ * `began`, subsequent samples report deltas and velocity, and a debounced
+ * "no motion for 150ms" timer closes it with ended + settled. Throttling and
+ * delta-thresholding are applied native-side in mob_send_scroll, so every
+ * observed sample is forwarded and the zig layer decides what crosses to the
+ * BEAM.
+ *
+ * Returns immediately when the node declares no scroll handler, so the common
+ * scroll node pays nothing beyond six null prop reads.
+ */
+@Composable
+private fun MobScrollEvents(node: MobNode, scrollState: ScrollState, horizontal: Boolean) {
+    val scrollH   = intProp(node.props, "on_scroll")
+    val beganH    = intProp(node.props, "on_scroll_began")
+    val endedH    = intProp(node.props, "on_scroll_ended")
+    val settledH  = intProp(node.props, "on_scroll_settled")
+    val topH      = intProp(node.props, "on_top_reached")
+    val pastH     = intProp(node.props, "on_scrolled_past")
+    val threshold = floatProp(node.props, "scrolled_past_threshold") ?: 0f
+
+    if (scrollH == null && beganH == null && endedH == null &&
+        settledH == null && topH == null && pastH == null) {
+        return
+    }
+
+    // The handles must NOT key the effect. Every render clears and re-registers
+    // the tap table, so each of these ints is different on every frame — and a
+    // scroll handler re-renders the screen, which re-registers, which changes
+    // the keys. Keying on them restarts the effect mid-scroll and resets
+    // `hasBegun`/`last`/`wasPast`, so began fires on every sample, scrolled_past
+    // stops latching, and every delta is computed against a just-reset baseline
+    // and comes out 0. Key on the ScrollState, which is remembered and stable,
+    // and read the handles through a snapshot that updates without restarting.
+    val h by rememberUpdatedState(
+        MobScrollHandlers(scrollH, beganH, endedH, settledH, topH, pastH, threshold)
+    )
+
+    LaunchedEffect(scrollState, horizontal) {
+        var last = scrollState.value.toFloat()
+        var lastTs = 0L
+        var hasBegun = false
+        var wasPast = false
+        var endJob: Job? = null
+
+        snapshotFlow { scrollState.value }.collect { raw ->
+            val pos = raw.toFloat()
+            val now = System.nanoTime()
+            val dt = if (lastTs > 0L) (now - lastTs) / 1_000_000_000.0 else 0.0
+            val delta = pos - last
+            val velocity = if (dt > 0.0) delta / dt else 0.0
+
+            // A ScrollState is one-dimensional; which axis it means depends on
+            // whether the node rendered a horizontalScroll or a verticalScroll.
+            // Reporting into the wrong axis would leave the other permanently 0.
+            val x  = if (horizontal) pos.toDouble() else 0.0
+            val y  = if (horizontal) 0.0 else pos.toDouble()
+            val dx = if (horizontal) delta.toDouble() else 0.0
+            val dy = if (horizontal) 0.0 else delta.toDouble()
+            val vx = if (horizontal) velocity else 0.0
+            val vy = if (horizontal) 0.0 else velocity
+
+            if (!hasBegun) {
+                hasBegun = true
+                h.began?.let { MobBridge.nativeSendScrollBegan(it) }
+                h.scroll?.let { MobBridge.nativeSendScroll(it, x, y, 0.0, 0.0, 0.0, 0.0, "began") }
+            } else {
+                h.scroll?.let { MobBridge.nativeSendScroll(it, x, y, dx, dy, vx, vy, "dragging") }
+            }
+
+            // Fires on ENTERING the top, not while sitting there — otherwise a
+            // screen already at 0 would emit on every unrelated recomposition.
+            if (pos <= 0.001f && last > 0.001f) {
+                h.top?.let { MobBridge.nativeSendTopReached(it) }
+            }
+
+            // Latched: only the crossing fires, so dithering around the
+            // boundary does not spam the BEAM.
+            if (h.threshold > 0f) {
+                val nowPast = pos > h.threshold
+                if (nowPast && !wasPast) h.past?.let { MobBridge.nativeSendScrolledPast(it) }
+                wasPast = nowPast
+            }
+
+            last = pos
+            lastTs = now
+
+            // Debounced close. Each sample cancels the pending timer, so ended
+            // fires once, 150ms after motion actually stops.
+            endJob?.cancel()
+            endJob = launch {
+                delay(150)
+                if (hasBegun) {
+                    hasBegun = false
+                    h.ended?.let { MobBridge.nativeSendScrollEnded(it) }
+                    h.settled?.let { MobBridge.nativeSendScrollSettled(it) }
+                    h.scroll?.let {
+                        MobBridge.nativeSendScroll(it, x, y, 0.0, 0.0, 0.0, 0.0, "ended")
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
@@ -2440,8 +2610,17 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     val hasSwipe = swipeAny != null || swipeLeft != null || swipeRight != null ||
         swipeUp != null || swipeDown != null
 
+    // Same reasoning as the canvas drag below: handles change on every render,
+    // so keying on them lets any mid-gesture re-render cancel the detector. A
+    // swipe only emits at onDragEnd, so it survives today by accident — nothing
+    // re-renders during it. That stops being true the moment the screen updates
+    // for any other reason mid-swipe.
+    val liveSwipe by rememberUpdatedState(
+        MobSwipeHandlers(swipeAny, swipeLeft, swipeRight, swipeUp, swipeDown)
+    )
+
     val gestureModifier = if (!hasSwipe) tapModifier else {
-        tapModifier.pointerInput(swipeAny, swipeLeft, swipeRight, swipeUp, swipeDown) {
+        tapModifier.pointerInput(Unit) {
             // 30dp mirrors iOS's DragGesture(minimumDistance: 30). There the
             // gesture never starts below the threshold; Compose starts at touch
             // slop, so the distance check moves to the end instead.
@@ -2462,12 +2641,13 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                     if (direction != null) {
                         // Generic first, then the direction-specific one. iOS
                         // fires them in this order and a node may have both.
-                        swipeAny?.let { MobBridge.nativeSendSwipe(it, direction) }
+                        val sw = liveSwipe
+                        sw.any?.let { MobBridge.nativeSendSwipe(it, direction) }
                         when (direction) {
-                            "left"  -> swipeLeft?.let  { MobBridge.nativeSendSwipeLeft(it) }
-                            "right" -> swipeRight?.let { MobBridge.nativeSendSwipeRight(it) }
-                            "up"    -> swipeUp?.let    { MobBridge.nativeSendSwipeUp(it) }
-                            "down"  -> swipeDown?.let  { MobBridge.nativeSendSwipeDown(it) }
+                            "left"  -> sw.left?.let  { MobBridge.nativeSendSwipeLeft(it) }
+                            "right" -> sw.right?.let { MobBridge.nativeSendSwipeRight(it) }
+                            "up"    -> sw.up?.let    { MobBridge.nativeSendSwipeUp(it) }
+                            "down"  -> sw.down?.let  { MobBridge.nativeSendSwipeDown(it) }
                         }
                     }
                 }
@@ -2526,6 +2706,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         "scroll" -> {
             val scrollState = rememberScrollState()
             val horizontal = node.props["axis"] == "horizontal"
+            MobScrollEvents(node, scrollState, horizontal)
             // Register by :id so Mob.Test.scroll_info/scroll_to can address it,
             // and record the measured viewport (ScrollState doesn't expose it).
             val id = node.props["id"] as? String
@@ -2595,6 +2776,22 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                         val handle = MobBridge.scrollHandle(id)
                         handle.scrollState = null
                         handle.horizontal = false
+                    }
+                    // The scroll event family is driven by the pixel ScrollState,
+                    // which this path deliberately detaches — a LazyColumn scrolls
+                    // a LazyListState instead, in item index + offset rather than
+                    // pixels. Rather than let the handlers go quiet the way
+                    // MOB-138 describes, say so once, loudly.
+                    if (intProp(node.props, "on_scroll") != null ||
+                        intProp(node.props, "on_scroll_began") != null ||
+                        intProp(node.props, "on_scroll_ended") != null ||
+                        intProp(node.props, "on_scroll_settled") != null ||
+                        intProp(node.props, "on_top_reached") != null ||
+                        intProp(node.props, "on_scrolled_past") != null) {
+                        Log.w("MobBridge",
+                            "scroll node id=" + (id ?: "?") + " declares scroll handlers with " +
+                            "lazy: true; the scroll event family is pixel-based and is not " +
+                            "emitted on the lazy path. Drop lazy or drop the handlers.")
                     }
                     MobLazyList(node.copy(children = sole!!.children), m)
                 } else {
@@ -3128,7 +3325,67 @@ private fun MobCanvas(node: MobNode, modifier: Modifier) {
         modifier
     }
 
-    Canvas(modifier = sized) {
+    // on_drag is canvas-only, matching iOS, where the DragGesture lives on the
+    // canvas view and nowhere else.
+    //
+    // One sanctioned divergence: iOS uses DragGesture(minimumDistance: 0) so a
+    // stationary tap registers as a zero-length began/ended pair (a dot on a
+    // drawing canvas). detectDragGestures only starts after touch slop, so a
+    // bare tap emits nothing here. The iOS source already documents this as the
+    // expected Android behaviour rather than a defect.
+    val dragHandle = intProp(node.props, "on_drag")
+    // Deliberately NOT keyed on the handle. on_drag emits continuously, each
+    // message re-renders the screen, and every render re-registers the tap
+    // table with fresh handle ints. Keying on the handle therefore cancels the
+    // gesture coroutine one sample into the drag: `began` and a single
+    // `dragging` arrive, then onDragEnd never runs and the drag never closes.
+    // Key on nothing and read the current handle through a snapshot instead.
+    val liveDragHandle by rememberUpdatedState(dragHandle)
+    val dragged = if (dragHandle == null) sized else {
+        sized.pointerInput(Unit) {
+            var startX = 0f
+            var startY = 0f
+            // Last reported position, so the closing event carries where the
+            // finger actually ended and the total translation — iOS's onEnded
+            // reads value.location/value.translation, not the drag origin.
+            var curX = 0f
+            var curY = 0f
+            // Compose reports pixels; the canvas draws in dp and iOS reports
+            // points. Emitting raw pixels would scale every coordinate by the
+            // device's density and put the drag in a different space than the
+            // drawing it is meant to steer.
+            fun emit(px: Float, py: Float, phase: String) {
+                val h = liveDragHandle ?: return
+                MobBridge.nativeSendDrag(
+                    h,
+                    px.toDp().value.toDouble(), py.toDp().value.toDouble(),
+                    (px - startX).toDp().value.toDouble(),
+                    (py - startY).toDp().value.toDouble(),
+                    phase
+                )
+            }
+            detectDragGestures(
+                onDragStart = { off ->
+                    startX = off.x
+                    startY = off.y
+                    curX = off.x
+                    curY = off.y
+                    emit(off.x, off.y, "began")
+                },
+                onDragEnd = { emit(curX, curY, "ended") },
+                // A cancelled drag still has to close, or a listener that opened
+                // state on "began" never gets told to release it.
+                onDragCancel = { emit(curX, curY, "ended") }
+            ) { change, _ ->
+                curX = change.position.x
+                curY = change.position.y
+                emit(curX, curY, "dragging")
+                change.consume()
+            }
+        }
+    }
+
+    Canvas(modifier = dragged) {
         ops.forEach { op -> drawCanvasOp(op) }
     }
 }

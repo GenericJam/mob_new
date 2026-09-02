@@ -111,6 +111,57 @@ Java_<%= jni_package %>_MobBridge_nativeSendSwipeDown(JNIEnv* env, jclass cls, j
     mob_send_swipe_down((int)handle);
 }
 
+// Scroll family. mob_send_scroll applies the per-handle throttle and delta
+// threshold before it reaches the BEAM, so forwarding every observed sample
+// here is intentional — the gating lives native-side, not in Kotlin.
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendScroll(JNIEnv* env, jclass cls, jint handle,
+                                                   jdouble x, jdouble y, jdouble dx, jdouble dy,
+                                                   jdouble vx, jdouble vy, jstring phase) {
+    const char* ph = (*env)->GetStringUTFChars(env, phase, NULL);
+    if (ph == NULL) return;
+    mob_send_scroll((int)handle, (double)x, (double)y, (double)dx, (double)dy,
+                    (double)vx, (double)vy, ph);
+    (*env)->ReleaseStringUTFChars(env, phase, ph);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendScrollBegan(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_scroll_began((int)handle);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendScrollEnded(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_scroll_ended((int)handle);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendScrollSettled(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_scroll_settled((int)handle);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendTopReached(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_top_reached((int)handle);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendScrolledPast(JNIEnv* env, jclass cls, jint handle) {
+    mob_send_scrolled_past((int)handle);
+}
+
+// Canvas drag. Coordinates arrive already converted to dp by the Kotlin side,
+// matching the canvas's own coordinate space and iOS's points.
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSendDrag(JNIEnv* env, jclass cls, jint handle,
+                                                 jdouble x, jdouble y, jdouble dx, jdouble dy,
+                                                 jstring phase) {
+    const char* ph = (*env)->GetStringUTFChars(env, phase, NULL);
+    if (ph == NULL) return;
+    mob_send_drag((int)handle, (double)x, (double)y, (double)dx, (double)dy, ph);
+    (*env)->ReleaseStringUTFChars(env, phase, ph);
+}
+
 // Called from MobBridge.nativeSendDismiss(handle) when a sheet is dismissed.
 // Distinct from nativeSendTap because Mob.UI.sheet/2's :on_dismiss is
 // documented as {:dismiss, tag} and iOS delivers exactly that — routing it

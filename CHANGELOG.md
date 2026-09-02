@@ -10,12 +10,28 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Performance
+- **Generated Android `:scroll` composes only the rows on screen.** It rendered
+  as `Column(...).verticalScroll(...)`, composing every child regardless of the
+  viewport — a 200-row list composed all 200 rows to show about ten. Vertical
+  scrolls whose content can be lazified now render through `MobLazyList`
+  (`LazyColumn`). On a Moto G Power the main-thread cost of a 200-row screen
+  drops from 141 ms to 82 ms, and becomes flat in list length (83/81/92 ms at
+  50/200/500 rows) where it previously grew. Short lists are unaffected or
+  marginally slower — the win is for long ones. See
+  `decisions/2026-09-02-lazy-scroll-on-android.md`.
+
 ### Fixed
 - **Generated Android lists preserve state by stable identity.** Lazy lists
   retain scroll position across generation-tagged event-handle changes and no
   longer allocate one state object per render. Canonical node IDs take
   precedence, with a non-negative event slot as fallback; negative unhandled
   sentinels do not collide with valid slots.
+
+- **A `fill_height` `:scroll` child now gets a bounded height from its parent
+  column.** `Column` only measures a child against the remaining space when that
+  child is weighted, so `fill_height` alone left it unbounded. `verticalScroll`
+  tolerated that; a lazy container does not, and would have composed zero items.
 
 ## [0.4.30] - 2026-08-31
 

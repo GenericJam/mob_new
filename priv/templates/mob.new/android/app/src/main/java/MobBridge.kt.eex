@@ -2381,7 +2381,21 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         "column" -> Column(modifier = m) {
             node.children.forEach { child ->
                 val w = floatProp(child.props, "weight")
-                RenderNode(child, if (w != null) Modifier.weight(w) else Modifier)
+                // A lazy container must be measured with a bounded main axis.
+                // fill_height alone does not give it one inside a Column, which
+                // only measures a child against the remaining space when that
+                // child is weighted. Without this the LazyColumn below is
+                // measured unbounded, composes zero items, and renders nothing.
+                val fillsHeight =
+                    child.type == "scroll" && child.props["fill_height"] == true
+                RenderNode(
+                    child,
+                    when {
+                        w != null -> Modifier.weight(w)
+                        fillsHeight -> Modifier.weight(1f)
+                        else -> Modifier
+                    }
+                )
             }
         }
         "row" -> Row(modifier = m, verticalAlignment = rowAlignProp(node.props)) {
@@ -2438,8 +2452,36 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                     node.children.forEach { RenderNode(it) }
                 }
             } else {
-                Column(modifier = m.then(regMod).verticalScroll(scrollState).imePadding()) {
-                    node.children.forEach { RenderNode(it) }
+                // Compose only the rows that are on screen.
+                //
+                // Mob screens are written scroll > column > rows, so a scroll
+                // node usually has exactly ONE child; lazifying its direct
+                // children would buy nothing because the column underneath still
+                // composes every row. Flatten one level when the sole child is a
+                // column whose own props are layout-neutral, and use ITS children
+                // as the items.
+                //
+                // Only fill_width/fill_height count as neutral: a LazyColumn
+                // already spans its container's width, and its height comes from
+                // the scroll node. Anything else — padding, background, align, an
+                // id the test harness addresses — changes what the user sees and
+                // would be silently dropped by flattening, so those keep the
+                // eager path.
+                val sole = node.children.singleOrNull()
+                val flattenable =
+                    sole != null &&
+                        sole.type == "column" &&
+                        sole.props.keys.all { it == "fill_width" || it == "fill_height" }
+
+                if (flattenable) {
+                    // Reuse MobLazyList so :scroll inherits the list-state
+                    // hoisting that already lives there: rememberLazyListState
+                    // resets to 0 on every BEAM re-render.
+                    MobLazyList(node.copy(children = sole!!.children), m.then(regMod))
+                } else {
+                    Column(modifier = m.then(regMod).verticalScroll(scrollState).imePadding()) {
+                        node.children.forEach { RenderNode(it) }
+                    }
                 }
             }
         }

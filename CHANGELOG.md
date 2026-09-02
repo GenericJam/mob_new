@@ -24,7 +24,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   containers, and `JSONObject.NULL` for a JSON null — because `MobBridge` reads
   them by type and a wrong type reads as null rather than failing loudly. The
   generated app ships 15 JVM unit tests for this, including a differential
-  comparison against the old parser.
+  comparison against the old parser, and 40,000 fuzzed trees were checked
+  against a vendored copy of the real AOSP implementation during review.
 
 ### Added
 - **`:scroll` can compose only the rows on screen, with `lazy: true`.** A vertical

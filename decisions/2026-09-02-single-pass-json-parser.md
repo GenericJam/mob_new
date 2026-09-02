@@ -71,11 +71,11 @@ magnitude was a warm-up artefact, and it is why the estimate of 3-5x was wrong.
 ## Consequences
 
 - A hand-written parser is code we now own: escapes, `\u` sequences, number
-  forms, malformed input. It ships with 15 JVM unit tests — a differential
+  forms, malformed input. It ships with 19 JVM unit tests — a differential
   comparison against the old path over a representative tree and over every
   escape form, plus targeted tests for number typing, the container contract,
   the NULL sentinel, deep nesting, structural characters inside strings, and
-  twelve malformed inputs.
+  twelve malformed inputs, whitespace forms, duplicate keys and prop order.
 - Those tests need a real `org.json` on the unit-test classpath, because the
   Android SDK jar stubs it out — every method throws. The Maven artifact is a
   fair oracle for structure and strings but **diverges on numbers**: it returns

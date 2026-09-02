@@ -1,0 +1,352 @@
+package <%= java_package %>
+
+import org.json.JSONArray
+import org.json.JSONException
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Test
+
+/**
+ * MobJson replaces `JSONObject(json).toMobNode()`, so the bar is not "parses
+ * JSON" — it is **produces exactly what the old path produced**, down to the
+ * runtime class of every prop value. `MobBridge` reads props with `as? String`,
+ * `as? Number`, `is JSONArray` and `is JSONObject`; a value of the wrong type
+ * does not crash, it reads as null and the prop silently stops working.
+ *
+ * So the central test here is differential: run both parsers over the same text
+ * and compare the trees including value classes. The targeted tests below it
+ * cover the places where a hand-written reader is most likely to drift.
+ */
+class MobJsonTest {
+
+    // ── The oracle ────────────────────────────────────────────────────────
+
+    /** The path MobJson replaces, kept here as the reference implementation. */
+    private fun oracle(json: String): MobNode = JSONObject(json).toMobNode()
+
+    /**
+     * Structural comparison that also asserts runtime classes, and knows that
+     * org.json's containers do not implement equals — `JSONObject == JSONObject`
+     * is identity, so two equal-by-content objects compare unequal and a plain
+     * assertEquals on the trees would pass or fail for the wrong reasons.
+     */
+    private fun assertSameNode(expected: MobNode, actual: MobNode, path: String = "$") {
+        assertEquals("$path.type", expected.type, actual.type)
+        assertEquals("$path.props keys", expected.props.keys, actual.props.keys)
+        for (k in expected.props.keys) {
+            assertSameValue(expected.props[k], actual.props[k], "$path.props[$k]")
+        }
+        assertEquals("$path.children size", expected.children.size, actual.children.size)
+        for (idx in expected.children.indices) {
+            assertSameNode(expected.children[idx], actual.children[idx], "$path.children[$idx]")
+        }
+    }
+
+    /**
+     * The unit-test classpath carries the Maven `org.json` artifact, which is
+     * NOT the implementation that ships on Android. They diverge on one thing
+     * that matters here: Maven org.json returns `BigDecimal` for a value with a
+     * fraction or exponent, while Android's (AOSP) `JSONTokener.readLiteral`
+     * tries Integer, then Long, then **Double**.
+     *
+     * MobJson matches Android — that is the target — so the oracle is
+     * normalised rather than the parser. The authoritative expectations for
+     * number typing are the dedicated tests below, which assert Int / Long /
+     * Double against MobJson directly and do not involve the oracle at all.
+     */
+    private fun normalise(v: Any?): Any? = if (v is java.math.BigDecimal) v.toDouble() else v
+
+    private fun assertSameValue(rawExpected: Any?, actual: Any?, path: String) {
+        val expected = normalise(rawExpected)
+        // Identity, not equality. JSONObject.NULL.equals(null) is TRUE, so an
+        // `expected == null` short-circuit here silently accepted a real
+        // difference: the oracle storing the NULL sentinel while MobJson stored
+        // a Kotlin null. That is the bug this comparator exists to catch.
+        if (expected === null || actual === null) {
+            assertSame("$path null-ness", expected, actual)
+            return
+        }
+        assertEquals("$path class", expected.javaClass, actual.javaClass)
+        when (expected) {
+            // Compared by rendered form: org.json containers use identity equals.
+            is JSONObject -> assertEquals("$path", expected.toString(), (actual as JSONObject).toString())
+            is JSONArray -> assertEquals("$path", expected.toString(), (actual as JSONArray).toString())
+            else -> assertEquals("$path", expected, actual)
+        }
+    }
+
+    // ── Differential ──────────────────────────────────────────────────────
+
+    /**
+     * One tree exercising every shape a real payload contains: scalars of each
+     * type, a nested object prop, a nested array prop, an array of objects,
+     * escapes, an unknown node key, empty props and empty children.
+     */
+    private val representative = """
+      {
+        "type": "column",
+        "props": {
+          "fill_width": true,
+          "hidden": false,
+          "padding": 8,
+          "opacity": 0.5,
+          "negative": -12,
+          "big": 9999999999,
+          "text": "hello",
+          "nothing": null,
+          "tabs": [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}],
+          "drag_config": {"throttle_ms": 16, "leading": true},
+          "detents": ["content", 0.5]
+        },
+        "unknown_key": {"ignored": [1, 2, {"deep": true}]},
+        "children": [
+          {"type": "text", "props": {"text": "a \"quoted\" word"}, "children": []},
+          {"type": "row", "props": {}, "children": [
+            {"type": "text", "props": {"text": "nested"}, "children": []}
+          ]}
+        ]
+      }
+    """
+
+    @Test
+    fun `matches the old parser on a representative tree`() {
+        assertSameNode(oracle(representative), MobJson.parseNode(representative))
+    }
+
+    @Test
+    fun `matches the old parser on escapes`() {
+        val json = """
+          {"type":"text","props":{
+            "quote":"a \"q\" b",
+            "backslash":"a \\ b",
+            "solidus":"a \/ b",
+            "controls":"\b\f\n\r\t",
+            "unicode":"caf\u00e9",
+            "surrogate":"\ud83d\ude00",
+            "mixed":"pre\tmid\u0041post"
+          },"children":[]}
+        """
+        assertSameNode(oracle(json), MobJson.parseNode(json))
+    }
+
+    // ── Number typing ─────────────────────────────────────────────────────
+    //
+    // `as? Number` accepts any of these, but `intProp`/`floatProp` and the
+    // event-handle reads depend on the same choices org.json made.
+
+    @Test
+    fun `integral values are Int, or Long when they do not fit`() {
+        val node = MobJson.parseNode(
+            """{"type":"x","props":{"small":42,"neg":-7,"big":9999999999,"zero":0},"children":[]}"""
+        )
+        assertEquals(Integer::class.java, node.props["small"]!!.javaClass)
+        assertEquals(42, node.props["small"])
+        assertEquals(-7, node.props["neg"])
+        assertEquals(0, node.props["zero"])
+        assertEquals(java.lang.Long::class.java, node.props["big"]!!.javaClass)
+        assertEquals(9999999999L, node.props["big"])
+    }
+
+    @Test
+    fun `values with a fraction or exponent are Double`() {
+        val node = MobJson.parseNode(
+            """{"type":"x","props":{"half":0.5,"exp":1e3,"negexp":2.5E-2,"whole":3.0},"children":[]}"""
+        )
+        for (k in listOf("half", "exp", "negexp", "whole")) {
+            assertEquals("$k class", java.lang.Double::class.java, node.props[k]!!.javaClass)
+        }
+        assertEquals(0.5, node.props["half"])
+        assertEquals(1000.0, node.props["exp"])
+        assertEquals(0.025, node.props["negexp"])
+        assertEquals(3.0, node.props["whole"])
+    }
+
+    // ── The compatibility contract ────────────────────────────────────────
+
+    @Test
+    fun `nested props stay JSONObject and JSONArray`() {
+        // MobBridge branches on `is JSONArray` / `is JSONObject` for tabs,
+        // uniforms, detents and the throttle configs. Any other container type
+        // makes those branches fall through and the prop stops working.
+        val node = MobJson.parseNode(
+            """{"type":"x","props":{"tabs":[{"id":"a"}],"cfg":{"throttle_ms":16}},"children":[]}"""
+        )
+        assertTrue("tabs should be a JSONArray", node.props["tabs"] is JSONArray)
+        assertTrue("cfg should be a JSONObject", node.props["cfg"] is JSONObject)
+        assertEquals("a", (node.props["tabs"] as JSONArray).getJSONObject(0).getString("id"))
+        assertEquals(16, (node.props["cfg"] as JSONObject).getInt("throttle_ms"))
+    }
+
+    @Test
+    fun `a null prop is the NULL sentinel, matching the old parser`() {
+        // Not Kotlin null. The two compare equal, so `== null` cannot tell them
+        // apart — but `?.let { }` runs for the sentinel and not for a real null,
+        // and that difference is exactly the kind of thing that would show up
+        // as one prop quietly behaving differently on one screen.
+        val node = MobJson.parseNode("""{"type":"x","props":{"gone":null},"children":[]}""")
+        assertTrue("the key should be present", node.props.containsKey("gone"))
+        assertSame(JSONObject.NULL, node.props["gone"])
+    }
+
+    @Test
+    fun `the old parser's null representation is pinned, so MobJson can match it`() {
+        // This asserts the ORACLE, not MobJson. If org.json ever changed what
+        // toMobNode stored for a JSON null, MobJson would silently diverge from
+        // the thing it is supposed to be indistinguishable from, and the
+        // differential test alone would not say which side moved.
+        val old = oracle("""{"type":"x","props":{"gone":null},"children":[]}""")
+        assertTrue("the key should be present", old.props.containsKey("gone"))
+        assertSame("toMobNode stores the NULL sentinel", JSONObject.NULL, old.props["gone"])
+    }
+
+    @Test
+    fun `a null inside a nested container survives as JSONObject NULL`() {
+        // Inside a JSONObject the opposite is true: put(key, null) removes the
+        // key outright, so NULL is the only way to keep it.
+        val node = MobJson.parseNode("""{"type":"x","props":{"o":{"k":null}},"children":[]}""")
+        val o = node.props["o"] as JSONObject
+        assertTrue("key should survive", o.has("k"))
+        assertTrue(o.isNull("k"))
+    }
+
+    // ── Structure ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `empty props and children`() {
+        val node = MobJson.parseNode("""{"type":"spacer","props":{},"children":[]}""")
+        assertEquals("spacer", node.type)
+        assertTrue(node.props.isEmpty())
+        assertTrue(node.children.isEmpty())
+    }
+
+    @Test
+    fun `missing props and children keys default to empty`() {
+        val node = MobJson.parseNode("""{"type":"spacer"}""")
+        assertEquals("spacer", node.type)
+        assertTrue(node.props.isEmpty())
+        assertTrue(node.children.isEmpty())
+    }
+
+    @Test
+    fun `unknown node keys are skipped, including ones containing braces`() {
+        // The skip path has to consume strings properly, or a brace inside a
+        // string ends the container early and the rest of the tree is misread.
+        val node = MobJson.parseNode(
+            """{"type":"x","meta":{"s":"a } b ] c","n":[1,{"z":2}]},"props":{"k":1},"children":[]}"""
+        )
+        assertEquals("x", node.type)
+        assertEquals(1, node.props["k"])
+    }
+
+    @Test
+    fun `a string prop containing structural characters is read whole`() {
+        val node = MobJson.parseNode(
+            """{"type":"text","props":{"text":"{\"not\":\"json\"} , ] }"},"children":[]}"""
+        )
+        assertEquals("""{"not":"json"} , ] }""", node.props["text"])
+    }
+
+    @Test
+    fun `a null inside a nested array is the NULL sentinel too`() {
+        // `detents: ["content", null]` is a real shape. The object case was
+        // pinned; the array case was not, and a mutant returning Kotlin null
+        // here survived the whole suite.
+        val node = MobJson.parseNode("""{"type":"x","props":{"a":[1,null]},"children":[]}""")
+        val a = node.props["a"] as JSONArray
+        assertTrue(a.isNull(1))
+        assertSame(JSONObject.NULL, a.get(1))
+    }
+
+    @Test
+    fun `every JSON whitespace character is skipped, not just spaces`() {
+        // A mutant dropping tab or carriage return from skipWhitespace survived,
+        // because the tolerance test used only spaces.
+        val json = "{\"type\":\"x\",\r\n\t\"props\":{\r\n\t\"a\":\t1\r\n},\"children\":[]}"
+        val node = MobJson.parseNode(json)
+        assertEquals("x", node.type)
+        assertEquals(1, node.props["a"])
+    }
+
+    @Test
+    fun `a duplicate props key keeps the last value, as org_json does`() {
+        val json = """{"type":"x","props":{"a":1,"a":2},"children":[]}"""
+        assertEquals(2, MobJson.parseNode(json).props["a"])
+    }
+
+    @Test
+    fun `props keep their insertion order`() {
+        // Android backs JSONObject with a LinkedHashMap, so iteration order is
+        // insertion order. Nothing depended on that when this was written, but a
+        // TreeMap mutant survived the suite, which means the property was free
+        // to change silently.
+        val json = """{"type":"x","props":{"z":1,"a":2,"m":3},"children":[]}"""
+        assertEquals(listOf("z", "a", "m"), MobJson.parseNode(json).props.keys.toList())
+    }
+
+    @Test
+    fun `deep nesting is preserved`() {
+        val depth = 40
+        val json = StringBuilder()
+        repeat(depth) { json.append("""{"type":"box","props":{},"children":[""") }
+        json.append("""{"type":"leaf","props":{},"children":[]}""")
+        repeat(depth) { json.append("]}") }
+
+        var node = MobJson.parseNode(json.toString())
+        repeat(depth) {
+            assertEquals("box", node.type)
+            assertEquals(1, node.children.size)
+            node = node.children[0]
+        }
+        assertEquals("leaf", node.type)
+    }
+
+    @Test
+    fun `whitespace between every token is tolerated`() {
+        val json = "  {  \"type\" : \"x\" , \"props\" : { \"a\" : 1 } , \"children\" : [ ] }  "
+        val node = MobJson.parseNode(json)
+        assertEquals("x", node.type)
+        assertEquals(1, node.props["a"])
+    }
+
+    // ── Malformed input ───────────────────────────────────────────────────
+    //
+    // JSONObject(String) threw JSONException; callers are written against that.
+
+    @Test
+    fun `malformed input throws JSONException`() {
+        // NOTE: this asserts MobJson's contract, which is deliberately STRICTER
+        // than Android's JSONObject(String). Several of these — an invalid
+        // escape like \q, trailing content after the root, an unparseable
+        // number — are accepted by AOSP org.json, which returns "q", ignores
+        // the trailing text, and keeps the number as a raw String respectively.
+        // Rejecting them is the intended behaviour, not accidental parity.
+        val bad = listOf(
+            "",
+            "   ",
+            "{",
+            """{"type":"x" """,
+            """{"type":"x","props":{"a":1}""",
+            """{"type":"x","props":{"a":}}""",
+            """{"type":"x","children":[{"type":"y"}}""",
+            """{"type":"x"} trailing""",
+            // Unterminated at the very end of input, so the string scan runs
+            // off the end rather than being caught by a later bounds check.
+            """{"type":"x","props":{"a":"unterminated""",
+            """{"type":"x","props":{"a":tru}}""",
+            """{"type":"x","props":{"a":"\q"}}""",
+            """{"type":"x","props":{"a":"\u00zz"}}"""
+        )
+        for (json in bad) {
+            try {
+                MobJson.parseNode(json)
+                fail("expected JSONException for: $json")
+            } catch (e: JSONException) {
+                // expected
+            }
+        }
+    }
+}

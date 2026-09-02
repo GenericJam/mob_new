@@ -90,8 +90,11 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
     # a node may declare both and expects both for one gesture. Dropping either
     # would be a silent half-delivery.
     combined =
-      src |> String.split("if (direction != null) {") |> Enum.at(1)
-          |> String.split("            }\n        }") |> Enum.at(0)
+      src
+      |> String.split("if (direction != null) {")
+      |> Enum.at(1)
+      |> String.split("            }\n        }")
+      |> Enum.at(0)
 
     assert combined =~ "sw.any?.let { MobBridge.nativeSendSwipe(it, direction) }"
     assert combined =~ "sw.left?.let  { MobBridge.nativeSendSwipeLeft(it) }"
@@ -109,9 +112,11 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
 
   test "every swipe sender has a JNI stub and reaches the right native fn", %{jni: jni} do
     assert jni =~ "mob_send_swipe_with_direction((int)handle, dir)"
+
     for d <- ~w(Left Right Up Down) do
       assert jni =~ "Java_<%= jni_package %>_MobBridge_nativeSendSwipe#{d}"
     end
+
     for d <- ~w(left right up down) do
       assert jni =~ "mob_send_swipe_#{d}((int)handle)"
     end

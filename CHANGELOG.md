@@ -10,12 +10,30 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **`:scroll` can compose only the rows on screen, with `lazy: true`.** A vertical
+  scroll whose sole child is a bare column (props limited to `fill_width` /
+  `fill_height`, no child carrying `weight`) renders through `MobLazyList`
+  instead of `Column` + `verticalScroll`. On a Moto G Power, toggling only this
+  prop on a 500-row screen takes the main-thread frame cost from 498.9 ms to
+  115.8 ms (p50) and from 1385.9 ms to 164.8 ms (worst frame). Lazy cost is flat
+  in list length where eager grows; short lists are unaffected or marginally
+  slower, so this is a long-list optimisation.
+
+  **Opt-in on purpose.** Rows below the fold are never composed, so they never
+  register a frame — `Mob.Test.element_frames` and `tap_id` cannot address them
+  — and scroll position becomes index-based rather than pixel-based. `lazy_list`
+  already makes that trade explicitly; making it the silent default would change
+  harness behaviour under apps that never asked for it. See
+  `decisions/2026-09-02-lazy-scroll-on-android.md`.
+
 ### Fixed
 - **Generated Android lists preserve state by stable identity.** Lazy lists
   retain scroll position across generation-tagged event-handle changes and no
   longer allocate one state object per render. Canonical node IDs take
   precedence, with a non-negative event slot as fallback; negative unhandled
   sentinels do not collide with valid slots.
+
 
 ## [0.4.30] - 2026-08-31
 

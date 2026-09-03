@@ -45,6 +45,31 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `decisions/2026-09-02-lazy-scroll-on-android.md`.
 
 ### Fixed
+- **Children keep their identity across list edits.** Children of every
+  container were composed positionally, so inserting or removing a row made
+  each following row adopt the previous occupant's state: typed text, scroll
+  offset, focus and in-flight animations all shifted by one. Children now key
+  on the author's `:id` when there is one and on position when there is not, so
+  nothing changes for code that never opted in. An authored id and a positional
+  key live in separate namespaces, so an author whose id is literally `"3"`
+  cannot collide with position 3, and a duplicate id falls back to position
+  rather than merging two rows.
+
+  Applies to all seven container sites — column, row, box, both scroll axes,
+  the lazy list and the sheet body. Paired with mob 0.7.39+ for the iOS half;
+  both platforms derive keys the same way. See
+  `decisions/2026-09-03-children-key-on-author-id.md` (MOB-127).
+- **The 14 dead Android event handlers are wired into the bridge.** `on_focus`,
+  `on_blur`, `on_long_press`, `on_double_tap`, the drag handlers and the rest
+  were accepted by the Elixir API and registered a handle, but the Compose
+  bridge never called them, so they were silently inert on Android while
+  working on iOS. Generated apps need this template change to receive them
+  (MOB-138).
+- **Throttle config reaches native on Android.** Scroll and drag throttle
+  settings were computed on the BEAM side and never sent, so Android ignored
+  them and delivered every raw event. The config is now sent per composition
+  and applied to the handlers being built. See
+  `decisions/2026-09-03-android-throttle-config-per-composition.md` (MOB-134).
 - **Generated Android lists preserve state by stable identity.** Lazy lists
   retain scroll position across generation-tagged event-handle changes and no
   longer allocate one state object per render. Canonical node IDs take

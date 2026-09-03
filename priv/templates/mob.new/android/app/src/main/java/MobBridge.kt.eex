@@ -81,7 +81,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.ScrollState
@@ -2658,7 +2657,18 @@ internal fun mobChildKeys(children: List<MobNode>): List<String> {
     val seen = HashSet<String>(children.size * 2)
 
     return children.mapIndexed { index, child ->
-        val authored = MobNodeIdentity.keyFor(child)?.canonical
+        // A non-empty String, matching iOS exactly. Mob.Renderer coerces atom
+        // and number ids to strings before they leave Elixir, so the platforms
+        // agree by construction; keying on anything else here would resurrect
+        // the divergence — MobNodeIdentity.keyFor canonicalises any JSON value,
+        // while iOS reads :id as an NSString and ignores the rest.
+        //
+        // Deliberately not MobNodeIdentity.keyFor: that is the sheet-slot
+        // identity and has different (broader) semantics. It also raises on an
+        // unknown value type, which is fine for the one sheet per screen it was
+        // written for and not fine on a path that now runs for every child of
+        // every column, row and lazy list.
+        val authored = (child.props["id"] as? String)?.takeIf { it.isNotEmpty() }
         var k = if (authored != null) "i\u0001" + authored else "p\u0001" + index
         if (!seen.add(k)) k = "d\u0001" + index + "\u0001" + k
         k
@@ -2910,7 +2920,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     val m = if (trackId != null) base.then(MobBridge.frameTrackingModifier(trackId)) else base
     when (node.type) {
         "column" -> Column(modifier = m) {
-            val keys = mobChildKeys(node.children)
+            val keys = remember(node.children) { mobChildKeys(node.children) }
             node.children.forEachIndexed { i, child ->
                 // Modifier.weight is resolved out here, in ColumnScope — forEachIndexed
                 // is inline so the scope survives, but key()'s block is a plain
@@ -2921,7 +2931,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
             }
         }
         "row" -> Row(modifier = m, verticalAlignment = rowAlignProp(node.props)) {
-            val keys = mobChildKeys(node.children)
+            val keys = remember(node.children) { mobChildKeys(node.children) }
             node.children.forEachIndexed { i, child ->
                 val w = floatProp(child.props, "weight")
                 val childModifier = if (w != null) Modifier.weight(w) else Modifier
@@ -4440,8 +4450,11 @@ private fun MobLazyList(node: MobNode, modifier: Modifier) {
         if (reachedEnd) handle?.let { MobBridge.nativeSendTap(it) }
     }
 
+    // Hoisted out of the LazyColumn: its trailing lambda is a LazyListScope
+    // builder, not a composable, so remember/1 cannot be called inside it.
+    val keys = remember(node.children) { mobChildKeys(node.children) }
+
     LazyColumn(state = listState, modifier = modifier.fillMaxWidth()) {
-        val keys = mobChildKeys(node.children)
         itemsIndexed(node.children, key = { index, _ -> keys[index] }) { _, child ->
             RenderNode(child)
         }

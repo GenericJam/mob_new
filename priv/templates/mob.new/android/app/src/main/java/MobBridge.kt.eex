@@ -2460,19 +2460,26 @@ fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
 @Composable
 private fun ApplyThrottleConfig(props: Map<String, Any?>, handle: Int?, configKey: String) {
     if (handle == null) return
+    // Nested props stay org.json objects — see MobJson's compatibility contract.
     val cfg = props[configKey] as? JSONObject ?: return
 
     SideEffect {
-        val m = jsonObjectToMap(cfg)
+        // Read straight off the JSONObject. jsonObjectToMap would allocate a
+        // LinkedHashMap plus five boxed values on the UI thread on every
+        // composition — i.e. every frame of an active scroll — and routing
+        // delta_threshold through Float on the way would turn 0.1 into
+        // 0.10000000149011612 for no reason.
         MobBridge.nativeSetThrottleConfig(
             handle,
-            intProp(m, "throttle_ms") ?: 0,
-            intProp(m, "debounce_ms") ?: 0,
-            (floatProp(m, "delta_threshold") ?: 0f).toDouble(),
-            // Absent means enabled: Mob.Event.Throttle defaults both to true,
-            // and the native side treats 0 as "off" rather than "unset".
-            if (boolProp(m, "leading") == false) 0 else 1,
-            if (boolProp(m, "trailing") == false) 0 else 1,
+            cfg.optInt("throttle_ms", 0),
+            cfg.optInt("debounce_ms", 0),
+            cfg.optDouble("delta_threshold", 0.0),
+            // Absent means enabled: Mob.Event.Throttle defaults both to true.
+            // Neither field has a native reader yet — mob_set_throttle_config
+            // stores them and nothing consults them — so this mapping is for
+            // whoever implements leading/trailing, not something in force today.
+            if (cfg.optBoolean("leading", true)) 1 else 0,
+            if (cfg.optBoolean("trailing", true)) 1 else 0,
         )
     }
 }

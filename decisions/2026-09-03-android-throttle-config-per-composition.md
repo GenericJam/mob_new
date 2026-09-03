@@ -46,8 +46,13 @@ active. iOS applies config from inside its deserialiser, *before* its swap,
 which is why it needed a build-table lookup instead. Same bug on paper, opposite
 fix — worth stating because the obvious move is to mirror the iOS change.
 
-An absent `leading`/`trailing` maps to 1, not 0: `Mob.Event.Throttle` defaults
-both to true, and the native side reads 0 as "off" rather than "unset".
+An absent `leading`/`trailing` maps to 1, not 0, because `Mob.Event.Throttle`
+defaults both to true. Note what that does **not** claim: neither field has a
+native reader — `mob_set_throttle_config` stores them and `throttleCheck` never
+consults them — so the mapping is for whoever implements them, not behaviour in
+force today. The same is true of `debounce_ms`: it is carried, stored, and
+unread on both platforms. **This change makes `throttle` and `delta` work; it
+does not make `debounce` work.**
 
 ## Consequences
 

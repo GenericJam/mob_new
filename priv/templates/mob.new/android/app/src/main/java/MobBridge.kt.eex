@@ -82,6 +82,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
@@ -2635,6 +2636,35 @@ private fun MobScrollEvents(node: MobNode, scrollState: ScrollState, horizontal:
     }
 }
 
+/**
+ * Stable identities for a child list (MOB-127).
+ *
+ * Positional identity — a bare `forEach`, or `items()` without a `key` — means
+ * an insert or delete makes every later child a different node as far as
+ * Compose is concerned, so it is recomposed and its `remember`ed state
+ * discarded rather than moved. On a LazyColumn it also loses scroll position
+ * anchoring across an insert.
+ *
+ * Author `:id` when the node has one, position otherwise. The two are prefixed
+ * differently so an author id of "3" cannot collide with position 3, and a
+ * repeated id gets its position folded in — Compose requires keys to be unique
+ * within a list and throws on a duplicate, which would be a worse bug than the
+ * one being fixed.
+ *
+ * Returns plain Strings because LazyColumn keys must survive saved-instance
+ * state; MobNodeIdentityKey is a data class and is not Saveable.
+ */
+internal fun mobChildKeys(children: List<MobNode>): List<String> {
+    val seen = HashSet<String>(children.size * 2)
+
+    return children.mapIndexed { index, child ->
+        val authored = MobNodeIdentity.keyFor(child)?.canonical
+        var k = if (authored != null) "i\u0001" + authored else "p\u0001" + index
+        if (!seen.add(k)) k = "d\u0001" + index + "\u0001" + k
+        k
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
@@ -2880,15 +2910,22 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     val m = if (trackId != null) base.then(MobBridge.frameTrackingModifier(trackId)) else base
     when (node.type) {
         "column" -> Column(modifier = m) {
-            node.children.forEach { child ->
+            val keys = mobChildKeys(node.children)
+            node.children.forEachIndexed { i, child ->
+                // Modifier.weight is resolved out here, in ColumnScope — forEachIndexed
+                // is inline so the scope survives, but key()'s block is a plain
+                // composable lambda and has no scope of its own.
                 val w = floatProp(child.props, "weight")
-                RenderNode(child, if (w != null) Modifier.weight(w) else Modifier)
+                val childModifier = if (w != null) Modifier.weight(w) else Modifier
+                key(keys[i]) { RenderNode(child, childModifier) }
             }
         }
         "row" -> Row(modifier = m, verticalAlignment = rowAlignProp(node.props)) {
-            node.children.forEach { child ->
+            val keys = mobChildKeys(node.children)
+            node.children.forEachIndexed { i, child ->
                 val w = floatProp(child.props, "weight")
-                RenderNode(child, if (w != null) Modifier.weight(w) else Modifier)
+                val childModifier = if (w != null) Modifier.weight(w) else Modifier
+                key(keys[i]) { RenderNode(child, childModifier) }
             }
         }
         // Box defaults to fillMaxWidth (matching iOS .frame(maxWidth: .infinity))
@@ -4404,7 +4441,10 @@ private fun MobLazyList(node: MobNode, modifier: Modifier) {
     }
 
     LazyColumn(state = listState, modifier = modifier.fillMaxWidth()) {
-        items(node.children) { child -> RenderNode(child) }
+        val keys = mobChildKeys(node.children)
+        itemsIndexed(node.children, key = { index, _ -> keys[index] }) { _, child ->
+            RenderNode(child)
+        }
     }
 }
 

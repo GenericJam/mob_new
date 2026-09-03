@@ -187,6 +187,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -829,6 +830,18 @@ object MobBridge {
 
     @JvmStatic
     external fun nativeSendScrolledPast(handle: Int)
+
+    /**
+     * Per-handle throttle/debounce config for a high-frequency event.
+     *
+     * Must be re-sent on every render. `clear_taps` runs at the top of each
+     * frame and zeroes the per-handle throttle state — throttle_ms,
+     * delta_threshold, last_emit_ns, seq — because table slots are reused
+     * across renders. A config sent once would survive exactly one frame.
+     */
+    @JvmStatic
+    external fun nativeSetThrottleConfig(handle: Int, throttleMs: Int, debounceMs: Int,
+                                         deltaThreshold: Double, leading: Int, trailing: Int)
 
     /**
      * Drag, for `:canvas`. Coordinates are dp, matching the canvas's own
@@ -2425,6 +2438,45 @@ fun RenderNode(node: MobNode, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Forwards a sibling `*_config` prop to the native per-handle throttle (MOB-134).
+ *
+ * `Mob.Renderer` emits `scroll_config` / `drag_config` next to the handler it
+ * configures, built by `Mob.Event.Throttle`. Nothing on Android read them, so
+ * an app asking for `throttle: 100, delta: 8` silently ran at the compiled-in
+ * default — the same "declared and silently ignored" shape as MOB-138.
+ *
+ * Applied from a SideEffect, i.e. after every successful composition, which is
+ * the cadence this needs: `clear_taps` zeroes the per-handle throttle state on
+ * every render, and each render re-registers the handler under a new handle, so
+ * the config has to be re-sent for the new handle each frame.
+ *
+ * Resolving against the ACTIVE table is correct here, unlike iOS. Android's
+ * table swap happens inside `nif_set_root` before this composition runs, so by
+ * the time Kotlin calls, the handles in this tree are already the active ones.
+ * iOS applies config from inside the deserialiser, before its own swap, which
+ * is why it needs a build-table lookup instead.
+ */
+@Composable
+private fun ApplyThrottleConfig(props: Map<String, Any?>, handle: Int?, configKey: String) {
+    if (handle == null) return
+    val cfg = props[configKey] as? JSONObject ?: return
+
+    SideEffect {
+        val m = jsonObjectToMap(cfg)
+        MobBridge.nativeSetThrottleConfig(
+            handle,
+            intProp(m, "throttle_ms") ?: 0,
+            intProp(m, "debounce_ms") ?: 0,
+            (floatProp(m, "delta_threshold") ?: 0f).toDouble(),
+            // Absent means enabled: Mob.Event.Throttle defaults both to true,
+            // and the native side treats 0 as "off" rather than "unset".
+            if (boolProp(m, "leading") == false) 0 else 1,
+            if (boolProp(m, "trailing") == false) 0 else 1,
+        )
+    }
+}
+
 /** Long-press / double-tap handles for one node, re-read each composition. */
 private data class MobPressHandles(val long: Int?, val double: Int?)
 
@@ -2481,6 +2533,9 @@ private fun MobScrollEvents(node: MobNode, scrollState: ScrollState, horizontal:
         settledH == null && topH == null && pastH == null) {
         return
     }
+
+    // scroll_config rides alongside on_scroll; only the throttled sender reads it.
+    ApplyThrottleConfig(node.props, scrollH, "scroll_config")
 
     // The handles must NOT key the effect. Every render clears and re-registers
     // the tap table, so each of these ints is different on every frame — and a
@@ -3519,6 +3574,7 @@ private fun MobCanvas(node: MobNode, modifier: Modifier) {
     // bare tap emits nothing here. The iOS source already documents this as the
     // expected Android behaviour rather than a defect.
     val dragHandle = intProp(node.props, "on_drag")
+    ApplyThrottleConfig(node.props, dragHandle, "drag_config")
     // Deliberately NOT keyed on the handle. on_drag emits continuously, each
     // message re-renders the screen, and every render re-registers the tap
     // table with fresh handle ints. Keying on the handle therefore cancels the

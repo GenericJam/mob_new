@@ -152,6 +152,19 @@ Java_<%= jni_package %>_MobBridge_nativeSendScrolledPast(JNIEnv* env, jclass cls
     mob_send_scrolled_past((int)handle);
 }
 
+// Per-handle throttle config (MOB-134). Re-sent on every render because
+// clear_taps zeroes the throttle state each frame and the handler is
+// re-registered under a new handle. Resolving against the active table is
+// correct on this platform: nif_set_root swaps before Kotlin composes.
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeSetThrottleConfig(JNIEnv* env, jclass cls, jint handle,
+                                                          jint throttle_ms, jint debounce_ms,
+                                                          jdouble delta_threshold, jint leading,
+                                                          jint trailing) {
+    mob_set_throttle_config((int)handle, (int)throttle_ms, (int)debounce_ms,
+                            (double)delta_threshold, (int)leading, (int)trailing);
+}
+
 // Canvas drag. Coordinates arrive already converted to dp by the Kotlin side,
 // matching the canvas's own coordinate space and iOS's points.
 JNIEXPORT void JNICALL

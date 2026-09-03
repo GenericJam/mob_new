@@ -102,15 +102,15 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
     assert has?(src, ~s|node.type in setOf("column", "row", "text", "icon", "box")|)
     assert has?(src, "val hasSwipe = gesturableType &&")
 
-    # BOTH press arms must be gated. Asserting the substring appears "somewhere"
-    # is satisfied by the first arm alone, so dropping the gate from the
-    # no-on_tap arm would pass unnoticed.
-    assert has?(src, """
-           tapHandle != null && (longPressHandle != null || doubleTapHandle != null) &&
-             gesturableType ->
-           """)
-
-    assert has?(src, "(longPressHandle != null || doubleTapHandle != null) && gesturableType ->")
+    # BOTH press arms must be gated, asserted ARM BY ARM. A whitespace-squished
+    # "appears somewhere" check does not work here: the loose needle for arm 2
+    # is a literal substring of arm 1's condition, so both assertions are
+    # satisfied by arm 1 alone and dropping the gate from arm 2 passes. That
+    # exact mutation was demonstrated against the previous version of this test.
+    for {label, arm} <- press_arms(src) do
+      assert has?(arm, "gesturableType"),
+             "the #{label} press arm is not gated on gesturableType"
+    end
   end
 
   test "combinedClickable is used only when the node has a real on_tap", %{bridge: src} do
@@ -198,20 +198,25 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
     refute has?(src, "tapModifier.pointerInput(Unit) {")
   end
 
-  test "text and icon drop their inner clickable when a press gesture is declared",
-       %{bridge: src} do
-    # MobText/MobIcon append their own clickable for on_tap at the TAIL of the
-    # chain, which is innermost. clickable takes the down with requireUnconsumed,
-    # so it swallows the press before the outer combinedClickable's long-press
-    # detector sees it — a <Text on_tap on_long_press> would silently never fire
-    # the long press, on two of the five gesturable node types.
-    assert has?(src, """
-           val hasPressGestures =
-             intProp(node.props, "on_long_press") != null || intProp(node.props, "on_double_tap") != null
-           """)
+  test "text and icon install no clickable of their own", %{bridge: src} do
+    # Checked per function, not as one "appears somewhere" assertion: a single
+    # shared needle is satisfied by either composable, so weakening only MobIcon
+    # would pass. That mutation was demonstrated against the previous version of
+    # this test.
+    #
+    # RenderNodeInner already installs the on_tap clickable and `modifier`
+    # carries it in. A second one appended in these functions is innermost, so it
+    # won the Main pass, consumed the down, and shadowed the outer one — costing
+    # text and icon `enabled = !isDisabled` and the padded hit area, and
+    # swallowing the down that on_long_press needs.
+    for fun <- ["MobText", "MobIcon"] do
+      body = kotlin_fun(src, fun)
+      refute body =~ ".clickable", "#{fun} must not install its own clickable"
+      refute body =~ "hasPressGestures", "#{fun} should no longer need the press-gesture guard"
+    end
 
-    assert has?(src, "if (tapHandle != null && !hasPressGestures)")
-    assert has?(src, "if (onTap != null && !hasPressGestures)")
+    # …and the only clickables left are the two outer arms.
+    assert length(String.split(src, "modifier.clickable(")) - 1 == 2
   end
 
   test "swipe direction resolves on the dominant axis with a distance floor", %{bridge: src} do
@@ -313,6 +318,30 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
   end
 
   # ── helpers ───────────────────────────────────────────────────────────────
+
+  # The two press arms of the tapModifier `when`, split on their leading
+  # comments so each is checked in isolation.
+  defp press_arms(src) do
+    body =
+      src
+      |> String.split("val tapModifier = when {")
+      |> Enum.at(1)
+      |> String.split("else -> modifier")
+      |> Enum.at(0)
+
+    [with_tap, rest] = String.split(body, "// Long press or double tap with NO on_tap", parts: 2)
+    no_tap = rest |> String.split("// Require a handler here") |> Enum.at(0)
+    [{"with-on_tap", with_tap}, {"no-on_tap", no_tap}]
+  end
+
+  # Body of a private Kotlin fun, up to the next top-level declaration.
+  defp kotlin_fun(src, name) do
+    src
+    |> String.split("private fun #{name}(")
+    |> Enum.at(1)
+    |> String.split(~r/\n(@Composable\n)?private fun /, parts: 2)
+    |> Enum.at(0)
+  end
 
   defp declared_senders(src) do
     ~r/external fun (nativeSend\w+)\(/

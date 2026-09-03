@@ -2738,6 +2738,12 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         // Not the handles: those change every render, which would cancel the
         // detector mid-gesture. These two booleans only flip when the declared
         // prop set changes, which is exactly when a restart is correct.
+        //
+        // A restart does drop an in-flight gesture — the coroutine is cancelled
+        // and the new block starts at awaitFirstDown(), which will not see a
+        // down that is already held, so nothing fires until the finger lifts and
+        // presses again. Acceptable: it happens only when the app changes which
+        // swipe directions a node declares, mid-drag.
         tapModifier.pointerInput(swipeHorizontalOnly, swipeVerticalOnly) {
             // 30dp mirrors iOS's DragGesture(minimumDistance: 30). There the
             // gesture never starts below the threshold; Compose starts at touch
@@ -2997,21 +3003,26 @@ private fun MobText(node: MobNode, modifier: Modifier) {
     val letterSpacing = floatProp(node.props, "letter_spacing")
     val lineHeightMul = floatProp(node.props, "line_height")
     val fontFamily    = fontFamilyProp(node.props, LocalContext.current)
-    val tapHandle     = intProp(node.props, "on_tap")
-
     val resolvedLineHeight = if (lineHeightMul != null && fontSize != TextUnit.Unspecified)
         (lineHeightMul * fontSize.value).sp else TextUnit.Unspecified
 
-    // Skip this when the node also declares a long press or double tap. The
-    // caller already installed a combinedClickable carrying on_tap in that case,
-    // and this clickable would sit INSIDE it — detectTapGestures/clickable takes
-    // the down with requireUnconsumed, so the outer detector never sees the
-    // press and the long press silently never fires.
-    val hasPressGestures =
-        intProp(node.props, "on_long_press") != null || intProp(node.props, "on_double_tap") != null
-
-    val tappableModifier = if (tapHandle != null && !hasPressGestures)
-        modifier.clickable { MobBridge.nativeSendTap(tapHandle) } else modifier
+    // No clickable here. RenderNodeInner already installed one for on_tap (the
+    // `tapHandle != null && node.type != "button"` arm), and `modifier` carries
+    // it in. A second clickable appended here would be INNERMOST, so it won the
+    // Main pass, consumed the down, and shadowed the outer one entirely — which
+    // silently cost text nodes two things the outer arm provides:
+    //
+    //   * `enabled = !isDisabled`, so `<Text on_tap disabled: true>` still
+    //     dispatched taps while the semantics block announced it disabled
+    //   * the padded hit area and ripple, since nodeModifier's padding is
+    //     applied AFTER the gesture modifier in `base` — iOS pads before
+    //     .contentShape(Rectangle()).onTapGesture, so the inner clickable was
+    //     also the thing making Android disagree with it
+    //
+    // It additionally swallowed the down before the outer combinedClickable's
+    // long-press detector could see it, so on_long_press never fired on a text
+    // node. That was the symptom; this redundancy was the cause.
+    val tappableModifier = modifier
 
     // text_align is a no-op when the Text wraps to its content width — the
     // alignment only matters if the Text is wider than its content. Apply
@@ -3256,13 +3267,11 @@ private fun MobIcon(node: MobNode, modifier: Modifier) {
         fontSizeSp.value.dp else 24.dp
     val description = node.props["text"] as? String
 
-    val onTap   = (node.props["on_tap"] as? Number)?.toInt()
-    // See MobText: an inner clickable would swallow the down before the outer
-    // combinedClickable's long-press detector could see it.
-    val hasPressGestures =
-        intProp(node.props, "on_long_press") != null || intProp(node.props, "on_double_tap") != null
-    val baseMod = if (onTap != null && !hasPressGestures)
-        modifier.clickable { MobBridge.nativeSendTap(onTap) } else modifier
+    // See MobText: RenderNodeInner already installed the on_tap clickable, and a
+    // second one here would be innermost, shadowing it along with its `enabled`
+    // handling and padded hit area, and swallowing the down that on_long_press
+    // needs.
+    val baseMod = modifier
 
     Icon(
         imageVector       = materialIconFor(name),

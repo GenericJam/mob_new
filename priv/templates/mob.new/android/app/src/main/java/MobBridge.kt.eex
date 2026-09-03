@@ -2920,7 +2920,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     val m = if (trackId != null) base.then(MobBridge.frameTrackingModifier(trackId)) else base
     when (node.type) {
         "column" -> Column(modifier = m) {
-            val keys = remember(node.children) { mobChildKeys(node.children) }
+            val keys = mobChildKeys(node.children)
             node.children.forEachIndexed { i, child ->
                 // Modifier.weight is resolved out here, in ColumnScope — forEachIndexed
                 // is inline so the scope survives, but key()'s block is a plain
@@ -2931,7 +2931,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
             }
         }
         "row" -> Row(modifier = m, verticalAlignment = rowAlignProp(node.props)) {
-            val keys = remember(node.children) { mobChildKeys(node.children) }
+            val keys = mobChildKeys(node.children)
             node.children.forEachIndexed { i, child ->
                 val w = floatProp(child.props, "weight")
                 val childModifier = if (w != null) Modifier.weight(w) else Modifier
@@ -2961,7 +2961,9 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
             val boxModifier = (if (hasWidth) m else m.fillMaxWidth())
                 .then(accessibilityModifier)
             Box(modifier = boxModifier, contentAlignment = boxAlignProp(node.props)) {
-                node.children.forEach { RenderNode(it) }
+                mobChildKeys(node.children).let { keys ->
+                    node.children.forEachIndexed { i, child -> key(keys[i]) { RenderNode(child) } }
+                }
             }
         }
         "scroll" -> {
@@ -2997,7 +2999,9 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                 }
             if (horizontal) {
                 Row(modifier = m.then(regMod).horizontalScroll(scrollState)) {
-                    node.children.forEach { RenderNode(it) }
+                    mobChildKeys(node.children).let { keys ->
+                    node.children.forEachIndexed { i, child -> key(keys[i]) { RenderNode(child) } }
+                }
                 }
             } else {
                 // Compose only the rows that are on screen.
@@ -3074,7 +3078,9 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                     MobLazyList(node.copy(children = sole!!.children), m)
                 } else {
                     Column(modifier = m.then(regMod).verticalScroll(scrollState).imePadding()) {
-                        node.children.forEach { RenderNode(it) }
+                        mobChildKeys(node.children).let { keys ->
+                    node.children.forEachIndexed { i, child -> key(keys[i]) { RenderNode(child) } }
+                }
                     }
                 }
             }
@@ -4158,7 +4164,9 @@ private fun MobSheet(node: MobNode, presentation: MobSheetPresentationState) {
                     .then(contentModifier)
                     .fillMaxWidth()
             ) {
-                node.children.forEach { RenderNode(it) }
+                mobChildKeys(node.children).let { keys ->
+                    node.children.forEachIndexed { i, child -> key(keys[i]) { RenderNode(child) } }
+                }
             }
         }
     }
@@ -4452,7 +4460,7 @@ private fun MobLazyList(node: MobNode, modifier: Modifier) {
 
     // Hoisted out of the LazyColumn: its trailing lambda is a LazyListScope
     // builder, not a composable, so remember/1 cannot be called inside it.
-    val keys = remember(node.children) { mobChildKeys(node.children) }
+    val keys = mobChildKeys(node.children)
 
     LazyColumn(state = listState, modifier = modifier.fillMaxWidth()) {
         itemsIndexed(node.children, key = { index, _ -> keys[index] }) { _, child ->

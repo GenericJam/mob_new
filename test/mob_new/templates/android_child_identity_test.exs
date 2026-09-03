@@ -29,12 +29,11 @@ defmodule MobNew.Templates.AndroidChildIdentityTest do
     # scroll position — moves with the position rather than the row.
     assert has?(src, "key(keys[i]) { RenderNode(child, childModifier) }")
 
-    assert length(
-             String.split(
-               src,
-               "val keys = remember(node.children) { mobChildKeys(node.children) }"
-             )
-           ) - 1 == 3
+    # The three that bind `keys` to a local: Column, Row, and the lazy list
+    # (hoisted above its LazyColumn, whose builder lambda is not composable).
+    # The other four call mobChildKeys inline and are covered by the
+    # every-container test below.
+    assert length(String.split(src, "val keys = mobChildKeys(node.children)")) - 1 == 3
   end
 
   test "weight is resolved in the layout scope, not inside key()", %{src: src} do
@@ -84,12 +83,25 @@ defmodule MobNew.Templates.AndroidChildIdentityTest do
     refute has?(code_only(key_fun(src)), "MobNodeIdentity.keyFor")
   end
 
-  test "the key list is not rebuilt on every recomposition", %{src: src} do
-    # canonicalJsonValue builds a String per child; without remember that ran on
-    # every recomposition of every Column and Row, where the previous code
-    # allocated nothing at all.
-    assert length(String.split(src, "remember(node.children) { mobChildKeys(node.children) }")) -
-             1 == 3
+  test "EVERY container keys its children, not just some", %{src: src} do
+    # The first version keyed 3 of 7 — column, row and the lazy list — leaving
+    # box, both scroll axes and the sheet body positional while iOS keyed all
+    # seven. That is MOB-127 itself, unfixed, as a NEW cross-platform
+    # divergence: prepend a row inside a sheet and the typed text follows the
+    # position on Android and the row on iOS.
+    #
+    # Asserted as the ABSENCE of the unkeyed form, which is what the earlier
+    # presence-only assertions could not see.
+    refute has?(src, "node.children.forEach { RenderNode(it) }")
+    assert length(String.split(src, "mobChildKeys(node.children)")) - 1 == 7
+  end
+
+  test "the key list is not memoised behind a deeper comparison", %{src: src} do
+    # remember(node.children) was added when mobChildKeys still called
+    # canonicalJsonValue. The same commit replaced that with a String cast plus
+    # a concat, leaving a deep structural List<MobNode> compare guarding a
+    # shallow one — routinely more work than it saved.
+    refute has?(src, "remember(node.children) { mobChildKeys")
   end
 
   # Kotlin source with // comment lines removed.

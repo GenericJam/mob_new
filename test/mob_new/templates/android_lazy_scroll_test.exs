@@ -22,14 +22,14 @@ defmodule MobNew.Templates.AndroidLazyScrollTest do
   test "flattening drops only props a LazyColumn already provides", %{source: src} do
     # Widening this set silently discards whatever the column contributed:
     # padding, background, align, an id the harness addresses, a tap handler.
-    assert src =~ ~s/sole.props.keys.all { it == "fill_width"/
+    assert src =~ ~s/soleChild.props.keys.all { it == "fill_width"/
     assert src =~ ~s/it == "fill_height" }/
   end
 
   test "a child carrying weight forces the eager path", %{source: src} do
     # weight comes from ColumnScope. LazyColumn items have no such scope, so a
     # flattened child's weight would be dropped without a trace.
-    assert src =~ ~s|sole.children.none { it.props.containsKey("weight") }|
+    assert src =~ ~s|soleChild.children.none { it.props.containsKey("weight") }|
   end
 
   test "the lazy path clears the pixel ScrollState it never attaches", %{source: src} do

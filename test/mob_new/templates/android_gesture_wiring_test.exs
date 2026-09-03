@@ -100,8 +100,17 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
     # image, which iOS never does; on a text_field that competes with the
     # platform's own long-press text selection.
     assert has?(src, ~s|node.type in setOf("column", "row", "text", "icon", "box")|)
-    assert has?(src, "&& gesturableType ->")
     assert has?(src, "val hasSwipe = gesturableType &&")
+
+    # BOTH press arms must be gated. Asserting the substring appears "somewhere"
+    # is satisfied by the first arm alone, so dropping the gate from the
+    # no-on_tap arm would pass unnoticed.
+    assert has?(src, """
+           tapHandle != null && (longPressHandle != null || doubleTapHandle != null) &&
+             gesturableType ->
+           """)
+
+    assert has?(src, "(longPressHandle != null || doubleTapHandle != null) && gesturableType ->")
   end
 
   test "combinedClickable is used only when the node has a real on_tap", %{bridge: src} do
@@ -155,10 +164,54 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
     # ancestor verticalScroll, so a swipe-to-delete row inside a list would
     # freeze the list — every drag starting on a row swallowed. The axis
     # detectors consume only their own axis.
-    assert has?(src, "val swipeHorizontalOnly =")
-    assert has?(src, "val swipeVerticalOnly =")
+    # Pin the predicate BODIES, not just the names. Defining swipeHorizontalOnly
+    # as `swipeLeft != null || swipeRight != null` — forgetting to exclude the
+    # generic handler and the vertical ones — silently kills on_swipe and every
+    # vertical swipe on such a node, and a name-only assertion sails past it.
+    assert has?(src, """
+           val swipeHorizontalOnly =
+               swipeAny == null && swipeUp == null && swipeDown == null &&
+                   (swipeLeft != null || swipeRight != null)
+           """)
+
+    assert has?(src, """
+           val swipeVerticalOnly =
+               swipeAny == null && swipeLeft == null && swipeRight == null &&
+                   (swipeUp != null || swipeDown != null)
+           """)
+
     assert has?(src, "swipeHorizontalOnly -> detectHorizontalDragGestures(")
     assert has?(src, "swipeVerticalOnly -> detectVerticalDragGestures(")
+  end
+
+  test "gesture detectors are keyed on the declared structure, not a constant",
+       %{bridge: src} do
+    # SuspendPointerInputElement compares keys only, so pointerInput(Unit) never
+    # restarts: the detector picked at first composition runs forever. A row that
+    # starts with on_swipe_left and later gains on_swipe_up would keep the
+    # horizontal-only detector; a node narrowing from generic on_swipe to
+    # on_swipe_left would keep detectDragGestures and keep freezing its parent
+    # list — the exact bug the axis split exists to fix. Keying on the booleans
+    # restarts only when the declared set changes, which is never per-render.
+    assert has?(src, "tapModifier.pointerInput(swipeHorizontalOnly, swipeVerticalOnly) {")
+    assert has?(src, "modifier.pointerInput(longPressHandle != null, doubleTapHandle != null) {")
+    refute has?(src, "tapModifier.pointerInput(Unit) {")
+  end
+
+  test "text and icon drop their inner clickable when a press gesture is declared",
+       %{bridge: src} do
+    # MobText/MobIcon append their own clickable for on_tap at the TAIL of the
+    # chain, which is innermost. clickable takes the down with requireUnconsumed,
+    # so it swallows the press before the outer combinedClickable's long-press
+    # detector sees it — a <Text on_tap on_long_press> would silently never fire
+    # the long press, on two of the five gesturable node types.
+    assert has?(src, """
+           val hasPressGestures =
+             intProp(node.props, "on_long_press") != null || intProp(node.props, "on_double_tap") != null
+           """)
+
+    assert has?(src, "if (tapHandle != null && !hasPressGestures)")
+    assert has?(src, "if (onTap != null && !hasPressGestures)")
   end
 
   test "swipe direction resolves on the dominant axis with a distance floor", %{bridge: src} do
@@ -228,7 +281,12 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
     refute has?(src, "pointerInput(swipeAny, swipeLeft")
     refute has?(src, "pointerInput(dragHandle)")
     refute has?(src, "LaunchedEffect(scrollState, scrollH, beganH")
-    assert has?(src, "tapModifier.pointerInput(Unit) {")
+    assert has?(src, "tapModifier.pointerInput(swipeHorizontalOnly, swipeVerticalOnly) {")
+
+    # The canvas drag legitimately keys on Unit: whether the block exists at all
+    # is decided outside it (`if (dragHandle == null) sized else`), which IS
+    # re-evaluated every composition, and the handle itself is read live. There
+    # is no structural choice inside the block to go stale.
     assert has?(src, "sized.pointerInput(Unit) {")
     assert has?(src, "rememberUpdatedState(dragHandle)")
   end

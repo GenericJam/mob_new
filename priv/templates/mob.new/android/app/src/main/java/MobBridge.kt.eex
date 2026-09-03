@@ -2627,7 +2627,12 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         // misreporting the plain arms below were written to avoid. iOS's
         // .onLongPressGesture adds no tap affordance either.
         (longPressHandle != null || doubleTapHandle != null) && gesturableType ->
-            modifier.pointerInput(Unit) {
+            // Keyed on WHICH handlers are declared, for the same reason as the
+            // swipe detector: with a constant key the block never restarts, so a
+            // box that starts with on_long_press and later gains on_double_tap
+            // would keep a null onDoubleTap forever. The handle values are still
+            // read live through pressHandles.
+            modifier.pointerInput(longPressHandle != null, doubleTapHandle != null) {
                 detectTapGestures(
                     onLongPress =
                         if (longPressHandle == null) null
@@ -2696,11 +2701,22 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     // in the gaps between rows scroll. iOS does not have this problem, because a
     // plain DragGesture loses arbitration to UIScrollView's pan recogniser.
     //
-    // When the declared set is axis-pure, use the axis-specific detector: it
-    // consumes only its own axis and leaves the cross-axis to the parent, so the
-    // list still scrolls. A generic on_swipe wants every direction and has to
-    // take the whole gesture — that case keeps the old behaviour and is the one
-    // to reach for deliberately.
+    // When the declared set is axis-pure, use the axis-specific detector. What
+    // saves the parent is slop-direction arbitration, not per-axis consumption
+    // — change.consume() still consumes the whole change; the difference is that
+    // detectHorizontalDragGestures only claims the gesture once the drag crosses
+    // slop HORIZONTALLY, so a vertical drag is never claimed and reaches the
+    // parent scroll.
+    //
+    // This therefore fixes the horizontal-swipe-inside-vertical-scroll case, the
+    // common one (swipe-to-delete). A vertical swipe inside a vertical scroll is
+    // NOT fixed and cannot be by this mechanism: both want the same axis, and
+    // the child wins. A generic on_swipe likewise has to take the whole gesture.
+    //
+    // Note the axis detectors also change classification: horizontal-only never
+    // accumulates dy, so an L-shaped drag (40dp right then 200dp down) fires
+    // swipe_right, where the both-axis path and iOS would call it "down" and
+    // fire nothing.
     val swipeHorizontalOnly =
         swipeAny == null && swipeUp == null && swipeDown == null &&
             (swipeLeft != null || swipeRight != null)
@@ -2709,7 +2725,20 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
             (swipeUp != null || swipeDown != null)
 
     val gestureModifier = if (!hasSwipe) tapModifier else {
-        tapModifier.pointerInput(Unit) {
+        // Keyed on which axes are declared, NOT on Unit and NOT on the handles.
+        //
+        // Not Unit: SuspendPointerInputElement compares keys only, so with a
+        // constant key the block never restarts and the detector chosen at first
+        // composition runs forever. A row that starts with on_swipe_left and
+        // later gains on_swipe_up would keep the horizontal-only detector and
+        // never fire the vertical one; a node that narrows from generic
+        // on_swipe to on_swipe_left would keep detectDragGestures and keep
+        // freezing its parent list — the very thing the split exists to avoid.
+        //
+        // Not the handles: those change every render, which would cancel the
+        // detector mid-gesture. These two booleans only flip when the declared
+        // prop set changes, which is exactly when a restart is correct.
+        tapModifier.pointerInput(swipeHorizontalOnly, swipeVerticalOnly) {
             // 30dp mirrors iOS's DragGesture(minimumDistance: 30). There the
             // gesture never starts below the threshold; Compose starts at touch
             // slop, so the distance check moves to the end instead. Note the
@@ -2973,7 +3002,15 @@ private fun MobText(node: MobNode, modifier: Modifier) {
     val resolvedLineHeight = if (lineHeightMul != null && fontSize != TextUnit.Unspecified)
         (lineHeightMul * fontSize.value).sp else TextUnit.Unspecified
 
-    val tappableModifier = if (tapHandle != null)
+    // Skip this when the node also declares a long press or double tap. The
+    // caller already installed a combinedClickable carrying on_tap in that case,
+    // and this clickable would sit INSIDE it — detectTapGestures/clickable takes
+    // the down with requireUnconsumed, so the outer detector never sees the
+    // press and the long press silently never fires.
+    val hasPressGestures =
+        intProp(node.props, "on_long_press") != null || intProp(node.props, "on_double_tap") != null
+
+    val tappableModifier = if (tapHandle != null && !hasPressGestures)
         modifier.clickable { MobBridge.nativeSendTap(tapHandle) } else modifier
 
     // text_align is a no-op when the Text wraps to its content width — the
@@ -3220,7 +3257,12 @@ private fun MobIcon(node: MobNode, modifier: Modifier) {
     val description = node.props["text"] as? String
 
     val onTap   = (node.props["on_tap"] as? Number)?.toInt()
-    val baseMod = if (onTap != null) modifier.clickable { MobBridge.nativeSendTap(onTap) } else modifier
+    // See MobText: an inner clickable would swallow the down before the outer
+    // combinedClickable's long-press detector could see it.
+    val hasPressGestures =
+        intProp(node.props, "on_long_press") != null || intProp(node.props, "on_double_tap") != null
+    val baseMod = if (onTap != null && !hasPressGestures)
+        modifier.clickable { MobBridge.nativeSendTap(onTap) } else modifier
 
     Icon(
         imageVector       = materialIconFor(name),

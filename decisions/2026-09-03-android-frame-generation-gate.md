@@ -53,11 +53,35 @@ its remembered state. Navigation itself is covered without any key, since the
 incoming tree is a fresh composition, but keying on `id` keeps the gate from
 resting entirely on that one `AnimatedContent` internal.
 
-**The bump goes first, ahead of the clears.** Both run on the NIF thread while
-Compose may be midway through a layout pass, so an outgoing write landing
-between a clear and a later bump would be accepted and would survive as a stale
-entry. Bumping first leaves no such window, and it necessarily precedes the
-`_rootState` write, which is what schedules composition of the incoming tree.
+**One monitor covers the counter and the registry.** The first version of this
+used an `AtomicLong` beside the untouched `ConcurrentHashMap`, on the reasoning
+that each access is then individually atomic and no lock has to be ordered
+against the map. That is not enough, and the version of this document that
+shipped with it claimed a soundness property the code did not have.
+
+`recordElementFrame` is a check-then-act across two objects. With only an atomic
+counter, a tracker can read a generation that is still current, lose the thread,
+and have `setRootJson` bump and clear before its write lands:
+
+    Compose thread:  read generation -> 1     (gate passes)
+    NIF thread:                                bump -> 2
+    NIF thread:                                clear()
+    Compose thread:  map[id] = frame           <- stale entry survives
+
+`ConcurrentHashMap.clear()` is not atomic against a concurrent `put` either.
+Ordering the bump ahead of the clear narrows the window from "clear-to-bump plus
+read-to-write" down to "read-to-write"; it does not close it. Holding one lock
+across the check and the write, and across the bump and the clear, does.
+
+This is what iOS does and the reason it does not have the hole:
+`mob_register_frame` performs the generation check and the dictionary write
+inside `@synchronized(reg)`, and the bump takes the same monitor. The lock is
+uncontended, taken once per tracked element per layout pass, on a monitor
+nothing else wants.
+
+The bump still precedes the `_rootState` write, which is what schedules
+composition of the incoming tree, and that ordering is what makes the incoming
+trackers capture the new value.
 
 ## Consequences
 
@@ -75,8 +99,28 @@ entry. Bumping first leaves no such window, and it necessarily precedes the
   tree recomposes from scratch and captures the bumped value, while the
   outgoing content is re-invoked with its own stored state and therefore its
   own unchanged ids, so its `remember(id)` does not re-run.
-- Not device-verified. The Android equivalent of iOS's `.onDisappear`
-  compare-and-delete liveness signal is also still missing, so the divergences
-  the iOS decision record calls out (a lazy row scrolled out of range, an
-  inactive tab, a dismissed sheet, all keeping a last-known frame forever)
-  remain open on Android. This change fixes the navigation case only.
+- Not device-verified. The premise that a screen sliding out under
+  `AnimatedContent` keeps firing `onGloballyPositioned` the whole way is read
+  off the animation's placement behaviour rather than measured, and it is worth
+  one device pass, because the fix is otherwise hard to falsify.
+- **This is one of iOS's three parts, not all of them.** iOS pairs the
+  generation gate with a purge keyed on the live id set, run on *every*
+  `set_root` including `"none"`, and an `.onDisappear` compare-and-delete keyed
+  on a write sequence number. Android has neither, so two cases stay broken and
+  are not addressed here:
+  - a same-screen re-render (`transition: "none"`, the default for in-screen
+    updates) that drops an `:id` from the tree leaves that element's last frame
+    in the registry for ever, and `tap_id` then taps whatever now occupies
+    those coordinates;
+  - a lazy row scrolled out of range, an inactive tab, or a dismissed sheet
+    keeps its last-known frame, exactly as the iOS decision record describes.
+- `scrollHandlesById` has the same stale-repopulation shape and is cleared in
+  the same block, ungated. `MobBridge.scrollHandle(id)` mutates handle fields
+  from composable bodies, including the outgoing screen's recompositions after
+  the clear. In practice `AnimatedContent` composes the outgoing content before
+  the incoming one, so the incoming write lands last and it is usually benign,
+  which is why it is recorded here rather than fixed alongside.
+- `lazyListStates` is a plain `mutableMapOf` mutated from the Compose thread and
+  cleared from the NIF thread. Pre-existing rather than introduced here, but the
+  changelog's claim that the bridge registries are thread-safe does not hold for
+  that one.

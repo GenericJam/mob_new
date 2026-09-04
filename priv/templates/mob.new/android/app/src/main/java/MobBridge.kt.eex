@@ -208,7 +208,6 @@ import android.view.HapticFeedbackConstants
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import org.json.JSONArray
@@ -430,9 +429,17 @@ object MobBridge {
     //
     // So: a tracker captures the generation current when it first composes and
     // stamps every write with it, and a write stamped older than the current
-    // generation is refused. iOS carries the identical mechanism after MOB-102
-    // and MOB-103; see mob's decisions/2026-08-27-frame-registry-liveness.md,
-    // whose reasoning applies here unchanged.
+    // generation is refused.
+    //
+    // This is one of the three parts iOS carries, not all of them. iOS also has
+    // a purge keyed on the live id set, run on EVERY set_root including "none",
+    // and an .onDisappear compare-and-delete keyed on a write sequence number.
+    // Android has neither. Two consequences worth knowing: a same-screen
+    // re-render that drops an :id leaves that element's last frame in the map
+    // for ever, and a row scrolled out of a lazy list or a tab left behind
+    // keeps reporting its last position. See mob's
+    // decisions/2026-08-27-frame-registry-liveness.md for the reasoning this
+    // half is taken from.
     //
     // A private counter rather than reusing navKey, even though navKey already
     // moves on exactly the right events. navKey lives inside _rootState, a
@@ -446,29 +453,47 @@ object MobBridge {
     // increases. Keeping the two separate means a change to how screens are
     // animated cannot quietly turn the gate off.
     //
-    // AtomicLong, not a plain Long: the bump runs on the NIF/binder thread
-    // inside setRootJson while the captures and the gate check run on the
-    // Compose main thread. get and incrementAndGet are single atomic accesses,
-    // so there is no read-modify-write to lose, and no lock is introduced that
-    // would have to be ordered against elementFramesById.
-    private val frameGeneration = AtomicLong(1L)
+    // One monitor covers the counter AND the registry, rather than an atomic
+    // counter beside an unguarded map. An atomic makes each individual access
+    // safe and still leaves recordElementFrame as a check-then-act across two
+    // objects, which is the race this gate exists to lose. Taking one lock for
+    // both is also what iOS does, and it is cheap: uncontended, once per
+    // tracked element per layout pass, against a monitor nothing else wants.
+    //
+    // Starts at 1 so the very first trackers, which capture 1, are accepted
+    // (1 < 1 is false). Unlike iOS there is no 0 sentinel to reserve, because
+    // remember always runs before the modifier is built.
+    private val frameLock = Any()
+    private var frameGeneration = 1L
 
     /**
      * The generation current right now. Read once per tracker, during
      * composition, so the value captured is the one belonging to the tree that
      * tracker is part of.
      */
-    fun currentFrameGeneration(): Long = frameGeneration.get()
+    fun currentFrameGeneration(): Long = synchronized(frameLock) { frameGeneration }
 
     fun recordElementFrame(id: String, generation: Long, x: Float, y: Float, w: Float, h: Float) {
-        // Refuse a tracker belonging to a superseded tree. Ordering is what
-        // makes this sound: setRootJson bumps before it writes _rootState, and
-        // the incoming tree is composed only in response to that write, so
-        // incoming trackers read the counter after it moved. Anything still
-        // holding the older value is by construction part of the screen on its
-        // way out.
-        if (generation < frameGeneration.get()) return
-        elementFramesById[id] = floatArrayOf(x, y, w, h)
+        // Refuse a tracker belonging to a superseded tree.
+        //
+        // The check and the write are one critical section, and the bump and
+        // the clear in setRootJson are the same one. Ordering alone is not
+        // enough, which is worth being precise about because it is tempting to
+        // think it is: the two run on different threads, so with an unguarded
+        // check-then-act a tracker can read a generation that is still current,
+        // lose the thread, and have setRootJson bump and clear before its write
+        // lands. Bumping before the clear narrows that window to the gap
+        // between this read and this write; it does not close it, and
+        // ConcurrentHashMap.clear() is not atomic against a concurrent put
+        // either. Holding the lock across both closes it.
+        //
+        // This is what iOS does. mob_register_frame performs the generation
+        // check and the dictionary write inside @synchronized(reg), and the
+        // bump takes the same monitor.
+        synchronized(frameLock) {
+            if (generation < frameGeneration) return
+            elementFramesById[id] = floatArrayOf(x, y, w, h)
+        }
     }
 
     @Composable
@@ -833,10 +858,12 @@ object MobBridge {
             // It also has to precede the _rootState write below, and does:
             // composition of the incoming tree is what that write schedules, so
             // the incoming trackers capture the counter only after it moved.
-            frameGeneration.incrementAndGet()
+            synchronized(frameLock) {
+                frameGeneration++
+                elementFramesById.clear()
+            }
             lazyListStates.clear()
             scrollHandlesById.clear()
-            elementFramesById.clear()
             _rootState.value.navKey + 1
         } else {
             _rootState.value.navKey

@@ -80,9 +80,16 @@ defmodule MobNew.Templates.AndroidFrameGenerationTest do
     # The guard is the first statement, so the map write cannot be reached
     # without passing it. Asserting them as one squished run pins the order,
     # not just the presence of both.
+    # The check and the write are one critical section, not two statements that
+    # happen to be adjacent. An atomic counter beside an unguarded map makes
+    # each access safe and still loses the race: a tracker can read a
+    # generation that is still current, lose the thread, and have setRootJson
+    # bump and clear before its write lands. Asserting them as one squished run
+    # inside synchronized pins that, not just their presence and order.
     assert has?(
              body,
-             "{ if (generation < frameGeneration.get()) return elementFramesById[id] = floatArrayOf"
+             "synchronized(frameLock) { if (generation < frameGeneration) return " <>
+               "elementFramesById[id] = floatArrayOf"
            )
   end
 
@@ -93,11 +100,11 @@ defmodule MobNew.Templates.AndroidFrameGenerationTest do
     # rejecting exactly the writes that should be kept: the incoming screen's.
     # The registry would then hold whatever the outgoing screen last wrote,
     # which is worse than no gate, so each inverted spelling is refuted.
-    assert has?(body, "if (generation < frameGeneration.get()) return")
-    refute has?(body, "generation > frameGeneration.get()")
-    refute has?(body, "generation != frameGeneration.get()")
-    refute has?(body, "frameGeneration.get() < generation")
-    refute has?(body, "frameGeneration.get() > generation")
+    assert has?(body, "if (generation < frameGeneration) return")
+    refute has?(body, "generation > frameGeneration)")
+    refute has?(body, "generation != frameGeneration)")
+    refute has?(body, "frameGeneration < generation")
+    refute has?(body, "frameGeneration > generation")
   end
 
   test "the tracker captures the generation once, not per recomposition", %{src: src} do
@@ -113,7 +120,7 @@ defmodule MobNew.Templates.AndroidFrameGenerationTest do
 
     refute has?(reg, "remember(currentFrameGeneration())")
     refute has?(reg, "recordElementFrame(id, currentFrameGeneration()")
-    refute has?(reg, "recordElementFrame(id, frameGeneration.get()")
+    refute has?(reg, "recordElementFrame(id, frameGeneration,")
 
     # A keyless remember would survive a composition slot being handed a
     # different :id, which outside column / row / the lazy list is positional
@@ -127,7 +134,7 @@ defmodule MobNew.Templates.AndroidFrameGenerationTest do
   test "setRootJson bumps the generation before clearing and before publishing", %{src: src} do
     body = set_root(src)
 
-    bump = at(body, "frameGeneration.incrementAndGet()")
+    bump = at(body, "frameGeneration++")
 
     # Before the clear: both run on the NIF thread while Compose may be laying
     # out, so a write landing between a clear and a later bump would be
@@ -150,20 +157,51 @@ defmodule MobNew.Templates.AndroidFrameGenerationTest do
     # snapshot state: a tracker reading it would be resubscribed on every root
     # update, and the outgoing tree recomposing during its exit animation would
     # read the INCOMING navKey and restamp itself.
-    assert has?(main, "contentKey    = { it.navKey }")
-    assert has?(code_only(src), "private val frameGeneration = AtomicLong(1L)")
+    assert has?(main, "it.navKey")
+    assert has?(code_only(src), "private var frameGeneration = 1L")
 
     refute has?(registry(src), "navKey")
     refute has?(registry(src), "rootState")
   end
 
-  test "the counter is safe to read from the Compose thread", %{src: src} do
-    # Bumped on the NIF/binder thread inside setRootJson, read on the Compose
-    # main thread by both the capture and the gate. A plain Long would leave
-    # that read with no visibility guarantee; AtomicLong makes each access a
-    # single atomic one and adds no lock to order against elementFramesById.
-    assert has?(code_only(src), "import java.util.concurrent.atomic.AtomicLong")
-    refute has?(registry(src), "private var frameGeneration")
-    assert has?(registry(src), "fun currentFrameGeneration(): Long = frameGeneration.get()")
+  test "one monitor covers the counter and the registry, not just the counter", %{src: src} do
+    # An AtomicLong beside an unguarded map is the tempting version and is
+    # unsound: each access is atomic, and recordElementFrame is still a
+    # check-then-act across two objects. ConcurrentHashMap.clear() is not
+    # atomic against a concurrent put either, so ordering the bump before the
+    # clear narrows the window without closing it. iOS closes it by putting the
+    # check, the write and the bump under one monitor; so does this.
+    reg = registry(src)
+
+    assert has?(reg, "private val frameLock = Any()")
+
+    assert has?(
+             reg,
+             "fun currentFrameGeneration(): Long = synchronized(frameLock) { frameGeneration }"
+           )
+
+    # The bump and the clear it protects are the same critical section.
+    assert has?(
+             set_root(src),
+             "synchronized(frameLock) { frameGeneration++ elementFramesById.clear() }"
+           )
+
+    refute has?(code_only(src), "AtomicLong"),
+           "an atomic counter beside an unguarded map is the unsound version"
+  end
+
+  test "the tracking modifier is actually attached to rendered nodes", %{src: src} do
+    # Nothing else in this file can see the call site. Deleting it leaves the
+    # gate, the counter and every assertion above intact and green while
+    # element_frames and tap_id stop working altogether, which is a far worse
+    # outcome than the bug this issue fixes.
+    code = code_only(src)
+
+    assert has?(code, "val trackId = node.props[\"id\"] as? String")
+
+    assert has?(
+             code,
+             "val m = if (trackId != null) base.then(MobBridge.frameTrackingModifier(trackId)) else base"
+           )
   end
 end

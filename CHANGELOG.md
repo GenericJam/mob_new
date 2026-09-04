@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.4.31] - 2026-09-04
+
 ### Performance
 - **The render payload is parsed in one pass on Android.** `setRootJson` went
   through `JSONObject(json).toMobNode()`, which materialised the same payload

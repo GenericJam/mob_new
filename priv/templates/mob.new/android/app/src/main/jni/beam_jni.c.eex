@@ -113,9 +113,10 @@ Java_<%= jni_package %>_MobBridge_nativeSendSwipeDown(JNIEnv* env, jclass cls, j
 
 // Scroll family. mob_send_scroll applies the per-handle throttle and delta
 // threshold before it reaches the BEAM, so forwarding every observed sample
-// here is intentional — the gating lives native-side, not in Kotlin. Note that
-// only the compiled-in defaults are in play on Android: nothing calls
-// mob_set_throttle_config here, so scroll_config/drag_config are inert (MOB-134).
+// here is intentional — the gating lives native-side, not in Kotlin. The
+// per-handler scroll_config/drag_config props ARE honoured: the composition
+// calls mob_set_throttle_config (see nativeSetThrottleConfig below), and the
+// compiled-in defaults apply only where a handler asked for nothing (MOB-134).
 JNIEXPORT void JNICALL
 Java_<%= jni_package %>_MobBridge_nativeSendScroll(JNIEnv* env, jclass cls, jint handle,
                                                    jdouble x, jdouble y, jdouble dx, jdouble dy,

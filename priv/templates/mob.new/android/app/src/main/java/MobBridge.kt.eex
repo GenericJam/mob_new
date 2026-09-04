@@ -851,9 +851,16 @@ object MobBridge {
             // on the NIF thread while the Compose main thread may be midway
             // through a layout pass, so an outgoing onGloballyPositioned that
             // landed between the clear and the bump would still be accepted and
-            // would survive as a stale entry. Bumping first leaves no such
-            // window: from this line on, every tracker composed against the old
-            // tree carries a superseded stamp.
+            // would survive as a stale entry.
+            //
+            // Ordering alone does NOT close that race, and it is important not
+            // to believe it does: the gate in recordElementFrame is a
+            // check-then-act across two objects, so a tracker can read a
+            // generation that is still current, lose the thread, and have this
+            // block run before its write lands. What closes it is that both
+            // sides take frameLock, which is why the bump and the clear are
+            // inside it here. Removing the lock and keeping this ordering
+            // reintroduces the bug.
             //
             // It also has to precede the _rootState write below, and does:
             // composition of the incoming tree is what that write schedules, so
@@ -925,11 +932,15 @@ object MobBridge {
      * Scroll. Throttling and delta-thresholding happen native-side in
      * mob_send_scroll, so Kotlin forwards every sample it observes.
      *
-     * Only the built-in defaults apply on Android today (33ms/1.0 for scroll,
-     * 16ms/1.0 for drag). `Mob.Renderer` serialises per-handler options into
-     * sibling `scroll_config` / `drag_config` props, but nothing on this side
-     * reads them and nothing calls `mob_set_throttle_config`, so an app asking
-     * for `throttle: 100, delta: 8` silently gets the defaults. That is MOB-134.
+     * Per-handler options are honoured. `Mob.Renderer` serialises them into
+     * sibling `scroll_config` / `drag_config` props, the composition reads them
+     * and calls `mob_set_throttle_config`, and native applies them to the table
+     * being built (MOB-134). An app asking for `throttle: 100, delta: 8` gets
+     * exactly that; the built-in defaults (33ms/1.0 scroll, 16ms/1.0 drag)
+     * apply only where a handler asked for nothing.
+     *
+     * `debounce` / `leading` / `trailing` are accepted and stored but not yet
+     * acted on by either platform.
      */
     @JvmStatic
     external fun nativeSendScroll(handle: Int, x: Double, y: Double, dx: Double, dy: Double,

@@ -56,25 +56,46 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   rather than merging two rows.
 
   Applies to all seven container sites — column, row, box, both scroll axes,
-  the lazy list and the sheet body. Paired with mob 0.7.39+ for the iOS half;
-  both platforms derive keys the same way. See
-  `decisions/2026-09-03-children-key-on-author-id.md` (MOB-127).
-- **The 14 dead Android event handlers are wired into the bridge.** `on_focus`,
-  `on_blur`, `on_long_press`, `on_double_tap`, the drag handlers and the rest
-  were accepted by the Elixir API and registered a handle, but the Compose
-  bridge never called them, so they were silently inert on Android while
-  working on iOS. Generated apps need this template change to receive them
-  (MOB-138).
+  the lazy list and the sheet body. Paired with mob 0.7.39+ for the iOS half,
+  which derives keys the same way from the same rules.
+
+  **The tab bar is not covered on Android.** iOS keys it too; Compose's
+  `NavigationBar` still iterates tabs positionally, so reordering or inserting
+  a tab moves per-tab state on Android and not on iOS (MOB-127).
+- **The dead Android event handlers are wired into the bridge.**
+  `on_long_press`, `on_double_tap`, the swipe family, the scroll family and
+  `on_drag` were accepted by the Elixir API and registered a handle, but the
+  Compose bridge never called them, so they were silently inert on Android
+  while working on iOS. Generated apps need this template change to receive
+  them (MOB-138).
+
+  **Action required if you worked around this.** A screen that declared one of
+  these and never received it may have no matching `handle_info` clause; it
+  will now start receiving messages it has never seen. `on_focus` and
+  `on_blur` are NOT in this set — contrary to an earlier draft of this entry,
+  they were already live in 0.4.30.
 - **Throttle config reaches native on Android.** Scroll and drag throttle
   settings were computed on the BEAM side and never sent, so Android ignored
   them and delivered every raw event. The config is now sent per composition
-  and applied to the handlers being built. See
+  and applied to the handlers being built. `debounce`, `leading` and `trailing`
+  are accepted and stored but not yet acted on by either platform. See
   `decisions/2026-09-03-android-throttle-config-per-composition.md` (MOB-134).
-- **Generated Android lists preserve state by stable identity.** Lazy lists
-  retain scroll position across generation-tagged event-handle changes and no
-  longer allocate one state object per render. Canonical node IDs take
-  precedence, with a non-negative event slot as fallback; negative unhandled
-  sentinels do not collide with valid slots.
+- **The element-frame registry is gated on the nav generation.** `setRootJson`
+  cleared the registry on navigation, but the write path had no gate, and
+  `AnimatedContent` keeps the outgoing composition mounted for its whole exit
+  animation — so a screen sliding away kept firing `onGloballyPositioned` and
+  refilled the registry with mid-animation coordinates. `Mob.Test.element_frames`
+  and `tap_id` then reported and tapped positions belonging to a screen the user
+  was no longer looking at. A tracker now stamps every write with the generation
+  current when it first composed, and stale writes are refused under the same
+  lock that guards the clear. iOS has carried this since MOB-102/103.
+
+  Two gaps stay open on Android and are NOT fixed here: there is no purge keyed
+  on the live id set, so a same-screen re-render that drops an `:id` leaves that
+  element's last frame in the registry indefinitely; and there is no
+  `onDispose` compare-and-delete, so a lazy row scrolled out of range, an
+  inactive tab or a dismissed sheet keeps its last position. See
+  `decisions/2026-09-03-android-frame-generation-gate.md` (MOB-142).
 
 
 ## [0.4.30] - 2026-08-31

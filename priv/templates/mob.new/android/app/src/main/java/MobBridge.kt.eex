@@ -415,17 +415,122 @@ object MobBridge {
     // weakly-consistent iteration can't throw ConcurrentModificationException.
     private val elementFramesById = ConcurrentHashMap<String, FloatArray>()
 
-    fun recordElementFrame(id: String, x: Float, y: Float, w: Float, h: Float) {
-        elementFramesById[id] = floatArrayOf(x, y, w, h)
+    // Nav generation, and the gate that makes the clear in setRootJson stick.
+    //
+    // Clearing the registry on navigation is only half a fix. MainActivity
+    // renders the tree inside an AnimatedContent keyed on navKey, and
+    // AnimatedContent keeps the OUTGOING composition mounted for the whole exit
+    // animation. push and pop slide that screen out, so every node in it is
+    // re-laid-out on each display frame the whole way, firing
+    // onGloballyPositioned long after setRootJson emptied the map. The screen
+    // that is leaving therefore refills the registry with mid-animation
+    // coordinates, and Mob.Test.element_frames / tap_id then report and tap
+    // positions belonging to a screen the user is no longer looking at.
+    //
+    // So: a tracker captures the generation current when it first composes and
+    // stamps every write with it, and a write stamped older than the current
+    // generation is refused.
+    //
+    // This is one of the three parts iOS carries, not all of them. iOS also has
+    // a purge keyed on the live id set, run on EVERY set_root including "none",
+    // and an .onDisappear compare-and-delete keyed on a write sequence number.
+    // Android has neither. Two consequences worth knowing: a same-screen
+    // re-render that drops an :id leaves that element's last frame in the map
+    // for ever, and a row scrolled out of a lazy list or a tab left behind
+    // keeps reporting its last position. See mob's
+    // decisions/2026-08-27-frame-registry-liveness.md for the reasoning this
+    // half is taken from.
+    //
+    // A private counter rather than reusing navKey, even though navKey already
+    // moves on exactly the right events. navKey lives inside _rootState, a
+    // Compose snapshot state, so a tracker reading it would subscribe every
+    // tagged node to root updates, and the outgoing tree recomposing during its
+    // own exit animation would read the INCOMING navKey and restamp itself:
+    // precisely the write this gate exists to refuse. navKey is also the
+    // AnimatedContent contentKey, which is a statement about animation
+    // identity, free to be reset, reused, or replaced by a screen name if the
+    // transition mechanism ever changes. The gate needs a value that only ever
+    // increases. Keeping the two separate means a change to how screens are
+    // animated cannot quietly turn the gate off.
+    //
+    // One monitor covers the counter AND the registry, rather than an atomic
+    // counter beside an unguarded map. An atomic makes each individual access
+    // safe and still leaves recordElementFrame as a check-then-act across two
+    // objects, which is the race this gate exists to lose. Taking one lock for
+    // both is also what iOS does, and it is cheap: uncontended, once per
+    // tracked element per layout pass, against a monitor nothing else wants.
+    //
+    // Starts at 1 so the very first trackers, which capture 1, are accepted
+    // (1 < 1 is false). Unlike iOS there is no 0 sentinel to reserve, because
+    // remember always runs before the modifier is built.
+    private val frameLock = Any()
+    private var frameGeneration = 1L
+
+    /**
+     * The generation current right now. Read once per tracker, during
+     * composition, so the value captured is the one belonging to the tree that
+     * tracker is part of.
+     */
+    fun currentFrameGeneration(): Long = synchronized(frameLock) { frameGeneration }
+
+    fun recordElementFrame(id: String, generation: Long, x: Float, y: Float, w: Float, h: Float) {
+        // Refuse a tracker belonging to a superseded tree.
+        //
+        // The check and the write are one critical section, and the bump and
+        // the clear in setRootJson are the same one. Ordering alone is not
+        // enough, which is worth being precise about because it is tempting to
+        // think it is: the two run on different threads, so with an unguarded
+        // check-then-act a tracker can read a generation that is still current,
+        // lose the thread, and have setRootJson bump and clear before its write
+        // lands. Bumping before the clear narrows that window to the gap
+        // between this read and this write; it does not close it, and
+        // ConcurrentHashMap.clear() is not atomic against a concurrent put
+        // either. Holding the lock across both closes it.
+        //
+        // This is what iOS does. mob_register_frame performs the generation
+        // check and the dictionary write inside @synchronized(reg), and the
+        // bump takes the same monitor.
+        synchronized(frameLock) {
+            if (generation < frameGeneration) return
+            elementFramesById[id] = floatArrayOf(x, y, w, h)
+        }
     }
 
-    fun frameTrackingModifier(id: String): Modifier =
-        Modifier
+    @Composable
+    fun frameTrackingModifier(id: String): Modifier {
+        // remember(id), deliberately: neither keyless nor keyed on anything
+        // that moves per recomposition.
+        //
+        // Keying on the live generation, remember(currentFrameGeneration()), or
+        // dropping remember and reading the counter inside
+        // onGloballyPositioned, would re-read it on every recomposition or
+        // every layout pass. A write could then never be stale and the gate
+        // would be dead code that still looked like a fix.
+        //
+        // Keying on id re-runs the capture exactly when this modifier starts
+        // tracking a DIFFERENT element, which is the one way a composition that
+        // is still alive can end up holding a generation that was never its
+        // own. Only column, row and the lazy list key their children on the
+        // author's :id via mobChildKeys; everywhere else children sit in
+        // positional composition slots, so a slot can be handed a different
+        // node, and a different :id, while keeping its remembered state. Under
+        // a keyless remember that slot would stamp writes for its new id with
+        // the previous occupant's generation.
+        //
+        // Navigation is already covered without any key, since AnimatedContent
+        // wraps each content in key(contentKey) and navKey changes on every
+        // non-"none" transition, so the incoming tree is a fresh composition
+        // that captures the bumped value. Keying on id leaves that intact
+        // rather than resting the whole gate on that one AnimatedContent
+        // internal.
+        val generation = remember(id) { currentFrameGeneration() }
+        return Modifier
             .testTag(id)
             .onGloballyPositioned { c ->
                 val b = c.boundsInWindow()
-                recordElementFrame(id, b.left, b.top, b.width, b.height)
+                recordElementFrame(id, generation, b.left, b.top, b.width, b.height)
             }
+    }
 
     /** JSON {id:[x,y,w,h], ...} in dp (matches screenInfo / tap_xy units). */
     @JvmStatic
@@ -742,9 +847,23 @@ object MobBridge {
         // Navigation transitions mean a genuinely different screen — old list state
         // is no longer relevant and would scroll the wrong list to a stale position.
         val newKey = if (transition != "none") {
+            // Bump the frame generation BEFORE the clears, not after. Both run
+            // on the NIF thread while the Compose main thread may be midway
+            // through a layout pass, so an outgoing onGloballyPositioned that
+            // landed between the clear and the bump would still be accepted and
+            // would survive as a stale entry. Bumping first leaves no such
+            // window: from this line on, every tracker composed against the old
+            // tree carries a superseded stamp.
+            //
+            // It also has to precede the _rootState write below, and does:
+            // composition of the incoming tree is what that write schedules, so
+            // the incoming trackers capture the counter only after it moved.
+            synchronized(frameLock) {
+                frameGeneration++
+                elementFramesById.clear()
+            }
             lazyListStates.clear()
             scrollHandlesById.clear()
-            elementFramesById.clear()
             _rootState.value.navKey + 1
         } else {
             _rootState.value.navKey

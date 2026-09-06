@@ -2357,7 +2357,17 @@ object MobBridge {
             }
             latch.countDown()
         }
-        try { latch.await() } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
+        // Bounded. These run on a BEAM scheduler thread, and Android is
+        // configured with exactly one (`-S 1:1`), so an unbounded wait on a
+        // main thread that never answers is not a stall — it is a VM that
+        // never runs another process again. The value returned on timeout is
+        // the same one this function already returns when there is no
+        // activity, so the contract does not change.
+        try {
+            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
         return result
     }
 
@@ -2404,7 +2414,17 @@ object MobBridge {
             }
             latch.countDown()
         }
-        try { latch.await() } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
+        // Bounded. These run on a BEAM scheduler thread, and Android is
+        // configured with exactly one (`-S 1:1`), so an unbounded wait on a
+        // main thread that never answers is not a stall — it is a VM that
+        // never runs another process again. The value returned on timeout is
+        // the same one this function already returns when there is no
+        // activity, so the contract does not change.
+        try {
+            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
         return result
     }
 
@@ -2524,7 +2544,17 @@ object MobBridge {
                 latch.countDown()
             }
         }
-        try { latch.await() } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
+        // Bounded. These run on a BEAM scheduler thread, and Android is
+        // configured with exactly one (`-S 1:1`), so an unbounded wait on a
+        // main thread that never answers is not a stall — it is a VM that
+        // never runs another process again. The value returned on timeout is
+        // the same one this function already returns when there is no
+        // activity, so the contract does not change.
+        try {
+            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
         return result[0]
     }
 

@@ -2360,14 +2360,24 @@ object MobBridge {
         // Bounded. These run on a BEAM scheduler thread, and Android is
         // configured with exactly one (`-S 1:1`), so an unbounded wait on a
         // main thread that never answers is not a stall — it is a VM that
-        // never runs another process again. The value returned on timeout is
-        // the same one this function already returns when there is no
-        // activity, so the contract does not change.
-        try {
-            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-        }
+        // never runs another process again.
+        //
+        // The timeout is returned explicitly rather than falling through to
+        // `result`. countDown/await is what publishes the UI thread's writes;
+        // skip that edge and reading `result` is unsynchronized, so a caller
+        // could see it half-filled. Returning a fresh zeroed array gives the
+        // same value this function already returns when there is no activity,
+        // which is what the caller already handles. Matches the idiom
+        // `screenshot` uses above.
+        val answered =
+            try {
+                latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
+
+        if (!answered) return FloatArray(4)
         return result
     }
 
@@ -2417,14 +2427,24 @@ object MobBridge {
         // Bounded. These run on a BEAM scheduler thread, and Android is
         // configured with exactly one (`-S 1:1`), so an unbounded wait on a
         // main thread that never answers is not a stall — it is a VM that
-        // never runs another process again. The value returned on timeout is
-        // the same one this function already returns when there is no
-        // activity, so the contract does not change.
-        try {
-            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-        }
+        // never runs another process again.
+        //
+        // The timeout is returned explicitly rather than falling through to
+        // `result`. countDown/await is what publishes the UI thread's writes;
+        // skip that edge and reading `result` is unsynchronized, so a caller
+        // could see it half-filled. Returning a fresh zeroed array gives the
+        // same value this function already returns when there is no activity,
+        // which is what the caller already handles. Matches the idiom
+        // `screenshot` uses above.
+        val answered =
+            try {
+                latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
+
+        if (!answered) return FloatArray(7)
         return result
     }
 
@@ -2547,14 +2567,24 @@ object MobBridge {
         // Bounded. These run on a BEAM scheduler thread, and Android is
         // configured with exactly one (`-S 1:1`), so an unbounded wait on a
         // main thread that never answers is not a stall — it is a VM that
-        // never runs another process again. The value returned on timeout is
-        // the same one this function already returns when there is no
-        // activity, so the contract does not change.
-        try {
-            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-        }
+        // never runs another process again.
+        //
+        // The timeout is returned explicitly rather than falling through to
+        // `result`. countDown/await is what publishes the UI thread's writes;
+        // skip that edge and reading `result` is unsynchronized, so a caller
+        // could see it half-filled. Returning a fresh zeroed array gives the
+        // same value this function already returns when there is no activity,
+        // which is what the caller already handles. Matches the idiom
+        // `screenshot` uses above.
+        val answered =
+            try {
+                latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
+
+        if (!answered) return null
         return result[0]
     }
 

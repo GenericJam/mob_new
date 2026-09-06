@@ -68,6 +68,20 @@ defmodule MobNew.Templates.AndroidBoundedWaitsTest do
     end
   end
 
+  test "the await result is honoured, not discarded", %{bridge: src} do
+    # countDown/await is what publishes the UI thread's writes. Timing out and
+    # then reading the shared array anyway is an unsynchronized read — the
+    # caller can see it half-filled. Returning explicitly on timeout gives the
+    # value the caller already handles, and makes the comment above each site
+    # true rather than true-by-luck.
+    for fun <- ~w(getSafeArea screenInfo clipboardGet) do
+      body = function_body(src, fun)
+
+      assert body =~ "if (!answered) return",
+             "#{fun} ignores whether the latch actually fired"
+    end
+  end
+
   defp function_body(src, name) do
     [_, rest] = String.split(src, "fun #{name}(", parts: 2)
     # Up to the next top-level @JvmStatic is comfortably past the end.

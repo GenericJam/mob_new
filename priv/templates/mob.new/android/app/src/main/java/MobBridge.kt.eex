@@ -21,7 +21,13 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
+import android.os.Looper
 import android.os.SystemClock
+import android.view.InputDevice
+import android.view.KeyCharacterMap
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
 import android.speech.tts.TextToSpeech
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -103,6 +109,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -691,6 +699,284 @@ object MobBridge {
         }
         latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
         return ok
+    }
+
+    // ── Test-harness synthetic input ──────────────────────────────────────────
+    //
+    // `Mob.Test.tap_xy/3`, `type_text/2` and friends. Without these the harness
+    // can drive an app by tag over distribution but cannot touch anything
+    // reachable only by coordinates — a native control, a webview, a canvas.
+    // Every generated app shipped without them until MOB-160.
+    //
+    // Injected in-process by dispatching to the decor view. The obvious route,
+    // `Instrumentation.sendPointerSync`, needs INJECT_EVENTS — a signature-level
+    // permission no ordinary app can hold — so it is not available to us.
+    //
+    // Coordinates arrive in dp, matching `elementFrames()` which divides by
+    // density on the way out. They are converted to px here.
+
+    // One synthetic gesture at a time. These arrive as `:rpc` calls, so two
+    // Erlang processes can issue them concurrently; without this a tap's DOWN
+    // lands in the middle of a swipe's MOVE stream, with a different downTime,
+    // and both gestures are garbage while both report success.
+    private val gestureMutex = kotlinx.coroutines.sync.Mutex()
+
+    // Loaded once. `load` walks the key layout files, and these run per input.
+    private val virtualKeyboard: KeyCharacterMap by lazy {
+        KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD)
+    }
+
+    // Runs `body` on the main thread and waits for it, because the caller is a
+    // BEAM scheduler thread inside a NIF and needs an answer.
+    //
+    // Gestures must be dispatched over REAL elapsed time, not synthesised
+    // timestamps inside one main-thread block, which is why `body` suspends.
+    // Android's long-press detector and Compose's drag/slop handling both wait
+    // on posted callbacks and frame boundaries, so a gesture that runs to
+    // completion without ever yielding the main looper is seen as a single
+    // instantaneous touch: a long press reads as a tap, and a drag never
+    // clears touch slop.
+    private fun onMain(timeoutMs: Long = 2000, body: suspend (Activity) -> Boolean): Boolean {
+        val activity = activityRef?.get() ?: return false
+
+        // `Dispatchers.Main` always posts, so blocking the main thread here
+        // would wait on a coroutine that can only run on the thread we just
+        // blocked — a guaranteed timeout and a multi-second UI freeze. A NIF
+        // runs on a scheduler thread today; refuse loudly if that ever changes
+        // rather than hanging the app.
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            Log.w("MobBridge", "synthetic input called on the main thread; refusing")
+            return false
+        }
+
+        val latch = java.util.concurrent.CountDownLatch(1)
+        val ok = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        val job = mainScope.launch {
+            try {
+                gestureMutex.withLock { ok.set(body(activity)) }
+            } catch (e: Throwable) {
+                Log.w("MobBridge", "synthetic input failed", e)
+                ok.set(false)
+            } finally {
+                latch.countDown()
+            }
+        }
+
+        val finished =
+            try {
+                latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } catch (e: InterruptedException) {
+                // Letting this propagate would unwind into JNI with a pending
+                // exception, and the callers in mob_nif.zig do not
+                // ExceptionCheck — the next JNI call on this thread aborts
+                // the VM.
+                Thread.currentThread().interrupt()
+                false
+            }
+
+        if (!finished) {
+            // Don't leave a gesture running against a view the caller has
+            // moved on from; a retry would interleave with it. Cancellation
+            // unwinds through `withPointer`, which sends the CANCEL.
+            job.cancel()
+            return false
+        }
+
+        return ok.get()
+    }
+
+    // Guarantees the pointer stream is closed. If an exception or a
+    // cancellation lands between DOWN and UP, the view tree is left believing
+    // a finger is still down, and every later touch in the session is read as
+    // a second pointer — silently, since nothing reports it.
+    private suspend fun withPointer(
+        root: View,
+        x: Float,
+        y: Float,
+        down: Long,
+        body: suspend () -> Boolean
+    ): Boolean {
+        var completed = false
+        try {
+            val result = body()
+            completed = true
+            return result
+        } finally {
+            if (!completed) {
+                motion(root, MotionEvent.ACTION_CANCEL, x, y, down, SystemClock.uptimeMillis())
+            }
+        }
+    }
+
+    private fun motion(root: View, action: Int, x: Float, y: Float, down: Long, at: Long): Boolean {
+        val event = MotionEvent.obtain(down, at, action, x, y, 0)
+        // Without this the event carries SOURCE_UNKNOWN, and the paths that
+        // branch on isFromSource(SOURCE_TOUCHSCREEN) — hover, mouse-vs-touch
+        // slop — take the wrong one.
+        event.source = InputDevice.SOURCE_TOUCHSCREEN
+
+        return try {
+            root.dispatchTouchEvent(event)
+        } finally {
+            event.recycle()
+        }
+    }
+
+    private fun px(activity: Activity, dp: Float): Float =
+        dp * activity.resources.displayMetrics.density
+
+    // Every one of these returns whether the events were actually CONSUMED,
+    // not whether they were sent. `dispatchTouchEvent` and `dispatchKeyEvent`
+    // already tell us; discarding that and returning a bare `true` would make
+    // mob_nif.zig's :dispatch_failed and :no_first_responder unreachable, and
+    // a tap into empty space indistinguishable from one that hit a button.
+
+    @JvmStatic
+    fun tapXy(x: Float, y: Float): Boolean =
+        onMain { activity ->
+            val root = activity.window?.decorView
+            if (root == null) {
+                false
+            } else {
+                val cx = px(activity, x)
+                val cy = px(activity, y)
+                val down = SystemClock.uptimeMillis()
+
+                withPointer(root, cx, cy, down) {
+                    val pressed = motion(root, MotionEvent.ACTION_DOWN, cx, cy, down, down)
+                    val released =
+                        motion(root, MotionEvent.ACTION_UP, cx, cy, down, SystemClock.uptimeMillis())
+                    pressed || released
+                }
+            }
+        }
+
+    @JvmStatic
+    fun longPressXy(x: Float, y: Float, durationMs: Long): Boolean =
+        onMain(durationMs + 3000) { activity ->
+            val root = activity.window?.decorView
+            if (root == null) {
+                false
+            } else {
+                val cx = px(activity, x)
+                val cy = px(activity, y)
+                val down = SystemClock.uptimeMillis()
+
+                withPointer(root, cx, cy, down) {
+                    var handled = motion(root, MotionEvent.ACTION_DOWN, cx, cy, down, down)
+                    // Hold for real time, reporting the stationary finger, so
+                    // the long-press timeout actually elapses on the looper.
+                    var now = down
+                    while (now - down < durationMs) {
+                        delay(50)
+                        now = SystemClock.uptimeMillis()
+                        handled = motion(root, MotionEvent.ACTION_MOVE, cx, cy, down, now) || handled
+                    }
+                    motion(root, MotionEvent.ACTION_UP, cx, cy, down, SystemClock.uptimeMillis()) ||
+                        handled
+                }
+            }
+        }
+
+    @JvmStatic
+    fun swipeXy(x1: Float, y1: Float, x2: Float, y2: Float): Boolean =
+        onMain(5000) { activity ->
+            val root = activity.window?.decorView
+            if (root == null) {
+                false
+            } else {
+                val sx = px(activity, x1)
+                val sy = px(activity, y1)
+                val ex = px(activity, x2)
+                val ey = px(activity, y2)
+                val down = SystemClock.uptimeMillis()
+                val steps = 16
+
+                withPointer(root, sx, sy, down) {
+                    var handled = motion(root, MotionEvent.ACTION_DOWN, sx, sy, down, down)
+                    // Enough intermediate points, spread over real frames, to
+                    // clear touch slop and give a fling a velocity to work
+                    // with. A DOWN/UP pair with nothing between reads as a tap.
+                    for (step in 1..steps) {
+                        delay(16)
+                        val f = step.toFloat() / steps
+                        handled =
+                            motion(
+                                root,
+                                MotionEvent.ACTION_MOVE,
+                                sx + (ex - sx) * f,
+                                sy + (ey - sy) * f,
+                                down,
+                                SystemClock.uptimeMillis()
+                            ) || handled
+                    }
+                    motion(root, MotionEvent.ACTION_UP, ex, ey, down, SystemClock.uptimeMillis()) ||
+                        handled
+                }
+            }
+        }
+
+    @JvmStatic
+    fun typeText(text: String): Boolean =
+        onMain { activity ->
+            // Key events rather than an InputConnection: Compose's text fields
+            // own their own connection, and this is the path a real keyboard
+            // takes, so it exercises what the user would.
+            if (activity.currentFocus == null) {
+                // Nothing focused. Dispatching anyway and returning true is
+                // what makes :no_first_responder unreachable.
+                false
+            } else {
+                val events = virtualKeyboard.getEvents(text.toCharArray())
+                if (events == null) {
+                    // getEvents returns null if ANY character has no key
+                    // sequence on the virtual keyboard — non-ASCII, emoji,
+                    // accented Latin. The whole string is rejected, so the
+                    // call failed; saying otherwise would report a silent
+                    // no-op as a success.
+                    Log.w("MobBridge", "typeText: no key sequence available (ASCII only)")
+                    false
+                } else {
+                    var handled = false
+                    for (event in events) {
+                        handled = activity.dispatchKeyEvent(event) || handled
+                    }
+                    handled
+                }
+            }
+        }
+
+    @JvmStatic
+    fun deleteBackward(): Boolean =
+        onMain { activity ->
+            if (activity.currentFocus == null) false
+            else sendKey(activity, KeyEvent.KEYCODE_DEL)
+        }
+
+    // `clearText` is deliberately NOT implemented.
+    //
+    // Two approaches were tried on a physical device and both report success
+    // while failing to clear. Backspacing in a loop is dispatched far faster
+    // than the text field recomposes, so the events coalesce within a frame —
+    // roughly four of two hundred registered. Ctrl+A then delete does not
+    // select in a Compose text field either, and removes a single character.
+    //
+    // A method that returns true having cleared nothing is worse than an
+    // absent one: the JNI lookup is a `cacheOptional`, so an absent method
+    // leaves the handle null, `Mob.Test.capabilities/1` reports
+    // `clear_text: false`, and a call returns `{:error, :not_loaded}`. That is
+    // the truth, and an agent can plan around it. It cannot plan around a lie.
+
+    private fun sendKey(activity: Activity, code: Int, meta: Int = 0): Boolean {
+        val t = SystemClock.uptimeMillis()
+        val pressed =
+            activity.dispatchKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0, meta))
+        val released =
+            activity.dispatchKeyEvent(
+                KeyEvent(t, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0, meta)
+            )
+        return pressed || released
     }
 
     private var activityRef: WeakReference<Activity>? = null

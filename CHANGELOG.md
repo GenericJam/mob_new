@@ -10,7 +10,54 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+
+- **Synthetic input in the generated Android bridge** (MOB-160). `tapXy`,
+  `longPressXy`, `swipeXy`, `typeText` and `deleteBackward`, so an agent can
+  drive a generated app by coordinate over Erlang distribution — no `adb`, and
+  no `INJECT_EVENTS`, which is a signature permission no ordinary app can hold.
+  Events are dispatched in-process at the activity's decor view. Generated apps
+  shipped without any of this until now, so `Mob.Test.tap_xy/3` and friends
+  returned `{:error, :not_loaded}`; `MobBridge.kt` is generated once and never
+  re-rendered, so an existing app must be regenerated.
+
+  Verified on a physical device: tap navigates between screens, long press
+  fires `on_long_press`, swipe scrolls a scroll view, and typing and backspace
+  change a focused field.
+
+  Known limits, all deliberate and documented in `Mob.Test`: gestures block for
+  their real duration (Android's detectors wait on posted callbacks and frame
+  boundaries, and ignore synthesised timestamps); only the activity's own
+  window is reachable, so dialogs and modal sheets are not; `typeText` is
+  ASCII-only and rejects a whole string containing one unmappable character;
+  and `clearText` is **absent on purpose** — two implementations reported
+  success while clearing nothing, so `capabilities/1` reports
+  `clear_text: false` and calls return `{:error, :not_loaded}`, which is the
+  truth. See `decisions/2026-09-05-synthetic-input-runs-on-real-time.md`.
+
+  Requires `mob` with the matching dirty-scheduler change: these NIFs block a
+  scheduler for the gesture's duration.
+- **Native frame timing in the generated Android bridge** (MOB-146).
+  `renderStats()` and `renderStatsEnable()` back `Mob.RenderStats.native_*`,
+  which returned `{:error, :unsupported}` on Android because there was no
+  native half at all. The ring buffer lives here rather than in the NIF: the
+  measurement can only be taken on the main thread, so keeping it beside the
+  writer avoids a JNI hop per sample.
+
+  The closing bracket rides the frame — `postFrameCallback` registered
+  straight from the calling thread, then a post from inside it, which cannot
+  run until the synchronous traversal has measured, laid out and drawn. Both
+  obvious alternatives are wrong in ways that produce a plausible number rather
+  than an error, and are documented in place: a `MessageQueue.IdleHandler`
+  fires while the queue is empty waiting for vsync, and registering from inside
+  a posted `Runnable` sits behind `ViewRootImpl`'s sync barrier and lands a
+  frame late.
+
+  Requires `mob` with the matching `native_stats` NIFs. `MobBridge.kt` is
+  generated once and never re-rendered, so existing apps must be regenerated.
+
 ### Changed
+
 - **Android navigation preserves composition identity** (MOB-146). Screens
   rendered through `AnimatedContent(contentKey = { navKey })`, which wraps
   content in `key()` — so every push, pop and reset disposed the outgoing
@@ -53,28 +100,6 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   correct screen and assigns.
 
   See `decisions/2026-09-05-android-navigation-preserves-identity.md`.
-
-
-### Added
-- **Native frame timing in the generated Android bridge** (MOB-146).
-  `renderStats()` and `renderStatsEnable()` back `Mob.RenderStats.native_*`,
-  which returned `{:error, :unsupported}` on Android because there was no
-  native half at all. The ring buffer lives here rather than in the NIF: the
-  measurement can only be taken on the main thread, so keeping it beside the
-  writer avoids a JNI hop per sample.
-
-  The closing bracket rides the frame — `postFrameCallback` registered
-  straight from the calling thread, then a post from inside it, which cannot
-  run until the synchronous traversal has measured, laid out and drawn. Both
-  obvious alternatives are wrong in ways that produce a plausible number rather
-  than an error, and are documented in place: a `MessageQueue.IdleHandler`
-  fires while the queue is empty waiting for vsync, and registering from inside
-  a posted `Runnable` sits behind `ViewRootImpl`'s sync barrier and lands a
-  frame late.
-
-  Requires `mob` with the matching `native_stats` NIFs. `MobBridge.kt` is
-  generated once and never re-rendered, so existing apps must be regenerated.
-
 
 ## [0.4.31] - 2026-09-04
 

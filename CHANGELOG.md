@@ -8,7 +8,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.4.32] - 2026-09-05
 
 ### Added
 

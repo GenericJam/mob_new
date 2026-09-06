@@ -985,6 +985,9 @@ object MobBridge {
     @JvmStatic
     fun init(activity: Activity) {
         activityRef = WeakReference(activity)
+        // Thread-local and throws off a Looper thread, so it has to be taken
+        // here rather than lazily from whichever thread samples first.
+        mainHandler.post { mainChoreographer = android.view.Choreographer.getInstance() }
         extractOtpIfNeeded(activity)
         copyMobLogos(activity)
         ensureUsbReceiver(activity.applicationContext)
@@ -1127,6 +1130,158 @@ object MobBridge {
     /** JNI bridge — implemented in beam_jni.c. */
     @JvmStatic external fun nativeNotifyColorScheme(scheme: String)
 
+    // ── Native frame timing (Mob.RenderStats.native_*) ───────────────────────
+    //
+    // `Mob.RenderStats` can already time the BEAM half of a render. It cannot
+    // see the native half: `set_root_us` closes when `setRootJson` returns, and
+    // this function returns as soon as it has written `_rootState` — every bit
+    // of Compose's work happens after that. On a dense screen that unseen half
+    // is most of the cost, which is exactly the half MOB-129 and MOB-146 argue
+    // about.
+    //
+    // Same JSON shape as the iOS implementation, so `Mob.RenderStats` needs no
+    // per-platform parsing.
+
+    private const val RENDER_STAT_SAMPLES = 240
+
+    private class FrameSample(val applyUs: Double, val seq: Long, val transition: String)
+
+    private val renderStatSlots = arrayOfNulls<FrameSample>(RENDER_STAT_SAMPLES)
+
+    // Counts every sample ever recorded, not just the retained ones, so a
+    // reader can tell "240 samples, that is all there were" from "240 samples,
+    // and 5000 more scrolled past" — the difference decides whether a
+    // percentile over this window means anything.
+    private var renderStatSeq = 0L
+
+    // Cached rather than fetched per sample. `Choreographer.getInstance()` is
+    // thread-local and throws off a Looper thread, so it is captured on the
+    // main thread at init; `postFrameCallback` itself is internally locked and
+    // safe to call from the NIF thread.
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    @Volatile private var mainChoreographer: android.view.Choreographer? = null
+    private val renderStatLock = Any()
+
+    // Read on every setRootJson, written from a NIF thread. @Volatile rather
+    // than lock-guarded so the disabled path — the overwhelmingly common one —
+    // costs a field read and nothing else.
+    @Volatile private var renderStatsOn = false
+
+    @JvmStatic
+    fun renderStatsEnable(on: Boolean): Boolean {
+        // Clear when ENABLING only. Clearing on disable as well would destroy
+        // the window the caller is about to read: `native_disable/0` documents
+        // that recorded samples stay readable, and the natural shape is
+        // enable, drive, disable, read.
+        if (on) {
+            synchronized(renderStatLock) {
+                java.util.Arrays.fill(renderStatSlots, null)
+                renderStatSeq = 0L
+            }
+        }
+        renderStatsOn = on
+        return true
+    }
+
+    @JvmStatic
+    fun renderStats(): String {
+        val (samples, recorded) =
+            synchronized(renderStatLock) {
+                Pair(renderStatSlots.filterNotNull().sortedByDescending { it.seq }, renderStatSeq)
+            }
+
+        val dropped = if (recorded > RENDER_STAT_SAMPLES) recorded - RENDER_STAT_SAMPLES else 0L
+        val out = StringBuilder(64 + samples.size * 64)
+        out.append("{\"enabled\":").append(renderStatsOn)
+            .append(",\"recorded\":").append(recorded)
+            .append(",\"dropped\":").append(dropped)
+            .append(",\"samples\":[")
+        samples.forEachIndexed { i, sample ->
+            if (i > 0) out.append(',')
+            out.append("{\"apply_us\":").append(sample.applyUs)
+                .append(",\"transition\":\"").append(jsonEscape(sample.transition))
+                .append("\",\"seq\":").append(sample.seq).append('}')
+        }
+        return out.append("]}").toString()
+    }
+
+    // `transition` is not a closed vocabulary at the boundary: nif_set_transition
+    // takes any atom up to 15 chars verbatim, and Mob.Sender types it as
+    // `atom()`. One containing a quote would emit invalid JSON and cost the
+    // reader the whole window rather than the one sample. iOS gets this for
+    // free by building its payload through NSJSONSerialization.
+    private fun jsonEscape(value: String): String {
+        val out = StringBuilder(value.length + 8)
+        for (c in value) {
+            when {
+                c == '"' -> out.append("\\\"")
+                c == '\\' -> out.append("\\\\")
+                c < ' ' -> out.append(String.format("\\u%04x", c.code))
+                else -> out.append(c)
+            }
+        }
+        return out.toString()
+    }
+
+    private fun recordFrameSample(applyUs: Double, transition: String) {
+        synchronized(renderStatLock) {
+            renderStatSlots[(renderStatSeq % RENDER_STAT_SAMPLES).toInt()] =
+                FrameSample(applyUs, renderStatSeq, transition)
+            renderStatSeq++
+        }
+    }
+
+    // Brackets from the state write to the end of the frame that renders it.
+    //
+    // The closing bracket is the hard part, and getting it wrong fails silently
+    // with a plausible number. Two rejected options, recorded so nobody
+    // re-derives them:
+    //
+    //   * A `MessageQueue.IdleHandler` is the literal analogue of the
+    //     `CFRunLoopObserver(.beforeWaiting)` iOS uses. It is wrong here.
+    //     Compose requests its frame through `Choreographer`, and a vsync
+    //     callback arrives asynchronously rather than sitting in the queue, so
+    //     between the request and the vsync the queue is genuinely empty. The
+    //     handler fires there, before any of the work being measured, and
+    //     reports the cost of a field write.
+    //   * Posting a plain `Runnable` and registering from inside it. Same flaw
+    //     for a different reason: `ViewRootImpl.scheduleTraversals` installs a
+    //     sync barrier that blocks non-async messages until `doTraversal`
+    //     runs. With a traversal already pending — the steady state on a busy
+    //     screen, which is exactly when these measurements are taken — that
+    //     post is held while Compose recomposes at frame V, so it registers
+    //     for V+1 and the sample absorbs a whole extra frame. Choreographer's
+    //     own vsync messages are async and sail past the barrier, which is why
+    //     registering directly from this thread does not have the problem.
+    //
+    // So: register the frame callback straight from the calling thread.
+    // `postFrameCallback` fires at the START of the next frame, before Compose
+    // recomposes and before the traversal that measures, lays out and draws. A
+    // message posted from inside that callback cannot run until the traversal
+    // has finished, because the traversal is synchronous on that thread. That
+    // post is the closing bracket.
+    //
+    // Biases worth knowing before trusting a tail figure, all upward:
+    //
+    //   * If Compose lands the recomposition in a later frame than the one we
+    //     attach to, this under-reports; an animated navigation spans several
+    //     frames while this measures only the first, which is the one carrying
+    //     the composition cost.
+    //   * A burst of `setRootJson` calls arms several brackets that all close
+    //     on the SAME frame, so each attributes the cost of rendering the last
+    //     tree to a tree that was superseded and never composed. Over-counting
+    //     rather than losing samples, which is the safer direction for a
+    //     measurement whose purpose is to justify work. iOS behaves the same.
+    private fun measureApply(startNanos: Long, transition: String) {
+        val choreographer = mainChoreographer ?: return
+        choreographer.postFrameCallback {
+            mainHandler.post {
+                recordFrameSample((System.nanoTime() - startNanos) / 1000.0, transition)
+            }
+        }
+    }
+
     /** Called from mob_nif.c's nif_set_root — updates Compose state. */
     @JvmStatic
     fun setRootJson(json: String, transition: String) {
@@ -1161,7 +1316,23 @@ object MobBridge {
         } else {
             _rootState.value.navKey
         }
-        _rootState.value = RootState(newKey, transition, MobJson.parseNode(json))
+        // Taken AFTER the parse, deliberately. `set_root_us` on the BEAM side
+        // already spans this call, parse included, because setRootJson runs
+        // synchronously from the NIF — so measuring the parse here too would
+        // double-count it against anyone adding the two windows together. iOS
+        // has the same boundary for a different reason: its node arrives
+        // already parsed.
+        val measuring = renderStatsOn
+        val parsed = MobJson.parseNode(json)
+
+        // System.nanoTime rather than elapsedRealtimeNanos: the latter counts
+        // deep sleep, so a run spanning a screen-off yields a sample of
+        // minutes. iOS's CACurrentMediaTime does not count sleep either.
+        val startNanos = if (measuring) System.nanoTime() else 0L
+
+        _rootState.value = RootState(newKey, transition, parsed)
+
+        if (measuring) measureApply(startNanos, transition)
     }
 
     /** Called from Compose onClick — routes tap back to BEAM via C. */

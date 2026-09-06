@@ -36,6 +36,25 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
   Requires `mob` with the matching dirty-scheduler change: these NIFs block a
   scheduler for the gesture's duration.
+- **Native frame timing in the generated Android bridge** (MOB-146).
+  `renderStats()` and `renderStatsEnable()` back `Mob.RenderStats.native_*`,
+  which returned `{:error, :unsupported}` on Android because there was no
+  native half at all. The ring buffer lives here rather than in the NIF: the
+  measurement can only be taken on the main thread, so keeping it beside the
+  writer avoids a JNI hop per sample.
+
+  The closing bracket rides the frame — `postFrameCallback` registered
+  straight from the calling thread, then a post from inside it, which cannot
+  run until the synchronous traversal has measured, laid out and drawn. Both
+  obvious alternatives are wrong in ways that produce a plausible number rather
+  than an error, and are documented in place: a `MessageQueue.IdleHandler`
+  fires while the queue is empty waiting for vsync, and registering from inside
+  a posted `Runnable` sits behind `ViewRootImpl`'s sync barrier and lands a
+  frame late.
+
+  Requires `mob` with the matching `native_stats` NIFs. `MobBridge.kt` is
+  generated once and never re-rendered, so existing apps must be regenerated.
+
 
 ## [0.4.31] - 2026-09-04
 

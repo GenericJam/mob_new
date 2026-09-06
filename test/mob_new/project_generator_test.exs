@@ -892,7 +892,12 @@ defmodule MobNew.ProjectGeneratorTest do
       # The keyed composition owns both remembered flags and the Material
       # sheet state. A constant fallback preserves the previous behavior for
       # ordinary sheets that do not carry an id.
-      assert content =~ "key(identityKey ?: Unit) {"
+      #
+      # The slot epoch joins the key since MOB-146: the composition survives
+      # navigation now, so an id-less sheet dismissed on the outgoing screen
+      # would otherwise arrive at the incoming one already dismissed, never
+      # showing and never firing :on_dismiss.
+      assert content =~ "key(identityKey ?: Unit, MobBridge.LocalSlotEpoch.current) {"
       assert content =~ "val identityKey = MobNodeIdentity.keyFor(node)"
       assert content =~ "val presentation = remember { MobSheetPresentationState() }"
       assert content =~ ~S|if (!node.props.containsKey("id")) return null|

@@ -3616,7 +3616,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
             // is: `rememberScrollState()` is keyless, so with the composition
             // preserved across navigation (MOB-146) a scroll view landing in the
             // same slot would open the new screen at the old screen's offset.
-            val scrollState = key(LocalSlotEpoch.current) { rememberScrollState() }
+            val scrollState = key(MobBridge.LocalSlotEpoch.current) { rememberScrollState() }
             val horizontal = node.props["axis"] == "horizontal"
 
             // Decided up front because it determines whether this node scrolls a
@@ -3875,7 +3875,7 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
     // `node.props["value"]` alone re-seeds only when the incoming screen's
     // value DIFFERS — and two screens whose field is empty is the common case,
     // so a push would carry the user's typed text into the new screen's field.
-    var localValue by remember(node.props["value"], LocalSlotEpoch.current) {
+    var localValue by remember(node.props["value"], MobBridge.LocalSlotEpoch.current) {
         mutableStateOf(node.props["value"] as? String ?: "")
     }
 
@@ -3938,7 +3938,7 @@ private fun MobSlider(node: MobNode, modifier: Modifier) {
     val color    = colorProp(node.props, "color")
     // Same reasoning as the text field: identical values across a navigation
     // would otherwise carry the old screen's thumb position into the new one.
-    var localVal by remember(node.props["value"], LocalSlotEpoch.current) {
+    var localVal by remember(node.props["value"], MobBridge.LocalSlotEpoch.current) {
         mutableStateOf(floatProp(node.props, "value") ?: minVal)
     }
     Slider(
@@ -4677,7 +4677,7 @@ internal fun MobSheetSlot(
     // dismissed on the outgoing screen would otherwise carry visible=false and
     // dismissSent=true into the incoming screen's sheet, which would then never
     // show and never fire :on_dismiss.
-    key(identityKey ?: Unit, LocalSlotEpoch.current) {
+    key(identityKey ?: Unit, MobBridge.LocalSlotEpoch.current) {
         val presentation = remember { MobSheetPresentationState() }
         DisposableEffect(presentation) {
             onDispose { presentation.deactivate() }
@@ -5105,7 +5105,7 @@ private fun MobLazyList(node: MobNode, modifier: Modifier) {
     // the clear becomes a no-op and a push to a structurally similar screen
     // opens it mid-scroll. An id-less list with no `on_end_reached` has a null
     // identity, so without the epoch it would retain across every navigation.
-    val listState = remember(stateIdentity, LocalSlotEpoch.current) {
+    val listState = remember(stateIdentity, MobBridge.LocalSlotEpoch.current) {
         if (stateIdentity != null) MobBridge.getOrCreateLazyListState(stateIdentity)
         else LazyListState()
     }

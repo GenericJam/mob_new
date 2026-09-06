@@ -8,6 +8,20 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Three bridge calls waited on the UI thread with no timeout** (MOB-164).
+  `getSafeArea`, `screenInfo` and `clipboardGet` each blocked on an unbounded
+  `latch.await()`. These are called from NIFs, and Android runs the BEAM with
+  `-S 1:1` — one normal scheduler — so a main thread that never answers was
+  not a stall but a hang: no Erlang process on the device would run again.
+
+  Now bounded at 2 seconds, matching the other waits in the bridge. On timeout
+  each returns the same value it already returns when there is no activity
+  (zeros, or `nil`), so nothing about the contract changes. Pairs with the
+  `mob` change that moves these NIFs to a dirty scheduler.
+
 ## [0.4.32] - 2026-09-05
 
 ### Added

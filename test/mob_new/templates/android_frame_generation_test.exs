@@ -116,8 +116,14 @@ defmodule MobNew.Templates.AndroidFrameGenerationTest do
     # a fix and behaves like the bug, so it is refuted explicitly rather than
     # left to the positive assertion alone.
     assert has?(reg, "@Composable fun frameTrackingModifier(id: String): Modifier {")
-    assert has?(reg, "val generation = remember(id) { currentFrameGeneration() }")
+    assert has?(reg, "val generation = remember(id, epoch) { currentFrameGeneration() }")
 
+    # Keyed on the slot EPOCH, which changes once per navigation, and never on
+    # the generation itself. The distinction is the whole gate: the epoch says
+    # "a new tree was installed here", while the generation is what the write
+    # is stamped with. Keying on the generation would re-capture it constantly
+    # and no write could ever be stale.
+    refute has?(reg, "remember(id, currentFrameGeneration())")
     refute has?(reg, "remember(currentFrameGeneration())")
     refute has?(reg, "recordElementFrame(id, currentFrameGeneration()")
     refute has?(reg, "recordElementFrame(id, frameGeneration,")
@@ -151,13 +157,15 @@ defmodule MobNew.Templates.AndroidFrameGenerationTest do
     assert bump < at(body, "} else {")
   end
 
-  test "the generation is its own monotonic counter, not navKey", %{src: src, main: main} do
-    # navKey is the AnimatedContent contentKey, so it describes animation
-    # identity rather than registry liveness, and it lives in a Compose
-    # snapshot state: a tracker reading it would be resubscribed on every root
-    # update, and the outgoing tree recomposing during its exit animation would
-    # read the INCOMING navKey and restamp itself.
-    assert has?(main, "it.navKey")
+  test "the stamped generation is a private counter; the epoch is navKey", %{src: src, main: main} do
+    # Two different jobs. The value a write is STAMPED with is a private
+    # counter: a tracker reading `_rootState` for it would resubscribe every
+    # tagged node to every root update, and would read whatever is current when
+    # it writes rather than the value belonging to the tree it was composed
+    # into. The EPOCH — "was a new tree installed here", which decides when a
+    # tracker re-captures — is navKey, handed down by MainActivity through a
+    # CompositionLocal. The registry must not reach for navKey itself.
+    assert has?(main, "LocalSlotEpoch provides state.navKey")
     assert has?(code_only(src), "private var frameGeneration = 1L")
 
     refute has?(registry(src), "navKey")

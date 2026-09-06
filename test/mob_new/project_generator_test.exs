@@ -1582,7 +1582,12 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ~s(transition != "none")
     end
 
-    test "MainActivity.kt AnimatedContent uses contentKey on navKey", %{tmp: tmp} do
+    test "MainActivity.kt navigates without changing composition identity", %{tmp: tmp} do
+      # Was: asserts AnimatedContent uses contentKey on navKey. That is the
+      # design MOB-146 removed — `contentKey` wraps content in `key()`, so
+      # every navigation disposed the outgoing composition and rebuilt the
+      # incoming one, costing 818ms a push on a 1600-node screen against a
+      # 221ms re-render of the same tree.
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       content =
@@ -1590,8 +1595,21 @@ defmodule MobNew.ProjectGeneratorTest do
           Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt")
         )
 
-      assert content =~ "contentKey"
-      assert content =~ "it.navKey"
+      # Comments stripped before matching: the generated file explains at
+      # length what it no longer does, so a plain search finds `AnimatedContent`
+      # in the prose describing its removal.
+      code =
+        content
+        |> String.split("\n")
+        |> Enum.map_join("\n", &Regex.replace(~r|^\s*//.*$|, &1, ""))
+
+      refute code =~ "AnimatedContent("
+      refute code =~ "contentKey"
+
+      # navKey survives, as the signal that a navigation happened rather than
+      # as a composition key.
+      assert code =~ "LaunchedEffect(state.navKey)"
+      assert code =~ "offset.animateTo(0f"
     end
 
     # ── Template linting ──────────────────────────────────────────────────────

@@ -14,22 +14,26 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -211,28 +215,7 @@ class MainActivity : ComponentActivity() {
             } ?: darkColorScheme()
 
             MaterialTheme(colorScheme = colorScheme) {
-                AnimatedContent(
-                    targetState   = state,
-                    contentKey    = { it.navKey },
-                    transitionSpec = {
-                        when (targetState.transition) {
-                            "push" ->
-                                slideInHorizontally(animationSpec = tween(300)) { it } togetherWith
-                                slideOutHorizontally(animationSpec = tween(300)) { -it / 3 }
-                            "pop" ->
-                                slideInHorizontally(animationSpec = tween(300)) { -it / 3 } togetherWith
-                                slideOutHorizontally(animationSpec = tween(300)) { it }
-                            "reset" ->
-                                fadeIn(animationSpec = tween(250)) togetherWith
-                                fadeOut(animationSpec = tween(250))
-                            else ->
-                                EnterTransition.None togetherWith ExitTransition.None
-                        }
-                    },
-                    label = "nav"
-                ) { s ->
-                    s.node?.let { RenderNode(it, modifier = Modifier.fillMaxSize().safeDrawingPadding()) }
-                }
+                MobNavHost(state)
             }
         }
 
@@ -372,4 +355,138 @@ class MainActivity : ComponentActivity() {
     // custom theme that doesn't define every Material 3 slot).
     private fun colorFromMap(map: Map<String, Long>, key: String, fallback: Long): Color =
         Color(map[key] ?: fallback)
+}
+
+// ── Identity-preserving screen presentation (MOB-146) ──────────────────────
+//
+// Navigation used to render through `AnimatedContent(contentKey = { navKey })`.
+// AnimatedContent wraps each content in `key(contentKey)`, so a changing key
+// disposes the outgoing composition and builds the incoming one from nothing —
+// structurally the same thing `.id(currentNavVersion)` did on iOS before
+// MOB-129. Measured on a 1600-node screen, physical moto g power: a push cost
+// 818ms against a 221ms steady-state re-render.
+//
+// So navigation no longer changes identity. One mount point sits at a fixed
+// structural position — that position IS its identity, and no key is used — and
+// a navigation simply replaces the tree inside it. Compose then diffs the new
+// tree against the one already mounted, which is what a re-render of the same
+// screen has always done; the difference between a "navigation" and a
+// "re-render" stops being a difference in kind and becomes a difference in how
+// many nodes changed.
+//
+// The slide is driven by an animated offset on that mount point rather than by
+// an enter/exit transition, because those only fire on insert/remove and
+// insert/remove is precisely what costs the time.
+//
+// **Why one mount point and not two.** iOS uses two slots and keeps the
+// outgoing tree parked, which buys depth-1 retention: popping back diffs
+// against the screen still sitting in the other slot. That does not transfer.
+// Measured here, a parked Compose subtree recomposes on every render of the
+// active screen — 6 recompositions of the parked node across 6 re-renders —
+// which took a steady-state re-render from 151ms to 273ms. Re-renders are far
+// more frequent than navigations, so retention cost more than it saved. One
+// slot keeps the whole win of identity preservation and none of that.
+//
+// The visible trade is that the outgoing screen does not slide out
+// simultaneously; the incoming one slides in over the background. See mob's
+// decisions/2026-09-04-two-slot-screen-presentation.md for the iOS original.
+@Composable
+private fun MobNavHost(state: RootState) {
+    var containerWidth by remember { mutableIntStateOf(0) }
+    val offset = remember { Animatable(0f) }
+
+    // Keyed on navKey, NOT on `state`.
+    //
+    // `LaunchedEffect` cancels its coroutine when the key changes, and `state`
+    // is a new RootState on every render. Keying on it meant any re-render
+    // arriving during the 300ms slide — a timer, an async mount, a
+    // subscription — cancelled `animateTo` and left the offset frozen wherever
+    // it had reached. The screen stayed parked off-canvas and the app rendered
+    // BLANK, while the BEAM went on reporting the correct screen and assigns:
+    // an agent driving over dist would see nothing wrong. Reproduced on device
+    // by sending one re-render 100ms after a navigation.
+    //
+    // navKey changes only on a real navigation, so an ordinary re-render
+    // cannot cancel the slide, and a second navigation correctly interrupts
+    // and restarts it.
+    LaunchedEffect(state.navKey) {
+        // Recovery first, before any early exit: an interrupted slide must not
+        // be able to leave the screen displaced just because the width is not
+        // known yet.
+        if (containerWidth <= 0) {
+            offset.snapTo(0f)
+            return@LaunchedEffect
+        }
+
+        val width = containerWidth.toFloat()
+        val from = when (state.transition) {
+            "push" -> width
+            "pop" -> -width
+            else -> 0f
+        }
+
+        if (from == 0f) {
+            // No slide for a reset or a first mount, but the offset still has
+            // to be returned to rest in case a previous slide was interrupted.
+            offset.snapTo(0f)
+        } else {
+            offset.snapTo(from)
+            offset.animateTo(0f, tween(durationMillis = 300))
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // Painted, not inherited. Only one screen is mounted now, so the
+            // strip the incoming screen has not covered yet shows whatever is
+            // behind the composition — and that is the window background,
+            // hardcoded black in styles.xml. Without this a light-themed app
+            // gets a black wedge sweeping across it for the whole slide.
+            .background(MaterialTheme.colorScheme.background)
+            // Clips drawing AND hit-testing to the container, so a screen
+            // parked off-screen mid-slide cannot be tapped.
+            .clipToBounds()
+            .onSizeChanged { containerWidth = it.width }
+    ) {
+        // `graphicsLayer`, not `offset`. Both read the animating value in a
+        // lambda, so neither recomposes the tree per frame — but
+        // `Modifier.offset {}` is a layout modifier, so every frame of the
+        // slide re-runs the placement pass down through 1600 mounted nodes.
+        // A layer translation moves the same pixels in the draw phase with no
+        // layout invalidation at all, which on a performance ticket is the
+        // difference worth having.
+        Box(Modifier.fillMaxSize().graphicsLayer { translationX = offset.value }) {
+            // Rendered straight from `state`, exactly as the AnimatedContent
+            // version was. Routing it through a state variable set by a
+            // LaunchedEffect would leave the first frame after every set_root
+            // showing nothing, because effects run after composition.
+            state.node?.let { node ->
+                // navKey IS the epoch, and needs to be nothing more.
+                //
+                // The frame-registry gate has each tracked node remember the
+                // generation current when it first composed, and refuses
+                // writes stamped older than the current one. That used to work
+                // for free: AnimatedContent made the incoming tree a fresh
+                // composition, so it always captured the bumped value. With
+                // the mount point preserved it is not free — nodes Compose
+                // reuses across a navigation keep the generation they captured
+                // for the PREVIOUS screen, which setRootJson has just
+                // superseded, and their frame writes would be refused for
+                // ever. element_frames would quietly lose those ids and tap_id
+                // would stop finding them, with nothing raised.
+                //
+                // navKey moves on exactly the right events — every non-"none"
+                // transition and nothing else — so re-keying the trackers on
+                // it re-captures the generation on navigation and leaves a
+                // same-screen re-render alone. Providing it through a
+                // CompositionLocal is what keeps trackers from reading the
+                // root state directly, which would resubscribe every tagged
+                // node to every root update.
+                CompositionLocalProvider(MobBridge.LocalSlotEpoch provides state.navKey) {
+                    RenderNode(node, modifier = Modifier.fillMaxSize().safeDrawingPadding())
+                }
+            }
+        }
+    }
 }

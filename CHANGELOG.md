@@ -10,6 +10,51 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Changed
+- **Android navigation preserves composition identity** (MOB-146). Screens
+  rendered through `AnimatedContent(contentKey = { navKey })`, which wraps
+  content in `key()` — so every push, pop and reset disposed the outgoing
+  composition and rebuilt the incoming one from nothing. Measured on a
+  1600-node screen, physical moto g power, baseline and fix back to back:
+
+  | transition | before | after | |
+  | --- | --- | --- | --- |
+  | `none` | 227ms | 128ms | 44% faster |
+  | `push` | 794ms | 374ms | 53% faster |
+  | `pop` | 784ms | 440ms | 44% faster |
+
+  A steady-state re-render improves too, because `AnimatedContent`'s machinery
+  is gone rather than bypassed. Navigation still costs about three times a
+  re-render: nothing in a Mob screen can be skipped (`MobNode` is unstable to
+  Compose's inference and this toolchain has no strong skipping), so the node
+  building happens either way — what this removes is the dispose and rebuild.
+  MOB-162 covers the rest.
+
+  The slide is driven by an animated offset on a single fixed mount point
+  instead of an enter/exit transition, because those only fire on insert/remove
+  and insert/remove is what cost the time. **The outgoing screen no longer
+  slides out simultaneously**; the incoming one slides in over the background.
+  Showing both at once needs both mounted, and a parked Compose subtree
+  recomposes on every render of the active screen — measured at 151ms → 273ms
+  for a re-render, which is more than retention saves.
+
+  The container background is now painted from
+  `MaterialTheme.colorScheme.background`. Only one screen is mounted during a
+  slide, and the window background beneath is hardcoded black, so a
+  light-themed app would otherwise show a black wedge for the whole transition.
+  Also gone with the enter/exit transitions: a `reset` no longer cross-fades
+  (the default for `Mob.Socket.reset_to/4`), and a push no longer parallaxes
+  the outgoing screen.
+
+  The animation is keyed on `navKey` rather than on the whole root state:
+  `LaunchedEffect` cancels on key change, so keying it on state meant any
+  re-render landing during the slide cancelled the animation and left the
+  screen parked off-canvas and **blank**, while the BEAM went on reporting the
+  correct screen and assigns.
+
+  See `decisions/2026-09-05-android-navigation-preserves-identity.md`.
+
+
 ### Added
 - **Native frame timing in the generated Android bridge** (MOB-146).
   `renderStats()` and `renderStatsEnable()` back `Mob.RenderStats.native_*`,

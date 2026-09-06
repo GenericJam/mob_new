@@ -186,8 +186,10 @@ hard.
 bump, a changelog edit, moving a file. Reach for it when the change has
 behaviour, touches native code, or spans a platform boundary.
 
-This is not ceremony. In one session, pre-commit reviews caught, each of which
-would otherwise have shipped:
+This is not ceremony. In one session, pre-commit reviews caught the following
+in `mob` — the examples are from there because that is where the session ran,
+and the bug classes are the ones these templates generate — each of which would
+otherwise have shipped:
 
 * a helper defined inside `#if !MOB_RELEASE` but called unconditionally from
   Swift, which linked in debug and would have failed **every iOS release

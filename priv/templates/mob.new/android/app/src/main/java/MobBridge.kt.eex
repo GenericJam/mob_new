@@ -3326,7 +3326,11 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
             }
         }
         "scroll" -> {
-            val scrollState = rememberScrollState()
+            // Re-created per navigation, for the same reason MobLazyList's state
+            // is: `rememberScrollState()` is keyless, so with the composition
+            // preserved across navigation (MOB-146) a scroll view landing in the
+            // same slot would open the new screen at the old screen's offset.
+            val scrollState = key(LocalSlotEpoch.current) { rememberScrollState() }
             val horizontal = node.props["axis"] == "horizontal"
 
             // Decided up front because it determines whether this node scrolls a
@@ -3581,7 +3585,11 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
         else     -> ImeAction.Done
     }
 
-    var localValue by remember(node.props["value"]) {
+    // Epoch in the key, because the composition survives navigation (MOB-146).
+    // `node.props["value"]` alone re-seeds only when the incoming screen's
+    // value DIFFERS — and two screens whose field is empty is the common case,
+    // so a push would carry the user's typed text into the new screen's field.
+    var localValue by remember(node.props["value"], LocalSlotEpoch.current) {
         mutableStateOf(node.props["value"] as? String ?: "")
     }
 
@@ -3642,7 +3650,9 @@ private fun MobSlider(node: MobNode, modifier: Modifier) {
     val minVal   = floatProp(node.props, "min") ?: 0f
     val maxVal   = floatProp(node.props, "max") ?: 1f
     val color    = colorProp(node.props, "color")
-    var localVal by remember(node.props["value"]) {
+    // Same reasoning as the text field: identical values across a navigation
+    // would otherwise carry the old screen's thumb position into the new one.
+    var localVal by remember(node.props["value"], LocalSlotEpoch.current) {
         mutableStateOf(floatProp(node.props, "value") ?: minVal)
     }
     Slider(
@@ -4377,7 +4387,11 @@ internal fun MobSheetSlot(
     content: @Composable (MobSheetPresentationState) -> Unit
 ) {
     val identityKey = MobNodeIdentity.keyFor(node)
-    key(identityKey ?: Unit) {
+    // The epoch joins the identity key for the same reason: an id-less sheet
+    // dismissed on the outgoing screen would otherwise carry visible=false and
+    // dismissSent=true into the incoming screen's sheet, which would then never
+    // show and never fire :on_dismiss.
+    key(identityKey ?: Unit, LocalSlotEpoch.current) {
         val presentation = remember { MobSheetPresentationState() }
         DisposableEffect(presentation) {
             onDispose { presentation.deactivate() }
@@ -4795,7 +4809,17 @@ private fun MobLazyList(node: MobNode, modifier: Modifier) {
     val stateIdentity = MobLazyListStateIdentity.keyFor(node, handle)
     // Persist by stable node/slot identity so render-generation changes do not
     // reset scroll position or leak one LazyListState per frame.
-    val listState = remember(stateIdentity) {
+    // Keyed on the slot epoch as well as the identity.
+    //
+    // `setRootJson` clears `lazyListStates` on navigation, and says why: old
+    // list state would scroll the wrong list to a stale position. That clear
+    // used to stick because the composition was disposed with it. It is not
+    // any more (MOB-146), so a list landing in the same composition slot keeps
+    // the remembered LazyListState OBJECT and never looks at the map again —
+    // the clear becomes a no-op and a push to a structurally similar screen
+    // opens it mid-scroll. An id-less list with no `on_end_reached` has a null
+    // identity, so without the epoch it would retain across every navigation.
+    val listState = remember(stateIdentity, LocalSlotEpoch.current) {
         if (stateIdentity != null) MobBridge.getOrCreateLazyListState(stateIdentity)
         else LazyListState()
     }

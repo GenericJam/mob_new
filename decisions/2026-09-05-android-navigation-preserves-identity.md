@@ -97,7 +97,39 @@ sweeping across it for the whole slide.
 Two smaller losses, both from dropping the enter/exit transitions: a `reset`
 no longer cross-fades (it was `fadeIn`/`fadeOut` over 250ms, and `reset` is
 the default for `Mob.Socket.reset_to/4`), and a push no longer parallaxes the
-outgoing screen at a third of the distance. Showing both at once requires both to be
+outgoing screen at a third of the distance.
+
+`Mob.Socket`'s docs and `guides/navigation.md` in the `mob` repo still promise
+a reset cross-fade, and iOS still does one. That is a new platform divergence
+in public API docs which cannot be fixed from this repo; MOB-165 tracks it.
+
+## What preserving the composition means for per-widget state
+
+Disposal used to reset everything a screen remembered. It no longer does, and
+that is a wider behavioural change than the animation losses above.
+
+Anything held in a `remember` whose key does not move across a navigation now
+survives one, if the new tree puts a widget in the same composition slot.
+Everywhere that would be wrong, the slot epoch is now part of the key:
+
+- a lazy list's `LazyListState` and a `:scroll` view's `ScrollState`, which
+  would otherwise open the new screen at the old one's offset. `setRootJson`
+  clears `lazyListStates` on navigation and says why, and that clear had
+  quietly stopped working: the map entry went, the remembered object stayed.
+- a `text_field`'s local text and a `slider`'s thumb, keyed on the incoming
+  `value` prop alone, which re-seeds only when the value DIFFERS — and two
+  screens whose field is empty is the common case.
+- a sheet's presentation state, where an id-less sheet dismissed on the way
+  out would arrive already dismissed and never show again.
+
+One retention is deliberate and left alone: **focus and the keyboard.** The
+old `RootState` docs guaranteed that a same-screen re-render would not drop
+focus or dismiss the IME; that guarantee now extends across a navigation into
+a screen with a field in the same slot. Resetting it would need a signal for
+"this is a different screen" that is finer than the epoch, and keeping typing
+alive across a re-render that happens to coincide with a navigation is more
+often right than wrong. Recorded because it is a real change, not because it
+is settled. Showing both at once requires both to be
 mounted, which is the retention that costs more than it saves.
 
 ### Every navigation re-keys the frame trackers

@@ -34,7 +34,7 @@ defmodule MobNew.Templates.AndroidNavIdentityTest do
   end
 
   test "navigation does not change composition identity", %{main: src} do
-    # The regression this guards costs 692ms per push on a 1600-node screen and
+    # The regression this guards cost 420ms per push on a 1600-node screen and
     # raises no error: AnimatedContent wraps its content in key(contentKey), so
     # a changing key disposes the outgoing composition and rebuilds the
     # incoming one from nothing.

@@ -31,6 +31,47 @@ mix archive                                # verify install
 To publish a new version: bump `version:` in `mix.exs`, then
 `mix hex.publish archive`.
 
+## Verification fidelity ladder
+
+The output of this repo is somebody's first five minutes with Mob, and it is a
+generator: the code here can be perfect while the thing it emits does not build.
+Run every applicable lower rung, plus the highest rung the change actually
+reaches, and say which rung you stopped at.
+
+1. **Static.** `mix format --check-formatted`, `mix credo --strict` (ex_slop
+   included), `mix compile --warnings-as-errors`.
+2. **Host unit.** `mix test`. Proves the generator's logic. Proves nothing about
+   the project it writes.
+3. **A generated project, generated.** `mix test --include integration` runs
+   real `mix phx.new` subprocesses into tmp dirs. Slower, and the only rung that
+   reads the actual output. Run it before publishing.
+4. **The generated project builds native and boots.** Generate, then
+   `mix mob.deploy --native` to a simulator or emulator and confirm the app
+   reaches its first screen. Templates compile as text at every rung above this
+   one; this is the first that compiles them as code.
+5. **The generated project on a physical device, release variant.** Debug
+   defaults hide release packaging bugs. `useLegacyPackaging true` exists in
+   `build.gradle.eex` because AGP leaves native libs packed in a release App
+   Bundle while the BEAM needs them on the filesystem — debug defaulted to
+   `true`, which masked it until a Play install crashed on launch.
+6. **From the installed archive, built from the packed Hex package.** The
+   generator ships as a Mix archive, and archive-reachable code must carry its
+   compile-time resources inside the Hex package. Testing from the repo checkout
+   proves nothing about that path: build the archive, install it, and generate
+   from the installed copy. Watch for a stale global archive shadowing the repo
+   task.
+
+Every rung above exists because something got through the one below it.
+
+Two rules that outrank the list:
+
+- **Never substitute a lower rung because a higher one is slow, broken, or
+  inconvenient.** Fix the harness, open an issue, or state plainly that the rung
+  was unavailable and why. An unavailable rung is a fine answer. A silently
+  skipped one is not.
+- **Verify effects, not exit codes.** An exit code proves the generator ran. It
+  does not prove the project it wrote will build for anyone else.
+
 ## Things that bite specifically in mob_new
 
 - **The LV path skips Phoenix-owned files.** When generating a LiveView

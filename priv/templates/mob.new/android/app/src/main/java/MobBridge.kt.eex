@@ -253,9 +253,9 @@ import androidx.lifecycle.LifecycleOwner
  * Holds the rendered tree and the nav transition to animate.
  *
  * navKey only increments on actual navigation transitions (push/pop/reset).
- * AnimatedContent in MainActivity uses navKey as the contentKey so that
- * same-screen BEAM re-renders (transition == "none") recompose the existing
- * composable in place — no content swap, no focus loss, no keyboard dismissal.
+ * MainActivity keys the slide animation on it, and provides it as the frame
+ * tracker epoch, so a same-screen BEAM re-render (transition == "none")
+ * neither restarts an animation nor re-keys the trackers.
  */
 data class RootState(val navKey: Int, val transition: String, val node: MobNode?)
 
@@ -425,15 +425,24 @@ object MobBridge {
 
     // Nav generation, and the gate that makes the clear in setRootJson stick.
     //
-    // Clearing the registry on navigation is only half a fix. MainActivity
-    // renders the tree inside an AnimatedContent keyed on navKey, and
-    // AnimatedContent keeps the OUTGOING composition mounted for the whole exit
-    // animation. push and pop slide that screen out, so every node in it is
-    // re-laid-out on each display frame the whole way, firing
-    // onGloballyPositioned long after setRootJson emptied the map. The screen
-    // that is leaving therefore refills the registry with mid-animation
-    // coordinates, and Mob.Test.element_frames / tap_id then report and tap
-    // positions belonging to a screen the user is no longer looking at.
+    // Clearing the registry on navigation is only half a fix, and what the
+    // other half has to do changed with MOB-146.
+    //
+    // It was written for AnimatedContent, which kept the OUTGOING composition
+    // mounted for the whole exit animation: that screen went on being
+    // re-laid-out on every display frame as it slid away, firing
+    // onGloballyPositioned long after setRootJson emptied the map, so it
+    // refilled the registry with mid-animation coordinates belonging to a
+    // screen the user was no longer looking at.
+    //
+    // There is no outgoing composition any more — one mount point, and the
+    // tree is replaced in place — so that particular refill cannot happen.
+    // What the gate now guards is the mirror image of it: the mount point
+    // SURVIVES navigation, so every node Compose reuses across one keeps the
+    // generation it captured for the previous screen. Without a re-key those
+    // writes are refused for ever, and element_frames silently loses the ids
+    // it used to report. The epoch in frameTrackingModifier below is what
+    // re-keys them; see MainActivity's MobNavHost.
     //
     // So: a tracker captures the generation current when it first composes and
     // stamps every write with it, and a write stamped older than the current
@@ -449,17 +458,27 @@ object MobBridge {
     // decisions/2026-08-27-frame-registry-liveness.md for the reasoning this
     // half is taken from.
     //
-    // A private counter rather than reusing navKey, even though navKey already
-    // moves on exactly the right events. navKey lives inside _rootState, a
-    // Compose snapshot state, so a tracker reading it would subscribe every
-    // tagged node to root updates, and the outgoing tree recomposing during its
-    // own exit animation would read the INCOMING navKey and restamp itself:
-    // precisely the write this gate exists to refuse. navKey is also the
-    // AnimatedContent contentKey, which is a statement about animation
-    // identity, free to be reset, reused, or replaced by a screen name if the
-    // transition mechanism ever changes. The gate needs a value that only ever
-    // increases. Keeping the two separate means a change to how screens are
-    // animated cannot quietly turn the gate off.
+    // A private counter rather than reusing navKey directly HERE, while
+    // MainActivity provides navKey as the tracker epoch. The two jobs are
+    // different and it is worth being precise about which is which.
+    //
+    // This counter is what a write is STAMPED with, and the gate compares
+    // against it. It stays private because a tracker reading `_rootState` for
+    // it would subscribe every tagged node to every root update, and would
+    // read whatever is current when it writes rather than the value belonging
+    // to the tree it was composed into — precisely the write this gate refuses.
+    //
+    // The epoch is a different question: "was a new tree installed here", which
+    // is what decides when a tracker must re-capture. navKey answers exactly
+    // that, and MOB-146 made re-capturing necessary, since the mount point now
+    // survives navigation and reused nodes would otherwise keep a superseded
+    // generation for ever.
+    //
+    // The two cannot drift apart: `setRootJson` bumps this counter and navKey
+    // under the same `if (transition != "none")`, so a navigation that stalls
+    // the epoch stalls the generation with it and reused trackers still match.
+    // That lockstep is load-bearing — splitting those two bumps would break
+    // the re-key silently.
     //
     // One monitor covers the counter AND the registry, rather than an atomic
     // counter beside an unguarded map. An atomic makes each individual access
@@ -471,6 +490,35 @@ object MobBridge {
     // Starts at 1 so the very first trackers, which capture 1, are accepted
     // (1 < 1 is false). Unlike iOS there is no 0 sentinel to reserve, because
     // remember always runs before the modifier is built.
+    /**
+     * The navigation this subtree belongs to — `navKey`, provided by
+     * MainActivity's MobNavHost.
+     *
+     * `frameTrackingModifier` keys its generation capture on this, which is
+     * what keeps the gate above working now that navigation preserves the
+     * composition instead of replacing it. navKey moves on every non-"none"
+     * transition and nothing else, which is exactly when the trackers must
+     * re-capture — and it moves under the same guard in setRootJson that bumps
+     * `frameGeneration`, so the two cannot drift apart.
+     *
+     * Provided through a CompositionLocal rather than read from the root state
+     * directly: a tracker reading `_rootState` would resubscribe every tagged
+     * node to every root update, and the value it wants is a property of the
+     * tree it was composed into, not of whatever is current when it writes.
+     *
+     * `compositionLocalOf`, deliberately NOT `staticCompositionLocalOf`. A
+     * static local invalidates its whole provided subtree unconditionally,
+     * ignoring skipping. That is free today only because nothing in this tree
+     * can skip — `MobNode` holds a `Map` and a `List`, so Compose infers it
+     * unstable, and this toolchain has no strong skipping. The moment
+     * `MobNode` is annotated `@Immutable`, a static local here would force a
+     * full recomposition of every node on every navigation and silently eat
+     * the skipping that annotation just bought. A dynamic local invalidates
+     * exactly the composables that read it, which is precisely the tracked
+     * nodes that must re-run their capture.
+     */
+    val LocalSlotEpoch = androidx.compose.runtime.compositionLocalOf { 0 }
+
     private val frameLock = Any()
     private var frameGeneration = 1L
 
@@ -525,13 +573,23 @@ object MobBridge {
         // a keyless remember that slot would stamp writes for its new id with
         // the previous occupant's generation.
         //
-        // Navigation is already covered without any key, since AnimatedContent
-        // wraps each content in key(contentKey) and navKey changes on every
-        // non-"none" transition, so the incoming tree is a fresh composition
-        // that captures the bumped value. Keying on id leaves that intact
-        // rather than resting the whole gate on that one AnimatedContent
-        // internal.
-        val generation = remember(id) { currentFrameGeneration() }
+        // Navigation is covered by the slot epoch, and has to be.
+        //
+        // This used to rest on an AnimatedContent internal: it wraps each
+        // content in key(contentKey), so a changing navKey made the incoming
+        // tree a fresh composition that captured the bumped generation for
+        // free. MOB-146 removed AnimatedContent — building that fresh
+        // composition is what cost 818ms a push — so the free part is gone.
+        //
+        // Without the epoch the failure is silent and delayed. The first
+        // navigation still works, because the incoming slot has never held a
+        // tree. The SECOND one puts a tree into a slot that still holds the
+        // one from two navigations ago, Compose reuses the nodes whose id
+        // matches, their remembered generation is now stale, and every frame
+        // write from them is refused for ever. element_frames quietly loses
+        // those ids and tap_id stops finding them, with nothing raised.
+        val epoch = LocalSlotEpoch.current
+        val generation = remember(id, epoch) { currentFrameGeneration() }
         return Modifier
             .testTag(id)
             .onGloballyPositioned { c ->
@@ -3554,7 +3612,11 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
             }
         }
         "scroll" -> {
-            val scrollState = rememberScrollState()
+            // Re-created per navigation, for the same reason MobLazyList's state
+            // is: `rememberScrollState()` is keyless, so with the composition
+            // preserved across navigation (MOB-146) a scroll view landing in the
+            // same slot would open the new screen at the old screen's offset.
+            val scrollState = key(MobBridge.LocalSlotEpoch.current) { rememberScrollState() }
             val horizontal = node.props["axis"] == "horizontal"
 
             // Decided up front because it determines whether this node scrolls a
@@ -3809,7 +3871,11 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
         else     -> ImeAction.Done
     }
 
-    var localValue by remember(node.props["value"]) {
+    // Epoch in the key, because the composition survives navigation (MOB-146).
+    // `node.props["value"]` alone re-seeds only when the incoming screen's
+    // value DIFFERS — and two screens whose field is empty is the common case,
+    // so a push would carry the user's typed text into the new screen's field.
+    var localValue by remember(node.props["value"], MobBridge.LocalSlotEpoch.current) {
         mutableStateOf(node.props["value"] as? String ?: "")
     }
 
@@ -3870,7 +3936,9 @@ private fun MobSlider(node: MobNode, modifier: Modifier) {
     val minVal   = floatProp(node.props, "min") ?: 0f
     val maxVal   = floatProp(node.props, "max") ?: 1f
     val color    = colorProp(node.props, "color")
-    var localVal by remember(node.props["value"]) {
+    // Same reasoning as the text field: identical values across a navigation
+    // would otherwise carry the old screen's thumb position into the new one.
+    var localVal by remember(node.props["value"], MobBridge.LocalSlotEpoch.current) {
         mutableStateOf(floatProp(node.props, "value") ?: minVal)
     }
     Slider(
@@ -4605,7 +4673,11 @@ internal fun MobSheetSlot(
     content: @Composable (MobSheetPresentationState) -> Unit
 ) {
     val identityKey = MobNodeIdentity.keyFor(node)
-    key(identityKey ?: Unit) {
+    // The epoch joins the identity key for the same reason: an id-less sheet
+    // dismissed on the outgoing screen would otherwise carry visible=false and
+    // dismissSent=true into the incoming screen's sheet, which would then never
+    // show and never fire :on_dismiss.
+    key(identityKey ?: Unit, MobBridge.LocalSlotEpoch.current) {
         val presentation = remember { MobSheetPresentationState() }
         DisposableEffect(presentation) {
             onDispose { presentation.deactivate() }
@@ -5023,7 +5095,17 @@ private fun MobLazyList(node: MobNode, modifier: Modifier) {
     val stateIdentity = MobLazyListStateIdentity.keyFor(node, handle)
     // Persist by stable node/slot identity so render-generation changes do not
     // reset scroll position or leak one LazyListState per frame.
-    val listState = remember(stateIdentity) {
+    // Keyed on the slot epoch as well as the identity.
+    //
+    // `setRootJson` clears `lazyListStates` on navigation, and says why: old
+    // list state would scroll the wrong list to a stale position. That clear
+    // used to stick because the composition was disposed with it. It is not
+    // any more (MOB-146), so a list landing in the same composition slot keeps
+    // the remembered LazyListState OBJECT and never looks at the map again —
+    // the clear becomes a no-op and a push to a structurally similar screen
+    // opens it mid-scroll. An id-less list with no `on_end_reached` has a null
+    // identity, so without the epoch it would retain across every navigation.
+    val listState = remember(stateIdentity, MobBridge.LocalSlotEpoch.current) {
         if (stateIdentity != null) MobBridge.getOrCreateLazyListState(stateIdentity)
         else LazyListState()
     }

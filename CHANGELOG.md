@@ -10,6 +10,33 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **Synthetic input in the generated Android bridge** (MOB-160). `tapXy`,
+  `longPressXy`, `swipeXy`, `typeText` and `deleteBackward`, so an agent can
+  drive a generated app by coordinate over Erlang distribution — no `adb`, and
+  no `INJECT_EVENTS`, which is a signature permission no ordinary app can hold.
+  Events are dispatched in-process at the activity's decor view. Generated apps
+  shipped without any of this until now, so `Mob.Test.tap_xy/3` and friends
+  returned `{:error, :not_loaded}`; `MobBridge.kt` is generated once and never
+  re-rendered, so an existing app must be regenerated.
+
+  Verified on a physical device: tap navigates between screens, long press
+  fires `on_long_press`, swipe scrolls a scroll view, and typing and backspace
+  change a focused field.
+
+  Known limits, all deliberate and documented in `Mob.Test`: gestures block for
+  their real duration (Android's detectors wait on posted callbacks and frame
+  boundaries, and ignore synthesised timestamps); only the activity's own
+  window is reachable, so dialogs and modal sheets are not; `typeText` is
+  ASCII-only and rejects a whole string containing one unmappable character;
+  and `clearText` is **absent on purpose** — two implementations reported
+  success while clearing nothing, so `capabilities/1` reports
+  `clear_text: false` and calls return `{:error, :not_loaded}`, which is the
+  truth. See `decisions/2026-09-05-synthetic-input-runs-on-real-time.md`.
+
+  Requires `mob` with the matching dirty-scheduler change: these NIFs block a
+  scheduler for the gesture's duration.
+
 ## [0.4.31] - 2026-09-04
 
 ### Performance

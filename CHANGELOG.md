@@ -10,6 +10,15 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **`max_lines` on `:text` in the generated Android bridge.** `MobText` reads
+  the prop and renders with `maxLines = n, overflow = TextOverflow.Ellipsis`.
+  When it is absent the call falls back to Compose's own defaults
+  (`Int.MAX_VALUE`, `Clip`), so an existing app renders exactly as before.
+  Pairs with the `mob` change that adds the prop to `Mob.Renderer` and the
+  iOS renderer; `MobBridge.kt` is generated once and never re-rendered, so an
+  existing app must be regenerated (or its bridge re-rendered) to pick it up.
+
 ### Fixed
 - **Three bridge calls waited on the UI thread with no timeout** (MOB-164).
   `getSafeArea`, `screenInfo` and `clipboardGet` each blocked on an unbounded

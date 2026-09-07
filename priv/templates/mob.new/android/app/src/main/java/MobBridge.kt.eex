@@ -3827,6 +3827,9 @@ private fun MobText(node: MobNode, modifier: Modifier) {
     val letterSpacing = floatProp(node.props, "letter_spacing")
     val lineHeightMul = floatProp(node.props, "line_height")
     val fontFamily    = fontFamilyProp(node.props, LocalContext.current)
+    // Mob.Renderer only ever sends a positive integer; the guard is for a
+    // hand-built payload, since Compose rejects maxLines <= 0.
+    val maxLines      = intProp(node.props, "max_lines")?.takeIf { it > 0 }
     val resolvedLineHeight = if (lineHeightMul != null && fontSize != TextUnit.Unspecified)
         (lineHeightMul * fontSize.value).sp else TextUnit.Unspecified
 
@@ -3867,6 +3870,11 @@ private fun MobText(node: MobNode, modifier: Modifier) {
         lineHeight    = resolvedLineHeight,
         letterSpacing = letterSpacing?.sp ?: TextUnit.Unspecified,
         fontFamily    = fontFamily,
+        // Ellipsis only when a cap is set: Clip and Int.MAX_VALUE are the
+        // Text defaults, so an unset node renders exactly as before. Ellipsis
+        // rather than Clip to match iOS's .truncationMode(.tail).
+        maxLines      = maxLines ?: Int.MAX_VALUE,
+        overflow      = if (maxLines != null) TextOverflow.Ellipsis else TextOverflow.Clip,
     )
 }
 

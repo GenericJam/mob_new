@@ -517,6 +517,41 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "fun ttsStop()"
     end
 
+    test "MobBridge.kt declares uiViewTree — the Android side of Mob.Test.view_tree/1 (MOB-157)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # The NIF `nif_ui_view_tree` in android/jni/mob_nif.zig looks this up via
+      # `cacheOptional(..., "uiViewTree", "()Ljava/lang/String;", ...)`; without
+      # this method the NIF returns `{:error, :not_loaded}` and
+      # `Mob.Test.view_tree/1` on Android returns the same — blocking MOB-157's
+      # differential detector, which relies on a semantic tree from both
+      # platforms. The bridge/JNI contract is fixed here so a rename or
+      # signature change cannot silently regress that path.
+      assert content =~ "fun uiViewTree(): String",
+             "MobBridge.uiViewTree(): String must exist for Android view_tree to work"
+
+      assert content =~ ~r/@JvmStatic\s*
+\s*fun uiViewTree\(\): String/,
+             "uiViewTree must be @JvmStatic — the NIF looks it up as a static method"
+
+      # The eight-key shape `Mob.Test.normalize_view_tree/1` decodes into on both
+      # platforms. Any key missing here would show up as a nil in the diff,
+      # which the differential detector would report as a divergence.
+      for key <- ~w(type class label value frame bg_color text_color children) do
+        assert content =~ ~s/"#{key}"/,
+               "uiViewTree() must emit the \"#{key}\" key so both platforms decode the same shape"
+      end
+
+      # The synthetic root wraps the current tree the way iOS's does: a `root`
+      # node whose sole child is the app's current MobNode. `Mob.Test.view_tree`
+      # expects the root regardless of whether anything has rendered yet.
+      assert content =~ ~s|"type", "root"|
+    end
+
     test "MobBridge.kt declares openSettings for Mob.Device.open_settings", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

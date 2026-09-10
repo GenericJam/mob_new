@@ -11,6 +11,27 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Added
+- **Android `MobBridge.uiViewTree()`** (MOB-157 unblocker). The generated
+  bridge now walks the current `MobNode` tree and returns the same eight-key
+  JSON shape iOS emits — `type / class / label / value / frame / bg_color /
+  text_color / children`, wrapped in a synthetic `root` node whose frame is the
+  decor view. That closes the `{:error, :not_loaded}` `Mob.Test.view_tree/1`
+  returned on Android and unblocks MOB-157's differential iOS/Android detector.
+
+  `label` and `value` come from the usual text-carrying prop names, so a node's
+  user-visible content is comparable across platforms. `frame` populates for
+  nodes carrying `props["id"]` (already tracked into `elementFramesById` by
+  `Modifier.onGloballyPositioned`) and is `null` otherwise — the differential
+  detector picks up the difference, and a fixture author chooses which nodes
+  need geometry compared. `class`, `bg_color` and `text_color` are `null` for
+  now: paint resolution happens after the tree is built, and a partial answer
+  would misattribute divergence.
+
+  **iOS files are app-owned** — existing apps need `MobBridge.kt` regenerated
+  or hand-ported, as MOB-97 tracked. Verified on an emulator: 4886 bytes of
+  JSON, root `[0, 0, 411.4, 914.3]`, `root → scroll → column`, with every
+  visible button label carried through. See
+  `decisions/2026-09-10-android-view-tree-walks-the-mob-node-tree.md`.
 - **`max_lines` on `:text` in the generated Android bridge.** `MobText` reads
   the prop and renders with `maxLines = n, overflow = TextOverflow.Ellipsis`.
   When it is absent the call falls back to Compose's own defaults

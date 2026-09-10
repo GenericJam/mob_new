@@ -14,23 +14,22 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 - **A background launch now boots the BEAM** (MOB-166). Adopting the UIScene
   lifecycle put the boot in `scene:willConnectToSession:`, which only runs when
   a `UIWindowScene` connects — so a launch that connects no scene started the
-  app without ever starting the runtime.
+  app without ever starting the runtime. That includes a background launch and,
+  on iOS 15+, a prewarmed launch: for a scene-based app, prewarming calls
+  `didFinishLaunchingWithOptions:` and creates no scene.
 
-  `application:didFinishLaunchingWithOptions:` now boots too, but **only when
-  `applicationState == UIApplicationStateBackground`**. The gate matters: that
-  method always runs before any scene connects, so booting there
-  unconditionally would start the BEAM before a window exists, and
-  `nif_safe_area` yields zeros with no window while `Mob.Screen` caches the
-  first reading for the screen's lifetime — a root screen laid out under the
-  notch, permanently. Foreground ordering is unchanged.
-
+  `application:didFinishLaunchingWithOptions:` now boots too, unconditionally.
   Both entry points call one file-scope `mob_boot_runtime()` holding the only
   `dispatch_once` in the file, because a second `erl_start` in one process is
   fatal.
 
-  This closes a latent trap rather than fixing a live bug: generated apps
-  declare only `UIBackgroundModes: audio` and have no background-delivery
-  delegate methods, so none of these launches can occur in one yet.
+  **Pair this with mob's matching change** (`nif_safe_area` reporting
+  `:no_window`). Booting earlier is only safe because the screen no longer
+  caches a safe-area reading taken before a window existed; without it, a screen
+  can be laid out under the notch for its whole life. An interim version of this
+  change gated the boot on `applicationState == UIApplicationStateBackground` to
+  avoid that, which does not work: the state means background-launch *or*
+  prewarm and cannot tell them apart.
 
   **iOS files are app-owned** — existing apps need `ios/AppDelegate.m`
   regenerated or hand-ported, as MOB-97 tracked.

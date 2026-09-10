@@ -25,42 +25,59 @@ already returns early when no delegate is registered. The example was invented,
 and it is recorded here rather than quietly dropped because it was the stated
 reason for the change.
 
-**What is also not true today.** Generated apps declare only
-`UIBackgroundModes: audio`, and have no
+**How reachable this is.** A *bare* generated app declares only
+`UIBackgroundModes: audio` and has no
 `didReceiveRemoteNotification:fetchCompletionHandler:` or
-`performFetchWithCompletionHandler:`. So none of the launches this fixes can
-currently occur in a generated app: background push needs `remote-notification`,
-background fetch needs `fetch`, BLE restoration needs the bluetooth modes, and
-iOS does not relaunch a terminated app to resume audio. This is a latent trap
-being closed before it can bite, not a live bug being fixed — and closing it is
-worth doing precisely because the failure mode is silence.
+`performFetchWithCompletionHandler:`, so most of the listed launches cannot
+occur in one: background push needs `remote-notification`, fetch needs `fetch`,
+and iOS does not relaunch a terminated app to resume audio.
+
+Two do reach real apps. `mob_bluetooth`'s manifest array-merges
+`bluetooth-central` / `bluetooth-peripheral` into the host `Info.plist` whenever
+an app sets `config :mob_bluetooth, ble_background_modes: [...]`, which enables
+CoreBluetooth state-restoration launches in a shipped, supported configuration.
+And **prewarming needs nothing declared at all** — iOS 15+ prewarms
+scene-based apps routinely, calling `didFinishLaunchingWithOptions:` with no
+scene. So this is less latent than the first draft of this record claimed.
 
 ## Decision
 
-`application:didFinishLaunchingWithOptions:` boots the runtime **when
-`applicationState == UIApplicationStateBackground`**, and only then.
+`application:didFinishLaunchingWithOptions:` boots the runtime, unconditionally.
 
-The gate is the whole design, not a detail. Booting unconditionally there was
-the first attempt and it was a regression on the path every user takes:
-`didFinishLaunchingWithOptions:` always runs before any scene connects, so the
-BEAM would start before a window exists. `Mob.Screen` reads the safe-area insets
-during `init`, mob's `nif_safe_area` locates them via `connectedScenes` and
-returns zeros when there is no window, and `Mob.Screen.Server.ensure_safe_area/3`
-only recomputes when the key is absent — so the first reading is cached for the
-screen's lifetime. Lose that race once and the root screen renders under the
-notch and home indicator until it is replaced. UIKit would usually win, which is
-what makes it the bad kind of bug.
+**Two wrong turns on the way there, both worth recording.**
 
-Gating on `applicationState` distinguishes the two cases at the one point where
-the answer is knowable: `Background` for a launch with no scene coming,
-`Inactive` for an ordinary foreground launch. Foreground ordering is therefore
-byte-for-byte what it was.
+Booting there unconditionally *was* the first attempt, and the pre-commit review
+rejected it: `didFinishLaunchingWithOptions:` always runs before any scene
+connects, so the BEAM would start before a window exists. `Mob.Screen` reads the
+safe-area insets during `init`, mob's `nif_safe_area` located them via
+`connectedScenes` and returned zeros when there was no window, and
+`ensure_safe_area/3` only recomputed when the key was absent — so the first
+reading was kept for the screen's lifetime and the root screen could spend it
+laid out under the notch.
 
-The `dispatch_once_t` moves into a shared file-scope function,
-`mob_boot_runtime()`, because both entry points can call it and a second
-`erl_start` in one process is fatal. Note this is a *function-local static*
-inside a file-scope function — one instance shared across all calls — not a
-file-scope variable.
+The second attempt gated the boot on
+`applicationState == UIApplicationStateBackground`, reasoning that this
+identified "a launch with no scene coming". The pre-merge review showed it does
+not. That state means **background launch or prewarm**, and for a scene-based
+app — which every generated app is — an iOS 15+ prewarm calls this exact method
+and creates no scene. So the gate fired on prewarmed launches and reintroduced
+the very race it was written to prevent, with the timing skewed *worse*: the
+BEAM gets a head start of seconds to minutes before the user taps. There is no
+reliable discriminator available here (`ActivePrewarm` is reported gone on
+iOS 16+). "A background launch never connects a window scene" was also simply
+false — it connects one later, when the user opens the app.
+
+The conclusion is that **boot order must not be load-bearing**. That is fixed in
+mob (`2026-09-10-a-safe-area-read-with-no-window-is-not-an-answer.md`):
+`nif_safe_area` reports `:no_window` distinctly and the screen refuses to cache
+it. With the reading self-healing, every boot order is safe and this method can
+boot unconditionally — the simplest version, correct for the right reason rather
+than by luck.
+
+The `dispatch_once_t` moves into a shared function, `mob_boot_runtime()`,
+because both entry points can call it and a second `erl_start` in one process is
+fatal. It is a *function-local static* inside a file-scope function — one
+instance shared across every call — not a file-scope variable.
 
 ## Consequences
 

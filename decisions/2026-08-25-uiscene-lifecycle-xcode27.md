@@ -67,11 +67,14 @@ shared file-scope `mob_boot_runtime()`, which now holds the only guard. The
 SceneDelegate calls it. A guard scoped to one method could not have covered two
 entry points, and a second `erl_start` in one process is fatal.
 
-What this record got right and is worth keeping: the boot must happen *after*
-the window exists on an ordinary launch. MOB-166's first attempt booted
-unconditionally from `didFinishLaunchingWithOptions:` and broke exactly that,
-because the safe-area insets are read during `Mob.Screen.init` and cached. The
-foreground path is unchanged; only the background case is new.
+What this record got right, and what it was right about only by accident: it
+placed the boot after the window, and MOB-166's first attempt broke that,
+because the safe-area insets are read during `Mob.Screen.init` and cached. But
+the ordering was never a guarantee this record could offer — iOS 15+ prewarming
+calls `didFinishLaunchingWithOptions:` with no scene, so a scene-only boot is
+not "after the window", it is "not at all". The dependency on boot order was the
+real defect and is now removed in mob: `nif_safe_area` reports `:no_window` and
+the screen refuses to cache it.
 
 See `2026-09-10-the-beam-boots-on-every-launch.md`.
 

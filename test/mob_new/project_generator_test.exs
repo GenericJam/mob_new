@@ -1036,8 +1036,23 @@ defmodule MobNew.ProjectGeneratorTest do
     # mentioning `mob_boot_runtime();` in that comment passed. Verified: it did.
     defp body_after(source, anchor) do
       # Comments are not code. A name in a comment must never satisfy a "does
-      # this call it" assertion.
-      source = Regex.replace(~r{//[^\n]*}, source, "")
+      # this call it" assertion — and block comments count: the previous version
+      # stripped only `//`, so replacing the whole fix with a /* ... */ comment
+      # that happened to mention mob_boot_runtime() passed this test.
+      source =
+        source
+        |> then(&Regex.replace(~r{/\*.*?\*/}s, &1, ""))
+        # Only `//` that starts a line or follows whitespace, so a `//` inside a
+        # string literal (a URL, a scheme) cannot swallow the rest of the line —
+        # including a closing brace, which would run the extracted body to EOF.
+        |> then(&Regex.replace(~r{(?m)(^|\s)//[^\n]*}, &1, "\\1"))
+
+      # Full selectors, not `- (BOOL)application:` — a future
+      # application:openURL:options: placed above this one would silently make
+      # the test audit the wrong method.
+      if not String.contains?(source, anchor) do
+        flunk("anchor #{inspect(anchor)} not found in the generated AppDelegate.m")
+      end
 
       {idx, _} = :binary.match(source, anchor)
 
@@ -1070,8 +1085,8 @@ defmodule MobNew.ProjectGeneratorTest do
       # so a launch that never connects a window scene never started the runtime.
       # The failure mode is silence, not a crash, which is why it is pinned here.
       boot = body_after(content, "static void mob_boot_runtime(void)")
-      did_finish = body_after(content, "- (BOOL)application:")
-      will_connect = body_after(content, "- (void)scene:")
+      did_finish = body_after(content, "didFinishLaunchingWithOptions:")
+      will_connect = body_after(content, "willConnectToSession:")
 
       # 1. The shared function actually boots something. An empty
       #    mob_boot_runtime() would satisfy every "does it call it" assertion.
@@ -1084,15 +1099,15 @@ defmodule MobNew.ProjectGeneratorTest do
       assert did_finish =~ "mob_boot_runtime();",
              "application:didFinishLaunchingWithOptions: must boot the runtime"
 
-      # ...but only on a background launch. Booting here unconditionally would
-      # start the BEAM before any window exists, and nif_safe_area yields zeros
-      # with no window while Mob.Screen caches the first reading for the
-      # screen's lifetime — a root screen laid out under the notch, permanently.
-      # The gate is what keeps the ordinary foreground ordering intact.
-      assert did_finish =~ "UIApplicationStateBackground",
-             "the boot in didFinishLaunchingWithOptions: must be gated on a " <>
-               "background launch, or it races window creation on every " <>
-               "ordinary launch"
+      # Unconditionally. An earlier attempt gated this on
+      # applicationState == UIApplicationStateBackground to avoid booting before
+      # a window existed; that state also means "prewarm", so the gate did not
+      # do what it claimed. The ordering hazard is fixed in mob instead
+      # (nif_safe_area reports :no_window and the screen refuses to cache it),
+      # which is what makes booting here unconditionally safe.
+      refute did_finish =~ "UIApplicationState",
+             "the boot here must not be conditional on applicationState — that " <>
+               "state means background-launch OR prewarm, and cannot tell them apart"
 
       assert will_connect =~ "mob_boot_runtime();",
              "scene:willConnectToSession: must boot through the same function"

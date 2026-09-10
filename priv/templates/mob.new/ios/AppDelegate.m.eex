@@ -25,19 +25,23 @@ static void* beam_thread(void* arg) {
     return NULL;
 }
 
-// Boot the runtime exactly once per process.
+// Boot the runtime exactly once per process, from whichever entry point runs
+// first.
 //
-// Ordinarily this runs from scene:willConnectToSession:, *after* the window
-// exists. That ordering is load-bearing and not merely tidy: Mob.Screen reads
-// the safe-area insets during init, mob's nif_safe_area finds them via
-// connectedScenes and yields zeros when no window has been created yet, and
-// Mob.Screen caches the first reading for the screen's lifetime. Boot before
-// the window on a foreground launch and the root screen can spend its whole
-// life laid out under the notch.
+// Both callers matter. -application:didFinishLaunchingWithOptions: runs on
+// every launch, including ones that connect no window scene: a background
+// launch, and an iOS 15+ prewarmed launch, which for a scene-based app calls
+// this method and creates no scene. scene:willConnectToSession: covers a scene
+// reconnecting into a process that somehow has not booted.
 //
-// A background launch never connects a window scene, so it would never boot at
-// all. -application:didFinishLaunchingWithOptions: covers that case only, gated
-// on applicationState, which keeps the foreground ordering exactly as it was.
+// Boot order is deliberately NOT load-bearing. It used to be: Mob.Screen reads
+// the safe-area insets during init, and mob's nif_safe_area could only answer
+// zeros before a window existed, which Mob.Screen then cached for the screen's
+// lifetime — a root screen laid out under the notch. Gating this on
+// applicationState looked like the fix and is not, because that state means
+// "background launch OR prewarm" and there is no reliable way to tell them
+// apart here. mob's nif_safe_area now reports :no_window distinctly and the
+// screen refuses to cache it, so any boot order is safe.
 //
 // The guard lives here, in the shared function, rather than in either caller: a
 // dispatch_once_t scoped to one method cannot see that the other already
@@ -63,20 +67,11 @@ static void mob_boot_runtime(void) {
 
 @implementation AppDelegate
 
-// Xcode 27 requires scene-based startup, so *window* creation lives in the
-// scene delegate below, and on an ordinary launch so does the boot — see the
-// comment on mob_boot_runtime().
-//
 // This method runs on every launch, including ones that never connect a window
-// scene: a background launch. `applicationState` is
-// UIApplicationStateBackground for exactly those, and Inactive for a normal
-// foreground launch, so it distinguishes the two cases at the only point where
-// the answer is knowable.
+// scene, so it is the only place that can guarantee the runtime starts at all.
 - (BOOL)application:(UIApplication*)app
     didFinishLaunchingWithOptions:(NSDictionary*)opts {
-    if (app.applicationState == UIApplicationStateBackground) {
-        mob_boot_runtime();
-    }
+    mob_boot_runtime();
     return YES;
 }
 

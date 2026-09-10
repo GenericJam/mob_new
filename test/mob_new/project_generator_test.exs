@@ -1112,6 +1112,15 @@ defmodule MobNew.ProjectGeneratorTest do
       assert will_connect =~ "mob_boot_runtime();",
              "scene:willConnectToSession: must boot through the same function"
 
+      # And must tell the BEAM the window now exists. Booting unconditionally
+      # from didFinishLaunching is only safe because a screen that painted
+      # before the window can be corrected; nothing else repaints when a scene
+      # connects, so without this call the placeholder insets stand until the
+      # user interacts. Requires mob's mob_notify_window_connected().
+      assert will_connect =~ "mob_notify_window_connected();",
+             "scene:willConnectToSession: must notify the BEAM that the window " <>
+               "exists, or a screen that painted earlier keeps placeholder insets"
+
       # 3. The load-bearing half: the guard is INSIDE the shared function, and
       #    exactly one of them. Counting dispatch_once across the whole file let
       #    an unguarded boot pass as long as some unrelated lazy-init existed

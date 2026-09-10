@@ -16,6 +16,10 @@ extern void mob_send_push_token(const char* hex_token);
 // body is just empty in that case).
 extern void mob_register_plugins(void);
 
+// Exported by mob_nif: tells the BEAM a window scene has connected so screens
+// can re-read safe-area insets they may have taken before one existed.
+extern void mob_notify_window_connected(void);
+
 // Exported by mob_nif: the orientation mask set by Mob.Device.lock_orientation/1
 // (UIInterfaceOrientationMaskAll when unlocked).
 extern UIInterfaceOrientationMask mob_locked_orientation_mask(void);
@@ -122,6 +126,13 @@ static void mob_boot_runtime(void) {
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene*)scene];
     self.window.rootViewController = [MobUIFactory makeRootViewController];
     [self.window makeKeyAndVisible];
+
+    // Tell the BEAM the window exists. Safe-area insets are read from it, and a
+    // screen that painted before this point is holding placeholder zeros with
+    // nothing to correct them — nothing else repaints when a scene connects. A
+    // no-op when the runtime is not up yet, in which case the boot below reads
+    // the real insets anyway.
+    mob_notify_window_connected();
 
     // The ordinary path, and deliberately after makeKeyAndVisible above: the
     // boot path reads window state. willConnectToSession: can also fire more

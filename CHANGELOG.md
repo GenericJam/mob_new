@@ -23,13 +23,16 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `dispatch_once` in the file, because a second `erl_start` in one process is
   fatal.
 
-  **Pair this with mob's matching change** (`nif_safe_area` reporting
-  `:no_window`). Booting earlier is only safe because the screen no longer
-  caches a safe-area reading taken before a window existed; without it, a screen
-  can be laid out under the notch for its whole life. An interim version of this
-  change gated the boot on `applicationState == UIApplicationStateBackground` to
-  avoid that, which does not work: the state means background-launch *or*
-  prewarm and cannot tell them apart.
+  `scene:willConnectToSession:` now also calls `mob_notify_window_connected()`,
+  so a screen that painted before the window existed re-reads its safe-area
+  insets and repaints. **Both require mob's matching change** and a native
+  rebuild. Booting earlier is only safe because the screen no longer keeps a
+  reading taken before a window existed, and re-reading on paint only helps if
+  something causes the paint — nothing else does when a scene connects. An
+  interim version gated the boot on
+  `applicationState == UIApplicationStateBackground` instead; that does not
+  work, because the state means background-launch *or* prewarm and cannot tell
+  them apart.
 
   **iOS files are app-owned** — existing apps need `ios/AppDelegate.m`
   regenerated or hand-ported, as MOB-97 tracked.

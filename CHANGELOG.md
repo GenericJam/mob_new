@@ -39,6 +39,12 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   Pairs with the `mob` change that adds the prop to `Mob.Renderer` and the
   iOS renderer; `MobBridge.kt` is generated once and never re-rendered, so an
   existing app must be regenerated (or its bridge re-rendered) to pick it up.
+- **Measured `Wrap` layout in generated Android apps** (MOB-175). The Compose
+  renderer now maps Mob's `wrap` node to `FlowRow`, including independent
+  `spacing` and `run_spacing`, stable child identity, and full-width children.
+  Explicit `fill_width: false` also makes a `Box` content-sized while omission
+  preserves its historical full-width default. Existing apps must regenerate
+  or update their native bridge template to receive this renderer branch.
 
 ### Fixed
 - **A background launch now boots the BEAM** (MOB-166). Adopting the UIScene

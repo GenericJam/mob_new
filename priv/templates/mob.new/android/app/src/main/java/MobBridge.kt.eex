@@ -68,9 +68,12 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import android.graphics.Bitmap
 import android.graphics.Paint
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -3494,7 +3497,7 @@ internal fun mobChildKeys(children: List<MobNode>): List<String> {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     // Apply on_tap as a clickable modifier for any node type except button —
@@ -3507,8 +3510,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     val accessibilityRole = node.props["accessibility_role"] as? String
     val isButton = node.type == "box" && accessibilityRole == "button"
     // The node types iOS actually attaches gestures to. MobRootView applies
-    // .mobGestures(node) at exactly five sites — column (:298), row (:335),
-    // label (:363), icon (:379) and box (:828) — out of 25 case branches.
+    // .mobGestures(node) on column, row, wrap, label, icon and box.
     // Everything else, button included, never gets a long press there.
     //
     // Gating on `!= "button"` instead would hand combinedClickable to
@@ -3516,7 +3518,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     // a text_field that is actively harmful: long press is the platform's own
     // text-selection gesture, and installing a competing detector over it
     // trades a working selection for a handler iOS would not have fired.
-    val gesturableType = node.type in setOf("column", "row", "text", "icon", "box")
+    val gesturableType = node.type in setOf("column", "row", "wrap", "text", "icon", "box")
 
     // Read through a snapshot for the same reason the swipe and scroll paths do:
     // handles are re-registered every render, so a detector keyed on one is
@@ -3757,6 +3759,20 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                 key(keys[i]) { RenderNode(child, childModifier) }
             }
         }
+        "wrap" -> FlowRow(
+            modifier = m,
+            horizontalArrangement = Arrangement.spacedBy(
+                (floatProp(node.props, "spacing") ?: 0f).coerceAtLeast(0f).dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(
+                (floatProp(node.props, "run_spacing") ?: 0f).coerceAtLeast(0f).dp
+            ),
+        ) {
+            val keys = mobChildKeys(node.children)
+            node.children.forEachIndexed { i, child ->
+                key(keys[i]) { RenderNode(child) }
+            }
+        }
         // Box defaults to fillMaxWidth (matching iOS .frame(maxWidth: .infinity))
         // when no explicit width is set; otherwise it uses the explicit
         // width applied via nodeModifier above.
@@ -3764,6 +3780,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         // "top_leading" / etc.) — defaults to TopStart for back-compat.
         "box" -> {
             val hasWidth = floatProp(node.props, "width") != null
+            val explicitlyIntrinsic = boolProp(node.props, "fill_width") == false
             val accessibilityLabel = node.props["accessibility_label"] as? String
             // Merge for a label OR an explicit button role. Setting
             // role/disabled without merging leaves them on the container while
@@ -3777,7 +3794,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                 if (isButton) role = Role.Button
                 if (isDisabled) disabled()
             }
-            val boxModifier = (if (hasWidth) m else m.fillMaxWidth())
+            val boxModifier = (if (hasWidth || explicitlyIntrinsic) m else m.fillMaxWidth())
                 .then(accessibilityModifier)
             Box(modifier = boxModifier, contentAlignment = boxAlignProp(node.props)) {
                 mobChildKeys(node.children).let { keys ->

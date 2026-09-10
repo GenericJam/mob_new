@@ -1022,10 +1022,94 @@ defmodule MobNew.ProjectGeneratorTest do
       # itself (dispatch_once(&<token>, so the guard is genuinely invoked,
       # not just declared.
       assert content =~ ~r/dispatch_once\(&\w+,/,
-             "SceneDelegate must guard the BEAM boot (mob_register_plugins/" <>
-               "mob_init_ui/the beam_thread pthread) with a dispatch_once(...) " <>
-               "call — scene:willConnectToSession:options: can fire more than " <>
-               "once per process, and a second erl_start is fatal"
+             "the BEAM boot (mob_register_plugins/mob_init_ui/the beam_thread " <>
+               "pthread) must be guarded by a dispatch_once(...) call — " <>
+               "scene:willConnectToSession:options: can fire more than once per " <>
+               "process, and a second erl_start is fatal. Since MOB-166 the " <>
+               "guard lives in mob_boot_runtime(), shared with the AppDelegate"
+    end
+
+    # Extract a balanced-brace body starting at the first `{` after `anchor`.
+    # Splitting on "the next method-looking line" is not good enough: the first
+    # version of this test did that, and its extracted body ran past the closing
+    # brace into the *next method's doc comment* — so deleting the boot call and
+    # mentioning `mob_boot_runtime();` in that comment passed. Verified: it did.
+    defp body_after(source, anchor) do
+      # Comments are not code. A name in a comment must never satisfy a "does
+      # this call it" assertion.
+      source = Regex.replace(~r{//[^\n]*}, source, "")
+
+      {idx, _} = :binary.match(source, anchor)
+
+      open_brace =
+        idx +
+          (source
+           |> binary_part(idx, byte_size(source) - idx)
+           |> then(&elem(:binary.match(&1, "{"), 0)))
+
+      source
+      |> binary_part(open_brace, byte_size(source) - open_brace)
+      |> String.graphemes()
+      |> Enum.reduce_while({0, []}, fn
+        "{", {depth, acc} -> {:cont, {depth + 1, ["{" | acc]}}
+        "}", {1, acc} -> {:halt, {0, ["}" | acc]}}
+        "}", {depth, acc} -> {:cont, {depth - 1, ["}" | acc]}}
+        ch, {depth, acc} -> {:cont, {depth, [ch | acc]}}
+      end)
+      |> elem(1)
+      |> Enum.reverse()
+      |> Enum.join()
+    end
+
+    test "the BEAM boots on a launch that never connects a window scene (MOB-166)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/AppDelegate.m"))
+
+      # Under scene lifecycle the boot lived only in scene:willConnectToSession:,
+      # so a launch that never connects a window scene never started the runtime.
+      # The failure mode is silence, not a crash, which is why it is pinned here.
+      boot = body_after(content, "static void mob_boot_runtime(void)")
+      did_finish = body_after(content, "- (BOOL)application:")
+      will_connect = body_after(content, "- (void)scene:")
+
+      # 1. The shared function actually boots something. An empty
+      #    mob_boot_runtime() would satisfy every "does it call it" assertion.
+      assert boot =~ "mob_register_plugins();"
+      assert boot =~ "mob_init_ui();"
+      assert boot =~ "pthread_create"
+
+      # 2. Both entry points reach it. didFinishLaunching is the one that runs on
+      #    every launch, including those with no UIWindowScene.
+      assert did_finish =~ "mob_boot_runtime();",
+             "application:didFinishLaunchingWithOptions: must boot the runtime"
+
+      # ...but only on a background launch. Booting here unconditionally would
+      # start the BEAM before any window exists, and nif_safe_area yields zeros
+      # with no window while Mob.Screen caches the first reading for the
+      # screen's lifetime — a root screen laid out under the notch, permanently.
+      # The gate is what keeps the ordinary foreground ordering intact.
+      assert did_finish =~ "UIApplicationStateBackground",
+             "the boot in didFinishLaunchingWithOptions: must be gated on a " <>
+               "background launch, or it races window creation on every " <>
+               "ordinary launch"
+
+      assert will_connect =~ "mob_boot_runtime();",
+             "scene:willConnectToSession: must boot through the same function"
+
+      # 3. The load-bearing half: the guard is INSIDE the shared function, and
+      #    exactly one of them. Counting dispatch_once across the whole file let
+      #    an unguarded boot pass as long as some unrelated lazy-init existed
+      #    elsewhere — two erl_starts, green suite. Both entry points fire on a
+      #    normal launch and a second erl_start is fatal.
+      assert length(Regex.scan(~r/dispatch_once\(&/, boot)) == 1,
+             "mob_boot_runtime must hold exactly one dispatch_once guard"
+
+      refute did_finish =~ "dispatch_once",
+             "the guard belongs in the shared function, not in one entry point"
+
+      refute will_connect =~ "dispatch_once",
+             "the guard belongs in the shared function, not in one entry point"
     end
 
     test "Info.plist wires UISceneConfigurations to SceneDelegate (Xcode 27 requirement)",

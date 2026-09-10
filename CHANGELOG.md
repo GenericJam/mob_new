@@ -11,6 +11,30 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Fixed
+- **A background launch now boots the BEAM** (MOB-166). Adopting the UIScene
+  lifecycle put the boot in `scene:willConnectToSession:`, which only runs when
+  a `UIWindowScene` connects — so a launch that connects no scene started the
+  app without ever starting the runtime.
+
+  `application:didFinishLaunchingWithOptions:` now boots too, but **only when
+  `applicationState == UIApplicationStateBackground`**. The gate matters: that
+  method always runs before any scene connects, so booting there
+  unconditionally would start the BEAM before a window exists, and
+  `nif_safe_area` yields zeros with no window while `Mob.Screen` caches the
+  first reading for the screen's lifetime — a root screen laid out under the
+  notch, permanently. Foreground ordering is unchanged.
+
+  Both entry points call one file-scope `mob_boot_runtime()` holding the only
+  `dispatch_once` in the file, because a second `erl_start` in one process is
+  fatal.
+
+  This closes a latent trap rather than fixing a live bug: generated apps
+  declare only `UIBackgroundModes: audio` and have no background-delivery
+  delegate methods, so none of these launches can occur in one yet.
+
+  **iOS files are app-owned** — existing apps need `ios/AppDelegate.m`
+  regenerated or hand-ported, as MOB-97 tracked.
+
 - **Three bridge calls waited on the UI thread with no timeout** (MOB-164).
   `getSafeArea`, `screenInfo` and `clipboardGet` each blocked on an unbounded
   `latch.await()`. These are called from NIFs, and Android runs the BEAM with

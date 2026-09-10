@@ -51,3 +51,27 @@ The fix was verified externally first, in the downstream app (commits `13dc2ab` 
   (build, install, BEAM boot, app reaches its first screen) on a working
   baseline branch of `mob_plugin_demo`. Xcode 27's actual scene-adoption
   enforcement itself is unverified — re-check once it's out of beta.
+
+## Amendment (2026-09-10, MOB-166)
+
+Two claims above are no longer true of the template.
+
+"Reduce `didFinishLaunchingWithOptions:` to a bare `return YES;`" — it now boots
+the runtime when `applicationState == UIApplicationStateBackground`. A launch
+that connects no window scene otherwise never started the BEAM at all, and this
+record's reasoning did not consider that such a launch exists.
+
+"The SceneDelegate wraps `mob_register_plugins()` / `mob_init_ui()` / the
+BEAM-boot pthread in a `static dispatch_once_t`" — that block moved into a
+shared file-scope `mob_boot_runtime()`, which now holds the only guard. The
+SceneDelegate calls it. A guard scoped to one method could not have covered two
+entry points, and a second `erl_start` in one process is fatal.
+
+What this record got right and is worth keeping: the boot must happen *after*
+the window exists on an ordinary launch. MOB-166's first attempt booted
+unconditionally from `didFinishLaunchingWithOptions:` and broke exactly that,
+because the safe-area insets are read during `Mob.Screen.init` and cached. The
+foreground path is unchanged; only the background case is new.
+
+See `2026-09-10-the-beam-boots-on-every-launch.md`.
+

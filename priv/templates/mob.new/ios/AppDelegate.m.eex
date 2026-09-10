@@ -16,6 +16,10 @@ extern void mob_send_push_token(const char* hex_token);
 // body is just empty in that case).
 extern void mob_register_plugins(void);
 
+// Exported by mob_nif: tells the BEAM a window scene has connected so screens
+// can re-read safe-area insets they may have taken before one existed.
+extern void mob_notify_window_connected(void);
+
 // Exported by mob_nif: the orientation mask set by Mob.Device.lock_orientation/1
 // (UIInterfaceOrientationMaskAll when unlocked).
 extern UIInterfaceOrientationMask mob_locked_orientation_mask(void);
@@ -25,16 +29,53 @@ static void* beam_thread(void* arg) {
     return NULL;
 }
 
+// Boot the runtime exactly once per process, from whichever entry point runs
+// first.
+//
+// Both callers matter. -application:didFinishLaunchingWithOptions: runs on
+// every launch, including ones that connect no window scene: a background
+// launch, and an iOS 15+ prewarmed launch, which for a scene-based app calls
+// this method and creates no scene. scene:willConnectToSession: covers a scene
+// reconnecting into a process that somehow has not booted.
+//
+// Boot order is deliberately NOT load-bearing. It used to be: Mob.Screen reads
+// the safe-area insets during init, and mob's nif_safe_area could only answer
+// zeros before a window existed, which Mob.Screen then cached for the screen's
+// lifetime — a root screen laid out under the notch. Gating this on
+// applicationState looked like the fix and is not, because that state means
+// "background launch OR prewarm" and there is no reliable way to tell them
+// apart here. mob's nif_safe_area now reports :no_window distinctly and the
+// screen refuses to cache it, so any boot order is safe.
+//
+// The guard lives here, in the shared function, rather than in either caller: a
+// dispatch_once_t scoped to one method cannot see that the other already
+// booted, and a second erl_start in the same process is fatal.
+static void mob_boot_runtime(void) {
+    static dispatch_once_t mob_boot_once;
+    dispatch_once(&mob_boot_once, ^{
+        // Must run before mob_init_ui() so the registry has every plugin view
+        // factory in place by the time the BEAM mounts its first screen.
+        mob_register_plugins();
+
+        mob_init_ui();
+
+        extern const char* mob_app_module(void);
+        pthread_t t;
+        pthread_create(&t, NULL, beam_thread, (void*)mob_app_module());
+        pthread_detach(t);
+    });
+}
+
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
 @end
 
 @implementation AppDelegate
 
-// Xcode 27 requires scene-based startup — window creation and BEAM boot moved
-// to SceneDelegate below. This stays a no-op rather than being dropped
-// entirely for parity with older AppDelegate-only expectations.
+// This method runs on every launch, including ones that never connect a window
+// scene, so it is the only place that can guarantee the runtime starts at all.
 - (BOOL)application:(UIApplication*)app
     didFinishLaunchingWithOptions:(NSDictionary*)opts {
+    mob_boot_runtime();
     return YES;
 }
 
@@ -65,9 +106,10 @@ static void* beam_thread(void* arg) {
 
 @end
 
-// SceneDelegate — Xcode 27 requires scene-based app startup, so window
-// creation and the BEAM boot that used to live in
-// AppDelegate.didFinishLaunchingWithOptions: move here instead.
+// SceneDelegate — Xcode 27 requires scene-based app startup, so window creation
+// lives here rather than in AppDelegate.didFinishLaunchingWithOptions:. The
+// BEAM boot happens here too on an ordinary launch, after the window exists;
+// a background launch connects no scene and boots from the AppDelegate instead.
 @interface SceneDelegate : UIResponder <UIWindowSceneDelegate>
 @property (strong, nonatomic) UIWindow *window;
 @end
@@ -85,25 +127,20 @@ static void* beam_thread(void* arg) {
     self.window.rootViewController = [MobUIFactory makeRootViewController];
     [self.window makeKeyAndVisible];
 
-    // willConnectToSession: can fire more than once per process — iOS may
-    // disconnect the scene (memory pressure, backgrounding) and later
-    // reconnect it without relaunching the app. The window above is rebuilt
-    // every time, but the plugin registry and the BEAM must boot exactly
-    // once per process: a second erl_start in the same process is fatal, and
-    // nothing in mob's native layer guards against it.
-    static dispatch_once_t mob_boot_once;
-    dispatch_once(&mob_boot_once, ^{
-        // Must run before mob_init_ui() so the registry has every plugin view
-        // factory in place by the time the BEAM mounts its first screen.
-        mob_register_plugins();
+    // Tell the BEAM the window exists. Safe-area insets are read from it, and a
+    // screen that painted before this point is holding placeholder zeros with
+    // nothing to correct them — nothing else repaints when a scene connects. A
+    // no-op when the runtime is not up yet, in which case the boot below reads
+    // the real insets anyway.
+    mob_notify_window_connected();
 
-        mob_init_ui();
-
-        extern const char* mob_app_module(void);
-        pthread_t t;
-        pthread_create(&t, NULL, beam_thread, (void*)mob_app_module());
-        pthread_detach(t);
-    });
+    // The ordinary path, and deliberately after makeKeyAndVisible above: the
+    // boot path reads window state. willConnectToSession: can also fire more
+    // than once per process — iOS may disconnect the scene under memory
+    // pressure and reconnect it without relaunching — so the window is rebuilt
+    // every time while the boot below is a no-op after the first call,
+    // whichever entry point made it.
+    mob_boot_runtime();
 }
 
 @end

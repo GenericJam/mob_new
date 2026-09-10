@@ -51,3 +51,30 @@ The fix was verified externally first, in the downstream app (commits `13dc2ab` 
   (build, install, BEAM boot, app reaches its first screen) on a working
   baseline branch of `mob_plugin_demo`. Xcode 27's actual scene-adoption
   enforcement itself is unverified — re-check once it's out of beta.
+
+## Amendment (2026-09-10, MOB-166)
+
+Two claims above are no longer true of the template.
+
+"Reduce `didFinishLaunchingWithOptions:` to a bare `return YES;`" — it now boots
+the runtime when `applicationState == UIApplicationStateBackground`. A launch
+that connects no window scene otherwise never started the BEAM at all, and this
+record's reasoning did not consider that such a launch exists.
+
+"The SceneDelegate wraps `mob_register_plugins()` / `mob_init_ui()` / the
+BEAM-boot pthread in a `static dispatch_once_t`" — that block moved into a
+shared file-scope `mob_boot_runtime()`, which now holds the only guard. The
+SceneDelegate calls it. A guard scoped to one method could not have covered two
+entry points, and a second `erl_start` in one process is fatal.
+
+What this record got right, and what it was right about only by accident: it
+placed the boot after the window, and MOB-166's first attempt broke that,
+because the safe-area insets are read during `Mob.Screen.init` and cached. But
+the ordering was never a guarantee this record could offer — iOS 15+ prewarming
+calls `didFinishLaunchingWithOptions:` with no scene, so a scene-only boot is
+not "after the window", it is "not at all". The dependency on boot order was the
+real defect and is now removed in mob: `nif_safe_area` reports `:no_window` and
+the screen refuses to cache it.
+
+See `2026-09-10-the-beam-boots-on-every-launch.md`.
+

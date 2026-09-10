@@ -20,6 +20,32 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   existing app must be regenerated (or its bridge re-rendered) to pick it up.
 
 ### Fixed
+- **A background launch now boots the BEAM** (MOB-166). Adopting the UIScene
+  lifecycle put the boot in `scene:willConnectToSession:`, which only runs when
+  a `UIWindowScene` connects — so a launch that connects no scene started the
+  app without ever starting the runtime. That includes a background launch and,
+  on iOS 15+, a prewarmed launch: for a scene-based app, prewarming calls
+  `didFinishLaunchingWithOptions:` and creates no scene.
+
+  `application:didFinishLaunchingWithOptions:` now boots too, unconditionally.
+  Both entry points call one file-scope `mob_boot_runtime()` holding the only
+  `dispatch_once` in the file, because a second `erl_start` in one process is
+  fatal.
+
+  `scene:willConnectToSession:` now also calls `mob_notify_window_connected()`,
+  so a screen that painted before the window existed re-reads its safe-area
+  insets and repaints. **Both require mob's matching change** and a native
+  rebuild. Booting earlier is only safe because the screen no longer keeps a
+  reading taken before a window existed, and re-reading on paint only helps if
+  something causes the paint — nothing else does when a scene connects. An
+  interim version gated the boot on
+  `applicationState == UIApplicationStateBackground` instead; that does not
+  work, because the state means background-launch *or* prewarm and cannot tell
+  them apart.
+
+  **iOS files are app-owned** — existing apps need `ios/AppDelegate.m`
+  regenerated or hand-ported, as MOB-97 tracked.
+
 - **Three bridge calls waited on the UI thread with no timeout** (MOB-164).
   `getSafeArea`, `screenInfo` and `clipboardGet` each blocked on an unbounded
   `latch.await()`. These are called from NIFs, and Android runs the BEAM with

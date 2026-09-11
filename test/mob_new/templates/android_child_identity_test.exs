@@ -33,7 +33,7 @@ defmodule MobNew.Templates.AndroidChildIdentityTest do
     # (hoisted above its LazyColumn, whose builder lambda is not composable).
     # The other four call mobChildKeys inline and are covered by the
     # every-container test below.
-    assert length(String.split(src, "val keys = mobChildKeys(node.children)")) - 1 == 3
+    assert length(String.split(src, "val keys = mobChildKeys(node.children)")) - 1 == 4
   end
 
   test "weight is resolved in the layout scope, not inside key()", %{src: src} do
@@ -86,14 +86,14 @@ defmodule MobNew.Templates.AndroidChildIdentityTest do
   test "EVERY container keys its children, not just some", %{src: src} do
     # The first version keyed 3 of 7 — column, row and the lazy list — leaving
     # box, both scroll axes and the sheet body positional while iOS keyed all
-    # seven. That is MOB-127 itself, unfixed, as a NEW cross-platform
+    # eight. That is MOB-127 itself, unfixed, as a NEW cross-platform
     # divergence: prepend a row inside a sheet and the typed text follows the
     # position on Android and the row on iOS.
     #
     # Asserted as the ABSENCE of the unkeyed form, which is what the earlier
     # presence-only assertions could not see.
     refute has?(src, "node.children.forEach { RenderNode(it) }")
-    assert length(String.split(src, "mobChildKeys(node.children)")) - 1 == 7
+    assert length(String.split(src, "mobChildKeys(node.children)")) - 1 == 8
   end
 
   test "the key list is not memoised behind a deeper comparison", %{src: src} do

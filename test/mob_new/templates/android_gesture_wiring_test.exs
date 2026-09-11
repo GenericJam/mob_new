@@ -94,12 +94,12 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
   # ── Gesture attachment: scope and semantics ───────────────────────────────
 
   test "gestures attach only to the node types iOS gestures", %{bridge: src} do
-    # MobRootView applies .mobGestures(node) at exactly five sites — column,
-    # row, label, icon, box — out of 25 case branches. Gating on `!= "button"`
+    # MobRootView applies .mobGestures(node) to column, row, wrap, label, icon,
+    # and box. Gating on `!= "button"`
     # instead would hand combinedClickable to text_field, toggle, slider and
     # image, which iOS never does; on a text_field that competes with the
     # platform's own long-press text selection.
-    assert has?(src, ~s|node.type in setOf("column", "row", "text", "icon", "box")|)
+    assert has?(src, ~s|node.type in setOf("column", "row", "wrap", "text", "icon", "box")|)
     assert has?(src, "val hasSwipe = gesturableType &&")
 
     # BOTH press arms must be gated, asserted ARM BY ARM. A whitespace-squished

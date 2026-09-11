@@ -517,6 +517,59 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "fun ttsStop()"
     end
 
+    test "MobBridge.kt declares uiViewTree — the Android side of Mob.Test.view_tree/1 (MOB-157)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # The NIF `nif_ui_view_tree` in android/jni/mob_nif.zig looks this up via
+      # `cacheOptional(..., "uiViewTree", "()Ljava/lang/String;", ...)`; without
+      # this method the NIF returns `{:error, :not_loaded}` and
+      # `Mob.Test.view_tree/1` on Android returns the same — blocking MOB-157's
+      # differential detector, which relies on a semantic tree from both
+      # platforms. The bridge/JNI contract is fixed here so a rename or
+      # signature change cannot silently regress that path.
+      assert content =~ "fun uiViewTree(): String",
+             "MobBridge.uiViewTree(): String must exist for Android view_tree to work"
+
+      assert content =~ ~r/@JvmStatic\s*
+\s*fun uiViewTree\(\): String/,
+             "uiViewTree must be @JvmStatic — the NIF looks it up as a static method"
+
+      # The eight-key shape `Mob.Test.normalize_view_tree/1` decodes into on both
+      # platforms. Any key missing here would show up as a nil in the diff,
+      # which the differential detector would report as a divergence.
+      for key <- ~w(type class label value frame bg_color text_color children) do
+        assert content =~ ~s/"#{key}"/,
+               "uiViewTree() must emit the \"#{key}\" key so both platforms decode the same shape"
+      end
+
+      # The synthetic root wraps the current tree the way iOS's does: a `root`
+      # node whose sole child is the app's current MobNode. `Mob.Test.view_tree`
+      # expects the root regardless of whether anything has rendered yet.
+      assert content =~ ~s|"type", "root"|
+
+      # Pin the walk itself, not only the signature and shape. Otherwise a
+      # regression to a root-only stub — synthetic root plus an empty children
+      # array, no recursion — passes every assertion above: the eight keys are
+      # present, `@JvmStatic fun uiViewTree(): String` is there, "root" is
+      # there. Verified: a stub of that shape survived the earlier test.
+      assert content =~ "for (child in node.children)",
+             "uiViewTree must recurse into MobNode children — a root-only stub " <>
+               "produces the correct shape and no useful information"
+
+      assert content =~ "buildViewTreeNode(child",
+             "the recursive call is what makes the tree a tree; without it the " <>
+               "child list is empty and every fixture compares equal"
+
+      assert content =~ "elementFramesById[id]",
+             "frame lookup by props[\"id\"] is what makes MOB-157's geometry " <>
+               "comparison possible for id'd nodes; hard-coding null would silently " <>
+               "drop that half of the differential detector"
+    end
+
     test "MobBridge.kt declares openSettings for Mob.Device.open_settings", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

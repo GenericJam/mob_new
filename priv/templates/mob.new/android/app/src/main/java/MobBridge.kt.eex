@@ -615,6 +615,120 @@ object MobBridge {
     }
 
     /**
+     * A structural, JSON-shaped snapshot of the Mob tree currently rendered on
+     * this activity. Delegated to by `nif_ui_view_tree/0` in the Android NIF
+     * layer, then decoded on the BEAM side by `Mob.Test.view_tree/1` /
+     * `normalize_view_tree/1` into the same map shape the iOS side returns.
+     *
+     * Root shape:
+     *   {"type":"root","class":null,"label":null,"value":null,
+     *    "frame":[0,0,W,H],"bg_color":null,"text_color":null,"children":[...]}
+     *
+     * Each descendant follows the same eight keys — the sink and the diff tool
+     * read one contract on both platforms, so a differential detector (MOB-157)
+     * can compare within tolerance without a per-platform decoder.
+     *
+     * ## Where the data comes from, and what is deliberately missing here
+     *
+     * `type` and `children` are the Mob tree the renderer received — the same
+     * source of truth `Mob.Test.tree/1` reads. `label` and `value` are
+     * lifted from the usual text-carrying prop names so a node's user-visible
+     * content is comparable across platforms.
+     *
+     * `frame` is populated only for nodes carrying `props["id"]`, because those
+     * are the ones `Modifier.onGloballyPositioned` tracks into
+     * `elementFramesById` — everything else here holds `null`. iOS reads a
+     * frame off every rendered `UIView`; the equivalent on Compose has no
+     * per-composable View to hang a `getGlobalVisibleRect` off, so requiring
+     * frames on every node would force id assignments onto every fixture,
+     * which mixes coverage with reachability. The differential detector picks
+     * that up: nodes with ids compare geometry, nodes without do not, and the
+     * fixture author chooses.
+     *
+     * `class`, `bg_color` and `text_color` are `null` for now. The paint side
+     * is where Compose semantics part ways with UIView layers (colours resolve
+     * through the theme after the tree is built), so honest nulls here beat a
+     * partial-answer that would misattribute divergence.
+     */
+    @JvmStatic
+    fun uiViewTree(): String {
+        val density = activityRef?.get()?.resources?.displayMetrics?.density ?: 1f
+        val decor = activityRef?.get()?.window?.decorView
+        val rootW = decor?.width?.toFloat()?.div(density)?.toDouble() ?: 0.0
+        val rootH = decor?.height?.toFloat()?.div(density)?.toDouble() ?: 0.0
+
+        val root = JSONObject()
+        root.put("type", "root")
+        root.put("class", JSONObject.NULL)
+        root.put("label", JSONObject.NULL)
+        root.put("value", JSONObject.NULL)
+        root.put(
+            "frame",
+            org.json.JSONArray()
+                .put(0.0)
+                .put(0.0)
+                .put(rootW)
+                .put(rootH),
+        )
+        root.put("bg_color", JSONObject.NULL)
+        root.put("text_color", JSONObject.NULL)
+
+        val children = org.json.JSONArray()
+        val current = _rootState.value.node
+        if (current != null) {
+            children.put(buildViewTreeNode(current, density))
+        }
+        root.put("children", children)
+
+        return root.toString()
+    }
+
+    private fun buildViewTreeNode(node: MobNode, density: Float): JSONObject {
+        val out = JSONObject()
+        out.put("type", node.type)
+        out.put("class", JSONObject.NULL)
+        out.put("label", extractLabel(node) ?: JSONObject.NULL)
+        out.put("value", extractValue(node) ?: JSONObject.NULL)
+        out.put("frame", extractFrame(node, density) ?: JSONObject.NULL)
+        out.put("bg_color", JSONObject.NULL)
+        out.put("text_color", JSONObject.NULL)
+
+        val kids = org.json.JSONArray()
+        for (child in node.children) {
+            kids.put(buildViewTreeNode(child, density))
+        }
+        out.put("children", kids)
+        return out
+    }
+
+    private fun extractLabel(node: MobNode): String? {
+        val text = node.props["text"]
+        if (text is String) return text
+        // Common on Button/Row-with-Text: the text lives on the first Text child.
+        for (child in node.children) {
+            val t = child.props["text"]
+            if (t is String) return t
+        }
+        return null
+    }
+
+    private fun extractValue(node: MobNode): String? {
+        val v = node.props["value"] ?: node.props["placeholder"]
+        return v as? String
+    }
+
+    private fun extractFrame(node: MobNode, density: Float): org.json.JSONArray? {
+        val id = node.props["id"] as? String ?: return null
+        val f = elementFramesById[id] ?: return null
+        return org.json.JSONArray()
+            .put((f[0] / density).toDouble())
+            .put((f[1] / density).toDouble())
+            .put((f[2] / density).toDouble())
+            .put((f[3] / density).toDouble())
+    }
+
+
+    /**
      * Capture the activity window in-process and return PNG/JPEG bytes.
      * Called from nif_screenshot/3 via JNI. `scale` is a multiplier of native
      * resolution (1.0 = full, 0.5 = half). Returns null when there is no live

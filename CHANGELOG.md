@@ -8,7 +8,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.4.33] - 2026-09-11
 
 ### Added
 - **Android `MobBridge.uiViewTree()`** (MOB-157 unblocker). The generated

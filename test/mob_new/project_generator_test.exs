@@ -550,6 +550,24 @@ defmodule MobNew.ProjectGeneratorTest do
       # node whose sole child is the app's current MobNode. `Mob.Test.view_tree`
       # expects the root regardless of whether anything has rendered yet.
       assert content =~ ~s|"type", "root"|
+
+      # Pin the walk itself, not only the signature and shape. Otherwise a
+      # regression to a root-only stub — synthetic root plus an empty children
+      # array, no recursion — passes every assertion above: the eight keys are
+      # present, `@JvmStatic fun uiViewTree(): String` is there, "root" is
+      # there. Verified: a stub of that shape survived the earlier test.
+      assert content =~ "for (child in node.children)",
+             "uiViewTree must recurse into MobNode children — a root-only stub " <>
+               "produces the correct shape and no useful information"
+
+      assert content =~ "buildViewTreeNode(child",
+             "the recursive call is what makes the tree a tree; without it the " <>
+               "child list is empty and every fixture compares equal"
+
+      assert content =~ "elementFramesById[id]",
+             "frame lookup by props[\"id\"] is what makes MOB-157's geometry " <>
+               "comparison possible for id'd nodes; hard-coding null would silently " <>
+               "drop that half of the differential detector"
     end
 
     test "MobBridge.kt declares openSettings for Mob.Device.open_settings", %{tmp: tmp} do

@@ -523,7 +523,7 @@ fn addZigObject(b: *std.Build, opts: ZigObjectOptions) std.Build.LazyPath {
         .target = opts.target,
         .optimize = opts.optimize,
         // mob's Zig sources call libc (mob_nif.zig writes the post-mortem
-        // capsule with open/write/close since mob 0.8, MOB-180). Zig refuses
+        // capsule with open/write/close since mob 0.8.2, MOB-180). Zig refuses
         // to resolve those symbols unless the module declares the dependency:
         // "dependency on libc must be explicitly specified in the build
         // command". The object is linked into lib<app>.so, which links libc

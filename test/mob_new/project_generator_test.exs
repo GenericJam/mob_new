@@ -1816,7 +1816,7 @@ defmodule MobNew.ProjectGeneratorTest do
       content =
         File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
 
-      assert content =~ "data class RootState(val navKey: Int,"
+      assert content =~ ~r/data class RootState\(\s*val navKey: Int,/
     end
 
     test "MobBridge.kt setRootJson increments navKey only on navigation transitions", %{tmp: tmp} do

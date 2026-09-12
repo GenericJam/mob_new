@@ -40,14 +40,37 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   nor a showcase generator, which is why this is vendored rather than
   generated from the dependency.
 
+- **Android `:anchored` node type** (MOB-189). The generated bridge renders
+  children `[anchor, panel]` with the anchor in flow and the panel in its own
+  window (`androidx.compose.ui.window.Popup`), positioned by
+  `MobAnchoredPositionProvider` — the same side / align / offset / flip /
+  clamp / edge_padding / panel_max_* arithmetic as the web engines and mob's
+  iOS port (MOB-190). `on_tap` on the node is the outside-tap dismiss
+  request; the BEAM still owns open/closed. Ported from the Mishka Chelekom
+  mob app so the components vendored in #68 render on Android.
+- **Android render epoch** (MOB-189). `RootState.epoch` is bumped on every
+  `setRootJson` and provided as `LocalRenderEpoch`; `MobTextField` and
+  `MobSlider` resync their local copy when a NEW push disagrees with the
+  screen, so a value Elixir rejected or clamped — where the corrected value
+  equals the previous one — is finally visible. The slider also ignores
+  incoming values mid-drag so the round trip cannot yank the thumb.
+- **Android Activity relaunch survival** (MOB-189).
+  `MobBridge.releaseCompositionState()` drops the composition-bound
+  registries before `setContent`, and `MainActivity` starts the BEAM once
+  per process (`beamStarted` guard) and re-attaches on later `onCreate`s.
+- **Android range slider** (MOB-189). `values: [lo, hi]` on a slider renders
+  a two-thumb control with `min_gap` and `collision: "stop" | push`, reporting
+  `"lo,hi"` on the change channel; `steps` snaps natively and
+  `orientation: "vertical"` rotates the track.
+- **Android toggle `track_color`** (MOB-189).
+
 ### Known gaps
 - The popover-family components (popover, menu, context menu, select,
   combobox, tree select, preview card, navigation menu) emit an `:anchored`
-  node the Mishka app renders with its own Android bridge additions; the
-  generated bridge and mob's iOS renderer do not render it yet, so those
-  components fall back to inline panels on device and the generated
-  `showcase_test.exs` reports it. Tracked as MOB-189 (Android bridge) and
-  MOB-190 (iOS).
+  node. The generated Android bridge renders it as of MOB-189 (above; device
+  verification pending); mob's iOS renderer gains it in mob PR #164
+  (MOB-190). On an iOS build without that mob release those components fall
+  back to inline panels and the generated `showcase_test.exs` reports it.
 
 ### Fixed
 - **`mix mob.new --liveview` next-steps output pointed at port 4000** (MOB-78).

@@ -201,9 +201,15 @@ defmodule Mix.Tasks.MobNew.SyncMishka do
     end
   end
 
+  # GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE are cleared: a git hook exports
+  # them, and with them set `git -C source rev-parse HEAD` answers for the
+  # hook's repo rather than for `source` — the wrong SHA in the stamp.
   defp git_commit(source) do
+    env = [{"GIT_DIR", nil}, {"GIT_WORK_TREE", nil}, {"GIT_INDEX_FILE", nil}]
+
     with git when is_binary(git) <- System.find_executable("git"),
-         {sha, 0} <- System.cmd(git, ["-C", source, "rev-parse", "HEAD"], stderr_to_stdout: true) do
+         {sha, 0} <-
+           System.cmd(git, ["-C", source, "rev-parse", "HEAD"], env: env, stderr_to_stdout: true) do
       String.trim(sha)
     else
       _ -> nil

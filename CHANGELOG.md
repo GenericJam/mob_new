@@ -8,7 +8,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.5.0] - 2026-09-12
 
 ### Changed
 - **Generated projects now require `{:mob, "~> 0.8.3"}`** (was `"~> 0.7.32"`).

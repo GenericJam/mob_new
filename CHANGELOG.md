@@ -8,6 +8,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **`mix mob.new --liveview` next-steps output pointed at port 4000** (MOB-78).
+  The generator patches the on-device Phoenix endpoint to a per-app hashed
+  port in 4200..4999 (deterministic phash2), so the WebView never talks to
+  4000 — the next-steps text and moduledoc both misdirected new users. The
+  browser-check step still uses 4000 because that's `mix phx.server`'s host
+  default (unchanged). Docs-only; no code paths changed.
+
+---
+
 ## [0.4.33] - 2026-09-11
 
 ### Added

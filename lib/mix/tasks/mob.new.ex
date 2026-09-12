@@ -99,7 +99,7 @@ defmodule Mix.Tasks.Mob.New do
 
       APP_NAME/
         lib/APP_NAME/mob_screen.ex      # Mob.Screen wrapping the Phoenix WebView
-        mob.exs                          # Mob config with liveview_port: 4000
+        mob.exs                          # Mob config; on-device Phoenix port defaults to a per-app hash in 4200..4999
         android/                         # same Android boilerplate as native mode
         ios/                             # same iOS boilerplate as native mode
 
@@ -435,9 +435,13 @@ defmodule Mix.Tasks.Mob.New do
 
         mix mob.deploy --native
 
-    The Mob WebView will load your Phoenix app at http://127.0.0.1:4000/.
-    Verify `window.mob.send` in browser devtools routes through `pushEvent`
-    (not `postMessage`) to confirm the LiveView bridge is active.
+    The Mob WebView will load your Phoenix app at
+    http://127.0.0.1:<liveview_port>/, where liveview_port defaults to a
+    per-app hash in 4200..4999 (avoids collisions when multiple Mob LV
+    apps run on the same device). Override in mob.exs with
+    `config :mob, liveview_port: <port>`. Verify `window.mob.send` in
+    browser devtools routes through `pushEvent` (not `postMessage`) to
+    confirm the LiveView bridge is active.
 
     Day-to-day development:
 

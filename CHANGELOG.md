@@ -11,6 +11,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Changed
+- **Generated projects now require `{:mob, "~> 0.8.3"}`** (was `"~> 0.7.32"`).
+  The generated `config :mob, :extra_tags` is read by the `~MOB` sigil from
+  mob 0.8.3, and the vendored popover family's `:anchored` node floats on iOS
+  from that release; on an older mob a fresh app compiles with hundreds of
+  whitelist warnings and its popovers stack inline (MOB-191).
 - **The default native app is now the Mishka Chelekom showcase** (MOB-188).
   `mix mob.new my_app` generates the components and gallery from
   [mishka_chelekom's `development/mob`](https://github.com/mishka-group/mishka_chelekom/tree/master/development/mob):
@@ -22,10 +27,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   https://mishka.tools/chelekom that opens in the browser. `app.ex` registers
   the composites at boot and `config/config.exs` lists their tags under
   `config :mob, :extra_tags` so the `~MOB` sigil accepts `<MishkaChip />`
-  (needs the mob release carrying mob PR #161; on older mob the list is
-  ignored, a fresh app compiles with hundreds of whitelist warnings, and it
-  fails under `--warnings-as-errors`). `--blank` skips all of it and keeps
-  the previous Light / Dark home screen. The generated test suite gains the
+  (mob 0.8.3 reads it; on an older mob the list is ignored, a fresh app
+  compiles with hundreds of whitelist warnings, and it fails under
+  `--warnings-as-errors`, which is why the floor moved). `--blank` skips all
+  of it and keeps the previous Light / Dark home screen. The generated test
+  suite gains the
   Mishka showcase-registry tests; the home-screen scaffold now expands the
   `:list` and the composites before asserting renderability.
 
@@ -67,10 +73,13 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ### Known gaps
 - The popover-family components (popover, menu, context menu, select,
   combobox, tree select, preview card, navigation menu) emit an `:anchored`
-  node. The generated Android bridge renders it as of MOB-189 (above; device
-  verification pending); mob's iOS renderer gains it in mob PR #164
-  (MOB-190). On an iOS build without that mob release those components fall
-  back to inline panels and the generated `showcase_test.exs` reports it.
+  node. The generated Android bridge renders it as of MOB-189 (verified on a
+  Pixel 8 emulator) and mob 0.8.3 renders it on iOS (MOB-190, verified on
+  the iPhone simulator). The Android TextField still ignores `enabled`,
+  `underline`, `text_align`, `max_length`, `lines` and `caret`, which the
+  vendored inputs set (MOB-197); a fresh Android native build also needs
+  `link_libc` in the generated `build.zig` after mob #156 (MOB-196) and a
+  launcher icon (MOB-106).
 
 ### Fixed
 - **`mix mob.new --liveview` next-steps output pointed at port 4000** (MOB-78).

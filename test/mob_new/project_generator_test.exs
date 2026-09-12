@@ -1482,7 +1482,11 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "lib/test_app/home_screen.ex"))
 
-      assert content =~ ~s(Kit.section_header("Mishka Chelekom")
+      # Demos first, then the component grid under a plain label; the only
+      # Mishka branding is the credit footer.
+      assert content =~ ~s|Kit.section_label("Demos & Device")|
+      assert content =~ ~s|Kit.section_label("Components")|
+      refute content =~ ~s(section_header("Mishka Chelekom")
       assert content =~ "Showcase.all()"
       assert content =~ "Kit.compact_button(\"Rock Paper Scissors\", :open_list)"
       assert content =~ ~s(@mishka_url "https://mishka.tools/chelekom")

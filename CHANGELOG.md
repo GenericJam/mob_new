@@ -15,10 +15,10 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `mix mob.new my_app` generates the components and gallery from
   [mishka_chelekom's `development/mob`](https://github.com/mishka-group/mishka_chelekom/tree/master/development/mob):
   a compact icon theme bar (Light / Dark / Material / Glass) replaces the two
-  rows of theme tabs, the home screen lists every component as a tappable
-  preview card (two per row, virtualized through `:list` so cold boot stays
-  fast), the built-in demos and plugin screens move into a compact
-  "Demos & Device" grid, and a footer credits Mishka Chelekom with a link to
+  rows of theme tabs, the built-in demos and plugin screens sit under the
+  title in a compact "Demos & Device" grid, every component follows as a
+  tappable preview card (two per row, virtualized through `:list` so cold
+  boot stays fast), and a footer credits Mishka Chelekom with a link to
   https://mishka.tools/chelekom that opens in the browser. `app.ex` registers
   the composites at boot and `config/config.exs` lists their tags under
   `config :mob, :extra_tags` so the `~MOB` sigil accepts `<MishkaChip />`

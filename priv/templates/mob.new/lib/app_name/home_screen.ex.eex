@@ -128,10 +128,10 @@ end
   Landing screen for <%= display_name %>. Top to bottom:
 
     1. a compact icon theme selector (`<%= module_name %>.ThemeBar`),
-    2. the **Mishka Chelekom** section — one card per component, two per row,
-       each opening that component's gallery page,
-    3. a compact **Demos & Device** section for the built-in samples and the
+    2. a compact **Demos & Device** grid for the built-in samples and the
        demo screens of activated plugins,
+    3. the **Components** grid — one card per Mishka Chelekom component, two
+       per row, each opening that component's gallery page,
     4. a footer crediting Mishka Chelekom, whose components and styling this
        app ships — https://mishka.tools/chelekom.
   """
@@ -159,8 +159,8 @@ end
   # `:column` wrapping an inner grid — Compose's LazyColumn (what `:list`
   # becomes) cannot be nested inside an already-vertically-scrolling Column
   # ("measured with an infinity maximum height constraints" crash), so the
-  # list has to own the screen's scrolling outright. The header, the demos
-  # section and the credit footer ride along as items of their own.
+  # list has to own the screen's scrolling outright. The header (theme bar,
+  # title, demos grid) and the credit footer ride along as items of their own.
   #
   # This is also what keeps cold boot fast: an eager version would build and
   # natively inflate every component preview card before first paint; the
@@ -181,12 +181,11 @@ end
   end
 
   defp home_items(assigns) do
-    [{:header, assigns.theme}] ++
-      Enum.map(component_card_pairs(), &{:pair, &1}) ++
-      [{:demos, assigns.plugin_screens}, :credits]
+    [{:header, assigns.theme, assigns.plugin_screens}] ++
+      Enum.map(component_card_pairs(), &{:pair, &1}) ++ [:credits]
   end
 
-  defp home_item({:header, theme}) do
+  defp home_item({:header, theme, plugin_screens}) do
     %{
       type: :column,
       props: %{fill_width: true},
@@ -194,27 +193,18 @@ end
         ThemeBar.bar(),
         gap(16),
         title_row(theme),
-        gap(22),
-        Kit.section_header("Mishka Chelekom", "Native component library"),
-        gap(14)
+        gap(24),
+        Kit.section_label("Demos & Device"),
+        gap(10),
+        Kit.grid(demo_buttons(plugin_screens)),
+        gap(28),
+        Kit.section_label("Components"),
+        gap(12)
       ]
     }
   end
 
   defp home_item({:pair, pair}), do: card_pair_row(pair)
-
-  defp home_item({:demos, plugin_screens}) do
-    %{
-      type: :column,
-      props: %{fill_width: true},
-      children: [
-        gap(28),
-        Kit.section_label("Demos & Device"),
-        gap(10),
-        Kit.grid(demo_buttons(plugin_screens))
-      ]
-    }
-  end
 
   # Credit where it is due: every component and the styling on this screen
   # come from Mishka Chelekom. Tapping the link opens the site in the browser.

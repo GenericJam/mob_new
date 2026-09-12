@@ -49,12 +49,12 @@ defmodule <%= module_name %>.HomeScreenTest do
     assert_renderable(expanded(view), extra: [:canvas])
   end
 
-  test "shows the Mishka section, the compact demos section and the credit" do
+  test "shows the demos section, the components grid and the credit" do
     view = mount_screen(HomeScreen)
     text = String.downcase(text(expanded(view)))
 
-    assert text =~ "mishka chelekom"
     assert text =~ "demos & device"
+    assert text =~ "components"
     assert text =~ "mishka.tools/chelekom"
   end
 

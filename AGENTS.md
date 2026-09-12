@@ -166,6 +166,23 @@ Two rules that outrank the list:
   only the low-byte slot. Using the full handle resets scroll and leaks one
   `LazyListState` per render.
 
+- **Kotlin imports: no comments or blank lines inside the import block.**
+  The ktlint test runs `--format` first and then checks; `import-ordering`
+  refuses to autocorrect when the import list carries a comment, so the
+  template fails lint for a line that looks harmless. Section banners go
+  above the first import or below the last.
+
+- **`WindowInsets` is two classes.** `MobBridge.kt.eex` imports
+  `android.view.WindowInsets` for the decor-view inset reads; the Compose
+  one (`WindowInsets.safeDrawing`, used by `MobAnchored`) comes in as
+  `ComposeWindowInsets`. Importing both unaliased is an ambiguity error.
+
+- **Every `setRootJson` bumps `RootState.epoch`.** Controlled widgets
+  (`MobTextField`, `MobSlider`) resync on `LocalRenderEpoch`, not on
+  `remember(node.props["value"])`: an equal value after a rejected keystroke
+  never re-keys a `remember`. `navKey` stays the navigation-only signal
+  (`LocalSlotEpoch`); do not fold the two together.
+
 ## The default app is the Mishka Chelekom showcase (vendored)
 
 `priv/templates/mob.new/lib/app_name/{components,showcase,showcase.ex,theme_bar.ex}`
@@ -203,6 +220,15 @@ mix test --include integration  # also runs `mix phx.new` subprocesses (~minute)
 
 The integration tests generate real LV projects in tmp dirs to verify the
 end-to-end output. Worth running locally before publishing a new version.
+
+From a git worktree (anything not sitting beside `../mob`), the two `--local`
+tests need `MOB_DIR=~/code/mob MOB_DEV_DIR=~/code/mob_dev mix test`; the
+generator resolves local deps relative to the project's parent otherwise.
+
+To compile a generated Android app without touching an attached phone
+(another session may own it), put a stub `adb` first on `PATH` that prints an
+empty `devices` list; `mix mob.deploy --android --native` then builds the APK
+and exits 0 with nothing to push to.
 
 ## Keep this file up to date
 

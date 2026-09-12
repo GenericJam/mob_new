@@ -1148,23 +1148,24 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
     else
-      # Floor at 0.7.32, not "~> 0.7". Two generated-code dependencies on a
-      # specific mob, each of which fails late and confusingly under a looser
+      # Floor at 0.8.3, not "~> 0.8". Generated code depends on a specific
+      # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
-      #   * beam_jni.c calls mob_send_dismiss, exported from 0.7.31 (MOB-104).
-      #     An older mob fails the native build with "call to undeclared
-      #     function 'mob_send_dismiss'" and nothing pointing at the cause.
-      #   * The generated Android renderer parses intrinsic Sheet detents and
-      #     honours composite Box accessibility props, both of which only reach
-      #     it because mob 0.7.32 validates and encodes them
-      #     (Mob.UI.normalize_sheet_detents!/1, accessibility_label /
-      #     accessibility_role / disabled). On an older mob those props never
-      #     arrive, so the Kotlin silently renders the default sheet and drops
-      #     the semantics — no error, just missing behaviour.
+      #   * The generated `config :mob, :extra_tags` (the vendored Mishka
+      #     Chelekom catalog's composite tags) is read by the `~MOB` sigil from
+      #     mob 0.8.3 (MOB-188). On an older mob the list is ignored and a
+      #     fresh app compiles with hundreds of whitelist warnings.
+      #   * The vendored popover family emits `:anchored`, which mob 0.8.3's
+      #     iOS renderer draws as a floating panel and lists on its whitelist
+      #     (MOB-190). On an older mob it falls to a plain column — popovers
+      #     stack inline — and the generated showcase test fails.
+      #   * Earlier floors' reasons still hold: beam_jni.c calls
+      #     mob_send_dismiss (0.7.31, MOB-104); intrinsic Sheet detents and
+      #     Box accessibility props are validated and encoded from 0.7.32.
       #
-      # `~>` still allows the whole 0.7.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.7.32"})
+      # `~>` still allows the whole 0.8.x line above the floor.
+      mob_dep = ~s({:mob,     "~> 0.8.3"})
       mob_dev_dep = ~s({:mob_dev, "~> 0.6", only: :dev, runtime: false})
       mob_exs_mob_dir = "Path.join(File.cwd!(), \"deps/mob\")"
 

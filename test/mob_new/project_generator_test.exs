@@ -232,6 +232,13 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ~s(assert text =~ "mishka.tools/chelekom")
     end
 
+    test "mix.exs floors mob at the release the generated app relies on", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "mix.exs"))
+      # 0.8.3 reads config :mob, :extra_tags and renders :anchored on iOS.
+      assert content =~ ~s({:mob,     "~> 0.8.3"})
+    end
+
     test "mix.exs contains correct app name", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "mix.exs"))

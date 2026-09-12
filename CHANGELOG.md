@@ -11,6 +11,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Changed
+- **Generated projects now require `{:mob, "~> 0.8.3"}`** (was `"~> 0.7.32"`).
+  The generated `config :mob, :extra_tags` is read by the `~MOB` sigil from
+  mob 0.8.3, and the vendored popover family's `:anchored` node floats on iOS
+  from that release; on an older mob a fresh app compiles with hundreds of
+  whitelist warnings and its popovers stack inline (MOB-191).
 - **The default native app is now the Mishka Chelekom showcase** (MOB-188).
   `mix mob.new my_app` generates the components and gallery from
   [mishka_chelekom's `development/mob`](https://github.com/mishka-group/mishka_chelekom/tree/master/development/mob):

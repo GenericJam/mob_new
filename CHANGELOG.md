@@ -8,7 +8,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.5.1] - 2026-09-12
 
 ### Fixed
 - **Fresh Android native builds failed against mob 0.8.x** (MOB-196). mob's

@@ -29,8 +29,9 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `config :mob, :extra_tags` so the `~MOB` sigil accepts `<MishkaChip />`
   (mob 0.8.3 reads it; on an older mob the list is ignored, a fresh app
   compiles with hundreds of whitelist warnings, and it fails under
-  `--warnings-as-errors`, which is why the floor moved). `--blank` skips all of it and keeps
-  the previous Light / Dark home screen. The generated test suite gains the
+  `--warnings-as-errors`, which is why the floor moved). `--blank` skips all
+  of it and keeps the previous Light / Dark home screen. The generated test
+  suite gains the
   Mishka showcase-registry tests; the home-screen scaffold now expands the
   `:list` and the composites before asserting renderability.
 

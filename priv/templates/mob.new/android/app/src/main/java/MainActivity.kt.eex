@@ -214,8 +214,13 @@ class MainActivity : ComponentActivity() {
                 )
             } ?: darkColorScheme()
 
-            MaterialTheme(colorScheme = colorScheme) {
-                MobNavHost(state)
+            // Every widget below can see which BEAM render it is looking at,
+            // which is how a field tells "Elixir changed my value" apart from
+            // "I recomposed because the user typed". See RootState.epoch.
+            CompositionLocalProvider(LocalRenderEpoch provides state.epoch) {
+                MaterialTheme(colorScheme = colorScheme) {
+                    MobNavHost(state)
+                }
             }
         }
 

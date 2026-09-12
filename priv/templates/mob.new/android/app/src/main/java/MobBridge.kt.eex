@@ -272,7 +272,26 @@ import androidx.lifecycle.LifecycleOwner
  * tracker epoch, so a same-screen BEAM re-render (transition == "none")
  * neither restarts an animation nor re-keys the trackers.
  */
-data class RootState(val navKey: Int, val transition: String, val node: MobNode?)
+data class RootState(
+    val navKey: Int,
+    val transition: String,
+    val node: MobNode?,
+    /**
+     * Bumped once per push from the BEAM.
+     *
+     * A widget holding local editing state needs to know when the BEAM has
+     * spoken, as distinct from a recomposition caused by its own typing. navKey
+     * cannot say that: it moves only on navigation, and the case that matters
+     * is a same-screen push whose value EQUALS the one before it — a keystroke
+     * Elixir rejected, a number clamped to its max, a slider snapped — which
+     * `remember(node.props["value"])` never re-keys on. The epoch is that
+     * signal; MainActivity provides it as LocalRenderEpoch.
+     */
+    val epoch: Int = 0,
+)
+
+/** The current [RootState.epoch], readable from any widget composable. */
+val LocalRenderEpoch = androidx.compose.runtime.compositionLocalOf { -1 }
 
 internal data class MobNodeIdentityKey(val canonical: String)
 
@@ -1517,7 +1536,7 @@ object MobBridge {
         // minutes. iOS's CACurrentMediaTime does not count sleep either.
         val startNanos = if (measuring) System.nanoTime() else 0L
 
-        _rootState.value = RootState(newKey, transition, parsed)
+        _rootState.value = RootState(newKey, transition, parsed, _rootState.value.epoch + 1)
 
         if (measuring) measureApply(startNanos, transition)
     }
@@ -4404,12 +4423,32 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
         else     -> ImeAction.Done
     }
 
-    // Epoch in the key, because the composition survives navigation (MOB-146).
-    // `node.props["value"]` alone re-seeds only when the incoming screen's
-    // value DIFFERS — and two screens whose field is empty is the common case,
-    // so a push would carry the user's typed text into the new screen's field.
-    var localValue by remember(node.props["value"], MobBridge.LocalSlotEpoch.current) {
-        mutableStateOf(node.props["value"] as? String ?: "")
+    // Elixir owns this value; the local copy exists only so typing feels instant.
+    //
+    // It used to be seeded with `remember(node.props["value"], slotEpoch)`,
+    // which re-keys only when that string CHANGES or a navigation happens — so
+    // a keystroke Elixir rejected was invisible, because the corrected value
+    // equalled the previous one and the field went on showing what the BEAM
+    // had already discarded. Clamping a number field to its max lands there.
+    //
+    // Adopting `incoming` on every recomposition is not the fix either: a
+    // recomposition caused by local typing still carries the PREVIOUS tree's
+    // props, so that would erase the keystroke that triggered it. The render
+    // epoch advances exactly once per push from the BEAM, which is precisely
+    // when its value became newer than ours. A navigation is a push too, so
+    // the MOB-146 case — two screens whose field is empty, and the typed text
+    // carried across — is covered by the same comparison.
+    val incoming = node.props["value"] as? String ?: ""
+    val epoch = LocalRenderEpoch.current
+    var localValue by remember { mutableStateOf(incoming) }
+    var seenEpoch by remember { mutableStateOf(-1) }
+
+    if (epoch != seenEpoch) {
+        seenEpoch = epoch
+        // Only when it disagrees with what is on screen: an echo of our own
+        // text must not reset the field, or editing mid-string would be
+        // impossible.
+        if (incoming != localValue) localValue = incoming
     }
 
     // Only fill width when explicitly asked. The unconditional fillMaxWidth
@@ -4469,17 +4508,39 @@ private fun MobSlider(node: MobNode, modifier: Modifier) {
     val minVal   = floatProp(node.props, "min") ?: 0f
     val maxVal   = floatProp(node.props, "max") ?: 1f
     val color    = colorProp(node.props, "color")
-    // Same reasoning as the text field: identical values across a navigation
-    // would otherwise carry the old screen's thumb position into the new one.
-    var localVal by remember(node.props["value"], MobBridge.LocalSlotEpoch.current) {
-        mutableStateOf(floatProp(node.props, "value") ?: minVal)
+    // The value the screen last told us, and the one under the finger.
+    //
+    // Accepting an incoming value DURING a drag is what made the thumb stutter:
+    // every move sends a value to the BEAM, which re-renders the whole tree and
+    // sends it back, and by the time that tree lands the finger has moved on —
+    // so the "current" value in it is already stale and yanks the thumb
+    // backwards. The next move pushes it forward again. Half a second of
+    // fighting, once per frame, exactly like a controlled React input on a slow
+    // round trip.
+    //
+    // So while `dragging` the thumb follows the finger alone. On release the
+    // next render is accepted, which is when a screen that clamped, snapped or
+    // rejected the value gets to move the thumb to the truth. Same epoch
+    // resync as MobTextField, and for the same reason.
+    val incomingVal = floatProp(node.props, "value") ?: minVal
+    val epoch = LocalRenderEpoch.current
+    var localVal by remember { mutableStateOf(incomingVal) }
+    var seenEpoch by remember { mutableStateOf(-1) }
+    var dragging by remember { mutableStateOf(false) }
+
+    if (epoch != seenEpoch) {
+        seenEpoch = epoch
+        if (!dragging && incomingVal != localVal) localVal = incomingVal
     }
+
     Slider(
         value         = localVal,
         onValueChange = { new ->
+            dragging = true
             localVal = new
             handle?.let { MobBridge.nativeSendChangeFloat(it, new) }
         },
+        onValueChangeFinished = { dragging = false },
         valueRange    = minVal..maxVal,
         modifier      = modifier.fillMaxWidth(),
         colors        = if (color != Color.Unspecified)

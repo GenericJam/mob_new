@@ -1,4 +1,4 @@
-defmodule <%= module_name %>.HomeScreen do
+<%= if blank do %>defmodule <%= module_name %>.HomeScreen do
   @moduledoc "Landing screen for <%= display_name %>."
   use Mob.Screen
 
@@ -18,18 +18,7 @@ defmodule <%= module_name %>.HomeScreen do
         <Spacer size={16} />
         <Text text="<%= display_name %>" text_size={:xl} text_color={:on_surface} padding={:space_sm} />
         <Text text="BEAM running on device" text_size={:sm} text_color={:primary} padding={4} />
-        <Spacer size={40} /><%= unless blank do %>
-        {nav_button("Text Input",          :open_text)}
-        <Spacer size={12} />
-        {nav_button("Rock Paper Scissors", :open_list)}
-        <Spacer size={12} />
-        {nav_button("Roll Dice",           :open_dice)}
-        <Spacer size={12} />
-        {nav_button("WebView",             :open_webview)}
-        <Spacer size={12} />
-        {nav_button("Audio",               :open_audio)}
-        <Spacer size={12} />
-        {nav_button("Storage",             :open_storage)}<% end %>
+        <Spacer size={40} />
         {plugin_section(assigns.plugin_screens)}
         <Spacer size={32} />
         <Text text="Theme" text_size={:sm} text_color={:muted} padding={4} />
@@ -38,13 +27,7 @@ defmodule <%= module_name %>.HomeScreen do
           {theme_tab("Light", :light, assigns.theme)}
           <Spacer size={8} />
           {theme_tab("Dark",  :dark,  assigns.theme)}
-        </Row><%= unless blank do %>
-        <Spacer size={8} />
-        <Row fill_width={true}>
-          {theme_tab("Material 3",   :material3, assigns.theme)}
-          <Spacer size={8} />
-          {theme_tab("Liquid Glass", :glass,     assigns.theme)}
-        </Row><% end %>
+        </Row>
       </Column>
     </Scroll>
     """
@@ -62,43 +45,7 @@ defmodule <%= module_name %>.HomeScreen do
     {:noreply, Mob.Socket.assign(socket, :theme, :dark)}
   end
 
-<%= unless blank do %>  def handle_info({:tap, :theme_material3}, socket) do
-    Mob.Theme.set(MobThemes.Material3)
-    Mob.State.put(:theme, :material3)
-    {:noreply, Mob.Socket.assign(socket, :theme, :material3)}
-  end
-
-  def handle_info({:tap, :theme_glass}, socket) do
-    Mob.Theme.set(MobThemes.ObsidianGlass)
-    Mob.State.put(:theme, :glass)
-    {:noreply, Mob.Socket.assign(socket, :theme, :glass)}
-  end
-
-  def handle_info({:tap, :open_text}, socket) do
-    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.TextScreen)}
-  end
-
-  def handle_info({:tap, :open_list}, socket) do
-    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.ListScreen)}
-  end
-
-  def handle_info({:tap, :open_dice}, socket) do
-    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.DiceScreen)}
-  end
-
-  def handle_info({:tap, :open_webview}, socket) do
-    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.WebViewScreen)}
-  end
-
-  def handle_info({:tap, :open_audio}, socket) do
-    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.AudioScreen)}
-  end
-
-  def handle_info({:tap, :open_storage}, socket) do
-    {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.StorageScreen)}
-  end
-
-<% end %>  # Plugin demo screens are tagged by their route string (see plugin_section/1).
+  # Plugin demo screens are tagged by their route string (see plugin_section/1).
   def handle_info({:tap, route}, socket) when is_binary(route) do
     case Enum.find(socket.assigns.plugin_screens, &(&1.default_route == route)) do
       %{module: mod} -> {:noreply, Mob.Socket.push_screen(socket, mod)}
@@ -110,6 +57,7 @@ defmodule <%= module_name %>.HomeScreen do
 
   defp nav_button(label, tag) do
     tap = {self(), tag}
+
     ~MOB(<Button text={label} background={:primary} text_color={:on_primary} text_size={:lg} padding={:space_md} fill_width={true} on_tap={tap} />)
   end
 
@@ -150,21 +98,17 @@ defmodule <%= module_name %>.HomeScreen do
   defp theme_tab(label, key, active) do
     {bg, fg} = if key == active, do: {:primary, :on_primary}, else: {:surface, :on_surface}
     tap = {self(), :"theme_#{key}"}
+
     ~MOB(<Button text={label} background={bg} text_color={fg} text_size={:sm} padding={:space_sm} weight={1} on_tap={tap} />)
   end
 
   defp theme_to_module(:light), do: Mob.Theme.Light
-  defp theme_to_module(:dark), do: Mob.Theme.Dark<%= unless blank do %>
-  defp theme_to_module(:material3), do: MobThemes.Material3
-  defp theme_to_module(:glass), do: MobThemes.ObsidianGlass<% end %>
   defp theme_to_module(_), do: Mob.Theme.Dark
 
   # mob_logo_dark.png is the dark-on-light logo (for light backgrounds);
-  # mob_logo_light.png is light-on-dark. Material 3's baseline is a light
-  # surface, so it uses the dark logo like :light.
-  defp logo_src(:light), do: Path.join(rootdir(), "mob_logo_dark.png")<%= unless blank do %>
-  defp logo_src(:material3), do: Path.join(rootdir(), "mob_logo_dark.png")<% end %>
-  defp logo_src(_),      do: Path.join(rootdir(), "mob_logo_light.png")
+  # mob_logo_light.png is light-on-dark.
+  defp logo_src(:light), do: Path.join(rootdir(), "mob_logo_dark.png")
+  defp logo_src(_), do: Path.join(rootdir(), "mob_logo_light.png")
 
   # ROOTDIR is set by mob_beam (iOS) and mob_beam.c (Android) before erl_start,
   # so this fallback is only exercised in unit tests on the host. Don't put
@@ -179,3 +123,287 @@ defmodule <%= module_name %>.HomeScreen do
     end
   end
 end
+<% else %>defmodule <%= module_name %>.HomeScreen do
+  @moduledoc """
+  Landing screen for <%= display_name %>. Top to bottom:
+
+    1. a compact icon theme selector (`<%= module_name %>.ThemeBar`),
+    2. a compact **Demos & Device** grid for the built-in samples and the
+       demo screens of activated plugins,
+    3. the **Components** grid — one card per Mishka Chelekom component, two
+       per row, each opening that component's gallery page,
+    4. a footer crediting Mishka Chelekom, whose components and styling this
+       app ships — https://mishka.tools/chelekom.
+  """
+  use Mob.Screen
+
+  alias <%= module_name %>.{Showcase, ThemeBar}
+  alias <%= module_name %>.Showcase.Kit
+
+  @mishka_url "https://mishka.tools/chelekom"
+
+  def mount(_params, _session, socket) do
+    theme = ThemeBar.current()
+    Mob.Theme.set(ThemeBar.module_for(theme))
+
+    # Activated plugins that ship a demo screen show up here automatically —
+    # no edits needed when you add or remove one in mob.exs.
+    {:ok,
+     socket
+     |> Mob.Socket.assign(:theme, theme)
+     |> Mob.Socket.assign(:plugin_screens, Mob.Plugins.screens())
+     |> Mob.List.put_renderer(:home, &home_item/1)}
+  end
+
+  # The whole screen is one `:list` (see Mob.List) rather than a `:scroll` +
+  # `:column` wrapping an inner grid — Compose's LazyColumn (what `:list`
+  # becomes) cannot be nested inside an already-vertically-scrolling Column
+  # ("measured with an infinity maximum height constraints" crash), so the
+  # list has to own the screen's scrolling outright. The header (theme bar,
+  # title, demos grid) and the credit footer ride along as items of their own.
+  #
+  # This is also what keeps cold boot fast: an eager version would build and
+  # natively inflate every component preview card before first paint; the
+  # native LazyColumn this produces only realizes the rows on screen.
+  def render(assigns) do
+    %{
+      type: :list,
+      props: %{
+        id: :home,
+        items: home_items(assigns),
+        background: :background,
+        padding: :space_lg,
+        fill_width: true,
+        fill_height: true
+      },
+      children: []
+    }
+  end
+
+  defp home_items(assigns) do
+    [{:header, assigns.theme, assigns.plugin_screens}] ++
+      Enum.map(component_card_pairs(), &{:pair, &1}) ++ [:credits]
+  end
+
+  defp home_item({:header, theme, plugin_screens}) do
+    %{
+      type: :column,
+      props: %{fill_width: true},
+      children: [
+        ThemeBar.bar(),
+        gap(16),
+        title_row(theme),
+        gap(24),
+        Kit.section_label("Demos & Device"),
+        gap(10),
+        Kit.grid(demo_buttons(plugin_screens)),
+        gap(28),
+        Kit.section_label("Components"),
+        gap(12)
+      ]
+    }
+  end
+
+  defp home_item({:pair, pair}), do: card_pair_row(pair)
+
+  # Credit where it is due: every component and the styling on this screen
+  # come from Mishka Chelekom. Tapping the link opens the site in the browser.
+  defp home_item(:credits) do
+    link_tap = {self(), :open_mishka}
+
+    %{
+      type: :column,
+      props: %{fill_width: true, align: :center},
+      children: [
+        gap(32),
+        %{type: :divider, props: %{color: :border}, children: []},
+        gap(16),
+        %{
+          type: :text,
+          props: %{
+            text: "Components and styling by Mishka Chelekom",
+            text_size: :sm,
+            text_color: :muted,
+            text_align: "center",
+            fill_width: true
+          },
+          children: []
+        },
+        gap(6),
+        %{
+          type: :box,
+          props: %{fill_width: false, padding: :space_xs, on_tap: link_tap},
+          children: [
+            %{
+              type: :text,
+              props: %{
+                text: "mishka.tools/chelekom ↗",
+                text_size: :sm,
+                text_color: :primary,
+                font_weight: "medium",
+                text_align: "center"
+              },
+              children: []
+            }
+          ]
+        },
+        gap(24)
+      ]
+    }
+  end
+
+  # Registered components chunked into row-pairs — the pairing (not the cards
+  # themselves) is what has to happen up front, since `:list` virtualizes by row.
+  defp component_card_pairs, do: Enum.chunk_every(Showcase.all(), 2)
+
+  defp card_pair_row(pair) do
+    cells =
+      case Enum.map(pair, &card_cell/1) do
+        [a, b] -> [a, gap(12), b]
+        # Odd final row: pad with a `weight: 1` spacer so the lone card stays
+        # half-width instead of stretching to fill the row (matches Kit.grid/1).
+        [a] -> [a, gap(12), %{type: :spacer, props: %{weight: 1}, children: []}]
+      end
+
+    # `:list` has no item-spacing prop — bake the gap into the row itself.
+    %{type: :row, props: %{fill_width: true, padding_bottom: 12}, children: cells}
+  end
+
+  # The preview is expanded here, not left for the renderer: Mob.Screen runs
+  # the composite pass BEFORE the list pass, so a card built inside a `:list`
+  # row would hand any `<MishkaAvatar />`-style preview to native unexpanded.
+  defp card_cell(e) do
+    preview = Mob.Composite.expand(e.module.card_preview(), self())
+    Kit.component_card(preview, e.name, e.category, {:open_component, e.slug})
+  end
+
+  defp demo_buttons(plugin_screens) do
+    [
+      Kit.compact_button("Text Input", :open_text),
+      Kit.compact_button("Rock Paper Scissors", :open_list),
+      Kit.compact_button("Roll Dice", :open_dice),
+      Kit.compact_button("WebView", :open_webview),
+      Kit.compact_button("Audio", :open_audio),
+      Kit.compact_button("Storage", :open_storage)
+    ] ++
+      Enum.map(plugin_screens, fn %{default_route: route} ->
+        Kit.compact_button(plugin_label(route), route)
+      end)
+  end
+
+  defp title_row(theme) do
+    %{
+      type: :row,
+      props: %{fill_width: true, align: :center},
+      children: [
+        logo(theme),
+        gap(10),
+        %{
+          type: :column,
+          props: %{fill_width: true},
+          children: [
+            %{
+              type: :text,
+              props: %{text: "<%= display_name %>", text_size: :xl, text_color: :on_surface},
+              children: []
+            },
+            %{
+              type: :text,
+              props: %{text: "BEAM running on device", text_size: :sm, text_color: :primary},
+              children: []
+            }
+          ]
+        }
+      ]
+    }
+  end
+
+  # ── Events ──────────────────────────────────────────────────────────────────
+
+  def handle_info({:tap, {:set_theme, key}}, socket) do
+    {:noreply, ThemeBar.set(key, socket)}
+  end
+
+  def handle_info({:tap, {:open_component, slug}}, socket) do
+    {:noreply, Mob.Socket.push_screen(socket, Showcase.ComponentScreen, %{slug: slug})}
+  end
+
+  def handle_info({:tap, :open_mishka}, socket) do
+    Mob.Device.open_url(@mishka_url)
+    {:noreply, socket}
+  end
+
+  def handle_info({:tap, :open_text}, socket),
+    do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.TextScreen)}
+
+  def handle_info({:tap, :open_list}, socket),
+    do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.ListScreen)}
+
+  def handle_info({:tap, :open_dice}, socket),
+    do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.DiceScreen)}
+
+  def handle_info({:tap, :open_webview}, socket),
+    do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.WebViewScreen)}
+
+  def handle_info({:tap, :open_audio}, socket),
+    do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.AudioScreen)}
+
+  def handle_info({:tap, :open_storage}, socket),
+    do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.StorageScreen)}
+
+  # Plugin demo screens are tagged by their route string (see demo_buttons/1).
+  def handle_info({:tap, route}, socket) when is_binary(route) do
+    case Enum.find(socket.assigns.plugin_screens, &(&1.default_route == route)) do
+      %{module: mod} -> {:noreply, Mob.Socket.push_screen(socket, mod)}
+      nil -> {:noreply, socket}
+    end
+  end
+
+  def handle_info(_message, socket), do: {:noreply, socket}
+
+  # ── Helpers ─────────────────────────────────────────────────────────────────
+
+  # "/mob_camera/demo" -> "Camera". Falls back gracefully for any route shape.
+  defp plugin_label(route) do
+    route
+    |> String.trim_leading("/")
+    |> String.split("/")
+    |> List.first()
+    |> to_string()
+    |> String.replace_prefix("mob_", "")
+    |> String.replace("_", " ")
+    |> String.split()
+    |> Enum.map_join(" ", &String.capitalize/1)
+  end
+
+  defp gap(size), do: %{type: :spacer, props: %{size: size}, children: []}
+
+  defp logo(theme) do
+    %{
+      type: :image,
+      props: %{src: logo_src(theme), width: 44, height: 44, content_mode: "fit"},
+      children: []
+    }
+  end
+
+  # mob_logo_dark.png is the dark-on-light logo (for light backgrounds);
+  # mob_logo_light.png is light-on-dark. Material 3's baseline is a light
+  # surface, so it uses the dark logo like :light.
+  defp logo_src(:light), do: Path.join(rootdir(), "mob_logo_dark.png")
+  defp logo_src(:material3), do: Path.join(rootdir(), "mob_logo_dark.png")
+  defp logo_src(_), do: Path.join(rootdir(), "mob_logo_light.png")
+
+  # ROOTDIR is set by mob_beam (iOS) and mob_beam.c (Android) before erl_start,
+  # so this fallback is only exercised in unit tests on the host. Don't put
+  # `Path.expand("~/...")` directly in `System.get_env/2`'s default argument —
+  # default args evaluate eagerly, and Android's BEAM has no `HOME` env var,
+  # so `System.user_home!()` would raise `RuntimeError` and abort the screen
+  # before the first render.
+  defp rootdir do
+    case System.get_env("ROOTDIR") do
+      nil -> Path.expand("~/.mob/runtime/ios-sim")
+      val -> val
+    end
+  end
+end
+<% end %>

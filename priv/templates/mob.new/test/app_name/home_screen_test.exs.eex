@@ -10,7 +10,7 @@ defmodule <%= module_name %>.HomeScreenTest do
   use Mob.ScreenCase, async: false
 
   alias <%= module_name %>.HomeScreen
-
+<%= if blank do %>
   test "mounts and renders a tree the native layer can draw" do
     view = mount_screen(HomeScreen)
     # Asserts every node the screen emits is a type Compose / SwiftUI renders.
@@ -21,14 +21,57 @@ defmodule <%= module_name %>.HomeScreenTest do
     view = HomeScreen |> mount_screen() |> render_info({:tap, :theme_light})
     assert assigns(view).theme == :light
   end
-<%= unless blank do %>
-  test "switching to the material3 theme updates the assign" do
-    view = HomeScreen |> mount_screen() |> render_info({:tap, :theme_material3})
-    assert assigns(view).theme == :material3
+<% else %>
+  setup do
+    # Exactly what the app registers at boot — one catalog, no drift.
+    <%= module_name %>.Showcase.reset()
+    <%= module_name %>.Showcase.register_all()
+    :ok
   end
 
-  test "switching to the liquid glass theme updates the assign" do
-    view = HomeScreen |> mount_screen() |> render_info({:tap, :theme_glass})
-    assert assigns(view).theme == :glass
+  # The home screen is one top-level `:list` (see Mob.List), so the native side
+  # only inflates the visible rows — `render/1` itself returns `children: []`,
+  # with the real content in `props.items`. `Mob.Screen` expands composites
+  # first and list rows second before anything reaches native; the SAME order
+  # here is what lets assert_renderable catch a row that still carries a
+  # composite tag (the screen pre-expands each card's preview for that reason).
+  defp expanded(view) do
+    list_renderers = view.socket.__mob__[:list_renderers] || %{}
+
+    tree(view)
+    |> Mob.Composite.expand(self())
+    |> Mob.List.expand(list_renderers, self())
+  end
+
+  test "mounts and renders a tree the native layer can draw" do
+    view = mount_screen(HomeScreen)
+    # Asserts every node the screen emits is a type Compose / SwiftUI renders.
+    assert_renderable(expanded(view), extra: [:canvas])
+  end
+
+  test "shows the demos section, the components grid and the credit" do
+    view = mount_screen(HomeScreen)
+    text = String.downcase(text(expanded(view)))
+
+    assert text =~ "demos & device"
+    assert text =~ "components"
+    assert text =~ "mishka.tools/chelekom"
+  end
+
+  test "lists a card for every registered component" do
+    view = mount_screen(HomeScreen)
+    text = text(expanded(view))
+
+    for entry <- <%= module_name %>.Showcase.all() do
+      assert text =~ entry.name
+    end
+  end
+
+  test "the theme selector switches (and persists) the theme" do
+    for key <- [:light, :material3, :glass, :dark] do
+      view = HomeScreen |> mount_screen() |> render_info({:tap, {:set_theme, key}})
+      assert assigns(view).theme == key
+      assert <%= module_name %>.ThemeBar.current() == key
+    end
   end
 <% end %>end

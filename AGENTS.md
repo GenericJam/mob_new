@@ -166,6 +166,34 @@ Two rules that outrank the list:
   only the low-byte slot. Using the full handle resets scroll and leaks one
   `LazyListState` per render.
 
+## The default app is the Mishka Chelekom showcase (vendored)
+
+`priv/templates/mob.new/lib/app_name/{components,showcase,showcase.ex,theme_bar.ex}`
+and `test/app_name/showcase_test.exs.eex` are **not hand-edited**. They are
+copied from the `mishka_chelekom` monorepo's `development/mob` app (itself a
+`mix mob.new` project) by
+
+```bash
+mix mob_new.sync_mishka ~/code/mishka_chelekom   # then regenerate + test a project
+```
+
+which rewrites `MishkaMob` → `<%= module_name %>` and `mishka_mob` →
+`<%= app_name %>`, clears the target directories first, refills the fenced
+`config :mob, :extra_tags` block in `config/config.exs.eex` from the catalog in
+`showcase.ex`, and stamps the upstream commit into `priv/mishka_sync.txt`. Fix
+a component upstream (Kevin's fork tracks it) and re-sync; a local edit to a
+vendored template is lost on the next sync. `home_screen.ex.eex`, `app.ex.eex`
+and `home_screen_test.exs.eex` are hand-maintained and carry the `--blank`
+gating as two whole modules in one file rather than interleaved fragments;
+`blank_excluded?/3` is what keeps the vendored tree out of a blank app.
+
+Verifying a template change against a real project from a worktree needs three
+env vars: `--local` resolves templates from `$HOME/code/mob_new` unless
+`MOB_NEW_DIR` points at the worktree, and `MOB_DIR` / `MOB_DEV_DIR` must name
+the local mob checkouts. The globally installed `mob_new` archive shadows the
+repo task, so run with `MIX_ARCHIVES` set to a temp dir that contains only a
+copy of the `hex-*` archive (an empty dir also hides Hex).
+
 ## Tests
 
 ```bash

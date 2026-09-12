@@ -119,6 +119,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -4528,10 +4529,49 @@ private fun MobToggle(node: MobNode, modifier: Modifier) {
 
 @Composable
 private fun MobSlider(node: MobNode, modifier: Modifier) {
+    val vertical = node.props["orientation"] as? String == "vertical"
+
+    // A vertical slider is a horizontal one turned a quarter turn. `rotate`
+    // transforms the drawing AND the pointer input, so the drag still tracks the
+    // finger; it does not change the measured bounds, so the rotated control is
+    // parked inside a Box that is as tall as the track is long.
+    if (vertical) {
+        val len = floatProp(node.props, "length") ?: 160f
+        Box(
+            modifier = modifier.height(len.dp).width(48.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            MobSliderBody(node, Modifier.width(len.dp).rotate(-90f))
+        }
+    } else {
+        MobSliderBody(node, modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun MobSliderBody(node: MobNode, modifier: Modifier) {
     val handle   = intProp(node.props, "on_change")
     val minVal   = floatProp(node.props, "min") ?: 0f
     val maxVal   = floatProp(node.props, "max") ?: 1f
     val color    = colorProp(node.props, "color")
+    // Compose snaps natively when `steps` is set, which is the only way a
+    // stepped slider feels right: without it the control is continuous, the
+    // screen snaps the value and writes it back, and the resync below then
+    // yanks the thumb to the snap point WHILE THE FINGER IS STILL DOWN. That
+    // is the jump. `steps` counts the positions BETWEEN the endpoints, so a
+    // 1..5 rating is 3, and 0 means continuous.
+    val steps = intProp(node.props, "steps")?.coerceAtLeast(0) ?: 0
+    val colors = if (color != Color.Unspecified)
+        SliderDefaults.colors(thumbColor = color, activeTrackColor = color)
+    else
+        SliderDefaults.colors()
+
+    val range = floatListProp(node.props, "values")
+    if (range != null) {
+        MobRangeSlider(node, modifier, range, minVal, maxVal, steps, colors, handle)
+        return
+    }
+
     // The value the screen last told us, and the one under the finger.
     //
     // Accepting an incoming value DURING a drag is what made the thumb stutter:
@@ -4544,8 +4584,7 @@ private fun MobSlider(node: MobNode, modifier: Modifier) {
     //
     // So while `dragging` the thumb follows the finger alone. On release the
     // next render is accepted, which is when a screen that clamped, snapped or
-    // rejected the value gets to move the thumb to the truth. Same epoch
-    // resync as MobTextField, and for the same reason.
+    // rejected the value gets to move the thumb to the truth.
     val incomingVal = floatProp(node.props, "value") ?: minVal
     val epoch = LocalRenderEpoch.current
     var localVal by remember { mutableStateOf(incomingVal) }
@@ -4566,12 +4605,126 @@ private fun MobSlider(node: MobNode, modifier: Modifier) {
         },
         onValueChangeFinished = { dragging = false },
         valueRange    = minVal..maxVal,
-        modifier      = modifier.fillMaxWidth(),
-        colors        = if (color != Color.Unspecified)
-            SliderDefaults.colors(thumbColor = color, activeTrackColor = color)
-        else
-            SliderDefaults.colors(),
+        steps         = steps,
+        modifier      = modifier,
+        colors        = colors,
     )
+}
+
+// Two thumbs, hand-built.
+//
+// Compose's RangeSlider cannot do push collision: it clamps the dragged thumb at
+// the stationary one and then reports the CLAMPED value, so once they meet
+// nothing says the finger is still pushing. This control owns its drag, so it
+// always knows the pointer — which is the signal push needs, and is how the
+// headless does it.
+//
+// The pair comes back as one `"lo,hi"` string; the change channel carries a
+// single value otherwise.
+@Composable
+private fun MobRangeSlider(
+    node: MobNode,
+    modifier: Modifier,
+    range: List<Float>,
+    minVal: Float,
+    maxVal: Float,
+    steps: Int,
+    colors: androidx.compose.material3.SliderColors,
+    handle: Int?,
+) {
+    val gap = floatProp(node.props, "min_gap") ?: 0f
+    val stop = (node.props["collision"] as? String) == "stop"
+    val span = (maxVal - minVal).takeIf { it > 0f } ?: 1f
+    val stepSize = if (steps > 0) span / (steps + 1) else 0f
+
+    val incoming = range[0] to range[1]
+    val epoch = LocalRenderEpoch.current
+    var local by remember { mutableStateOf(incoming) }
+    var seenEpoch by remember { mutableStateOf(-1) }
+    var dragging by remember { mutableStateOf(false) }
+    var grabLo by remember { mutableStateOf(true) }
+
+    if (epoch != seenEpoch) {
+        seenEpoch = epoch
+        if (!dragging && incoming != local) local = incoming
+    }
+
+    fun snap(v: Float): Float {
+        val clamped = v.coerceIn(minVal, maxVal)
+        if (stepSize <= 0f) return clamped
+        return (minVal + Math.round((clamped - minVal) / stepSize) * stepSize)
+            .coerceIn(minVal, maxVal)
+    }
+
+    // Apply the gap using the FINGER's target, not a clamped one — the whole
+    // point of owning the drag.
+    fun place(target: Float): Pair<Float, Float> {
+        val (lo, hi) = local
+        return if (grabLo) {
+            val newLo = snap(target)
+            if (hi - newLo >= gap) newLo to hi
+            else if (stop) minOf(newLo, hi - gap).coerceAtLeast(minVal) to hi
+            else {
+                val pushedHi = (newLo + gap).coerceAtMost(maxVal)
+                (pushedHi - gap) to pushedHi
+            }
+        } else {
+            val newHi = snap(target)
+            if (newHi - lo >= gap) lo to newHi
+            else if (stop) lo to maxOf(newHi, lo + gap).coerceAtMost(maxVal)
+            else {
+                val pushedLo = (newHi - gap).coerceAtLeast(minVal)
+                pushedLo to (pushedLo + gap)
+            }
+        }
+    }
+
+    val track = colors.disabledInactiveTrackColor
+    val accent = colors.thumbColor
+
+    Canvas(
+        modifier = modifier
+            .height(44.dp)
+            .pointerInput(gap, stop, minVal, maxVal, steps) {
+                fun toValue(x: Float) = minVal + (x / size.width.toFloat()) * span
+                detectDragGestures(
+                    onDragStart = { off ->
+                        val v = toValue(off.x)
+                        grabLo = kotlin.math.abs(v - local.first) <= kotlin.math.abs(v - local.second)
+                        dragging = true
+                        local = place(v)
+                        handle?.let {
+                            MobBridge.nativeSendChangeStr(it, "${local.first},${local.second}")
+                        }
+                    },
+                    onDrag = { change, _ ->
+                        local = place(toValue(change.position.x))
+                        handle?.let {
+                            MobBridge.nativeSendChangeStr(it, "${local.first},${local.second}")
+                        }
+                    },
+                    onDragEnd = { dragging = false },
+                    onDragCancel = { dragging = false },
+                )
+            }
+    ) {
+        val y = size.height / 2f
+        val loX = ((local.first - minVal) / span) * size.width
+        val hiX = ((local.second - minVal) / span) * size.width
+        drawLine(track, Offset(0f, y), Offset(size.width, y), strokeWidth = 10f, cap = StrokeCap.Round)
+        drawLine(accent, Offset(loX, y), Offset(hiX, y), strokeWidth = 10f, cap = StrokeCap.Round)
+        drawCircle(accent, radius = 22f, center = Offset(loX, y))
+        drawCircle(accent, radius = 22f, center = Offset(hiX, y))
+    }
+}
+
+private fun floatListProp(props: Map<String, Any?>, key: String): List<Float>? {
+    val raw = when (val v = props[key]) {
+        is List<*> -> v.mapNotNull { (it as? Number)?.toFloat() }
+        is JSONArray -> (0 until v.length()).mapNotNull { (v.get(it) as? Number)?.toFloat() }
+        else -> null
+    }
+    return raw?.takeIf { it.size >= 2 }?.let { listOf(it[0], it[1]) }
 }
 
 @Composable

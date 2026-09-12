@@ -1,0 +1,4 @@
+source: /Users/kevin/code/mishka_chelekom/development/mob
+commit: e824d9e77232dfe6b926e63586f7bdaa044467e4
+synced: 2026-09-12
+upstream: https://github.com/mishka-group/mishka_chelekom/tree/master/development/mob

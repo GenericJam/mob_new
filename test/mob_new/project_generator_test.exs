@@ -223,7 +223,13 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "defmodule TestApp.HomeScreenTest do"
       assert content =~ "use Mob.ScreenCase"
       assert content =~ "alias TestApp.HomeScreen"
-      assert content =~ "assert_renderable(view)"
+      # The home screen is a top-level :list, so the scaffold expands it the way
+      # Mob.Screen does before asserting every node type is native-renderable.
+      assert content =~
+               "|> Mob.Composite.expand(self())\n    |> Mob.List.expand(list_renderers, self())"
+
+      assert content =~ "assert_renderable(expanded(view)"
+      assert content =~ ~s(assert text =~ "mishka.tools/chelekom")
     end
 
     test "mix.exs contains correct app name", %{tmp: tmp} do
@@ -1401,16 +1407,87 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "Mob.State.put(:draft_text"
     end
 
-    test "home_screen.ex restores theme from Mob.State on mount", %{tmp: tmp} do
+    test "home_screen.ex restores the persisted theme via ThemeBar on mount", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "lib/test_app/home_screen.ex"))
-      assert content =~ "Mob.State.get(:theme"
+      assert content =~ "theme = ThemeBar.current()"
+      assert content =~ "Mob.Theme.set(ThemeBar.module_for(theme))"
+
+      bar = File.read!(Path.join(dir, "lib/test_app/theme_bar.ex"))
+      assert bar =~ "defmodule TestApp.ThemeBar"
+      assert bar =~ "Mob.State.get(:theme"
     end
 
-    test "home_screen.ex persists theme selection via Mob.State.put", %{tmp: tmp} do
+    test "home_screen.ex persists theme selection via ThemeBar.set", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "lib/test_app/home_screen.ex"))
-      assert content =~ "Mob.State.put(:theme"
+      assert content =~ "{:noreply, ThemeBar.set(key, socket)}"
+
+      bar = File.read!(Path.join(dir, "lib/test_app/theme_bar.ex"))
+      assert bar =~ "Mob.State.put(:theme"
+    end
+
+    # ── Mishka Chelekom showcase (vendored by mix mob_new.sync_mishka) ────────
+
+    test "ships the Mishka components, showcase, theme bar and their test", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      lib = Path.join(dir, "lib/test_app")
+
+      components = Path.wildcard(Path.join(lib, "components/*.ex"))
+      assert length(components) > 50
+      assert Path.join(lib, "components/mishka_chip.ex") in components
+
+      for file <- ~w(showcase.ex showcase/kit.ex showcase/gallery_screen.ex
+                     showcase/component_screen.ex showcase/components/chip.ex theme_bar.ex) do
+        assert File.exists?(Path.join(lib, file)), "#{file} must be generated"
+      end
+
+      assert File.exists?(Path.join(dir, "test/test_app/showcase_test.exs"))
+    end
+
+    test "vendored Mishka sources carry the app's names, not Mishka's", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      for file <- Path.wildcard(Path.join(dir, "{lib,test}/test_app/**/*.{ex,exs}")) do
+        content = File.read!(file)
+        refute content =~ "MishkaMob", "#{file} still names the Mishka app module"
+        refute content =~ "mishka_mob", "#{file} still names the Mishka OTP app"
+      end
+
+      showcase = File.read!(Path.join(dir, "lib/test_app/showcase.ex"))
+      assert showcase =~ "defmodule TestApp.Showcase do"
+      assert showcase =~ "TestApp.Components.MishkaChip"
+    end
+
+    test "app.ex registers the showcase composites at boot", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/app.ex"))
+      assert content =~ "TestApp.Showcase.register_all()"
+      # Composites must exist before the root screen renders a card for them.
+      {reg, _} = :binary.match(content, "Showcase.register_all()")
+      {root, _} = :binary.match(content, "Mob.Screen.start_root(")
+      assert reg < root
+    end
+
+    test "config.exs whitelists the Mishka composite tags for the ~MOB sigil", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "config/config.exs"))
+      assert content =~ "config :mob, :extra_tags, ~w("
+      assert content =~ "MishkaChip"
+      # Slot tags are tags too — consumed by a parent's expand/3, still validated.
+      assert content =~ "MishkaAccordionItem"
+    end
+
+    test "home_screen.ex shows the component cards, demos and credits Mishka", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/home_screen.ex"))
+
+      assert content =~ ~s(Kit.section_header("Mishka Chelekom")
+      assert content =~ "Showcase.all()"
+      assert content =~ "Kit.compact_button(\"Rock Paper Scissors\", :open_list)"
+      assert content =~ ~s(@mishka_url "https://mishka.tools/chelekom")
+      assert content =~ "Mob.Device.open_url(@mishka_url)"
+      refute content =~ "theme_tab("
     end
 
     test "home_screen.ex does not eagerly evaluate Path.expand in System.get_env default",
@@ -2289,6 +2366,27 @@ defmodule MobNew.ProjectGeneratorTest do
       end
     end
 
+    test "skips the vendored Mishka showcase only when blank: true" do
+      for rel <- ~w(lib/app_name/components/mishka_chip.ex.eex
+                    lib/app_name/showcase/kit.ex.eex
+                    lib/app_name/showcase/components/chip.ex.eex
+                    lib/app_name/showcase.ex.eex
+                    lib/app_name/theme_bar.ex.eex
+                    test/app_name/showcase_test.exs.eex) do
+        assert ProjectGenerator.blank_excluded?("/tmpl/#{rel}", @root, blank: true),
+               "#{rel} must be skipped under --blank"
+
+        refute ProjectGenerator.blank_excluded?("/tmpl/#{rel}", @root, [])
+      end
+
+      # The home-screen test scaffold stays: it has a blank branch of its own.
+      refute ProjectGenerator.blank_excluded?(
+               "/tmpl/test/app_name/home_screen_test.exs.eex",
+               @root,
+               blank: true
+             )
+    end
+
     test "does not touch files outside lib/app_name/ under blank" do
       refute ProjectGenerator.blank_excluded?("/tmpl/mix.exs.eex", @root, blank: true)
 
@@ -2368,16 +2466,40 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.read!(Path.join(dir, "mob.exs")) =~ ":mob_camera"
     end
 
-    test "default home_screen wires the Material 3 + Liquid Glass theme tabs", %{tmp: tmp} do
+    test "default theme_bar wires the Material 3 + Liquid Glass themes", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("full_app", tmp)
-      content = File.read!(Path.join(dir, "lib/full_app/home_screen.ex"))
+      content = File.read!(Path.join(dir, "lib/full_app/theme_bar.ex"))
 
-      assert content =~ ~s(theme_tab("Material 3",)
-      assert content =~ ~s(theme_tab("Liquid Glass",)
-      assert content =~ "Mob.Theme.set(MobThemes.Material3)"
-      assert content =~ "Mob.Theme.set(MobThemes.ObsidianGlass)"
-      assert content =~ "defp theme_to_module(:material3), do: MobThemes.Material3"
-      assert content =~ "defp theme_to_module(:glass), do: MobThemes.ObsidianGlass"
+      assert content =~ "module: MobThemes.Material3"
+      assert content =~ "module: MobThemes.ObsidianGlass"
+      assert content =~ "module: Mob.Theme.Light"
+      assert content =~ "module: Mob.Theme.Dark"
+    end
+
+    test "blank drops the Mishka showcase, its registration and its tag whitelist",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("blank_app", tmp, blank: true)
+      lib = Path.join(dir, "lib/blank_app")
+
+      refute File.exists?(Path.join(lib, "components"))
+      refute File.exists?(Path.join(lib, "showcase"))
+      refute File.exists?(Path.join(lib, "showcase.ex"))
+      refute File.exists?(Path.join(lib, "theme_bar.ex"))
+      refute File.exists?(Path.join(dir, "test/blank_app/showcase_test.exs"))
+
+      refute File.read!(Path.join(lib, "app.ex")) =~ "Showcase"
+      refute File.read!(Path.join(dir, "config/config.exs")) =~ ":extra_tags"
+
+      home = File.read!(Path.join(lib, "home_screen.ex"))
+      refute home =~ "Showcase"
+      refute home =~ "ThemeBar"
+      refute home =~ "mishka"
+      assert home =~ ~s(theme_tab("Light", :light)
+      assert home =~ ~s(theme_tab("Dark",  :dark)
+
+      test_file = File.read!(Path.join(dir, "test/blank_app/home_screen_test.exs"))
+      refute test_file =~ "Showcase"
+      assert test_file =~ "assert_renderable(view)"
     end
   end
 

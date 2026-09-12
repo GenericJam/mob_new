@@ -29,6 +29,11 @@ defmodule <%= module_name %>.App do
     end)
 <%= if python do %>
     init_pythonx()
+<% end %><%= unless blank do %>
+    # Register the vendored Mishka Chelekom composites (`<MishkaChip />` and
+    # friends) and every gallery page. The catalog lives in
+    # <%= module_name %>.Showcase, so the app and its tests cannot drift apart.
+    <%= module_name %>.Showcase.register_all()
 <% end %>
     Mob.Screen.start_root(<%= module_name %>.HomeScreen)
     Mob.Dist.ensure_started(node: :"<%= app_name %>_android@127.0.0.1", cookie: :mob_secret)

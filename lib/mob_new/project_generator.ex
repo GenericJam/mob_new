@@ -1217,7 +1217,7 @@ defmodule MobNew.ProjectGenerator do
   # Demo/sample screens shipped in the native template's lib/<app>/ tree.
   # `--blank` skips these (and their plugins/nav buttons) so the generated app
   # is just app.ex, home_screen.ex, and repo.ex. Keep this list in sync with
-  # the home_screen.ex.eex nav buttons that are gated behind `unless blank`.
+  # the demo buttons in the non-blank branch of home_screen.ex.eex.
   @demo_screens ~w(
     audio_screen dice_screen list_screen round storage_screen text_screen webview_screen
   )
@@ -1236,10 +1236,26 @@ defmodule MobNew.ProjectGenerator do
     if Keyword.get(opts, :blank, false) do
       rel = Path.relative_to(path, root)
       base = rel |> Path.basename(".ex.eex") |> Path.basename(".ex")
-      String.starts_with?(rel, "lib/app_name/") and base in @demo_screens
+
+      (String.starts_with?(rel, "lib/app_name/") and base in @demo_screens) or
+        mishka_template?(rel)
     else
       false
     end
+  end
+
+  # The vendored Mishka Chelekom showcase (see `mix mob_new.sync_mishka`): the
+  # components, the gallery that presents them, the theme bar (which needs the
+  # mob_themes package a blank app does not depend on), and the showcase test.
+  # `home_screen.ex.eex` and `app.ex.eex` gate their references with `blank`.
+  defp mishka_template?(rel) do
+    String.starts_with?(rel, "lib/app_name/components/") or
+      String.starts_with?(rel, "lib/app_name/showcase/") or
+      rel in [
+        "lib/app_name/showcase.ex.eex",
+        "lib/app_name/theme_bar.ex.eex",
+        "test/app_name/showcase_test.exs.eex"
+      ]
   end
 
   defp render_templates(assigns, project_dir, opts) do

@@ -10,6 +10,43 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Changed
+- **The default native app is now the Mishka Chelekom showcase** (MOB-188).
+  `mix mob.new my_app` generates the components and gallery from
+  [mishka_chelekom's `development/mob`](https://github.com/mishka-group/mishka_chelekom/tree/master/development/mob):
+  a compact icon theme bar (Light / Dark / Material / Glass) replaces the two
+  rows of theme tabs, the home screen lists every component as a tappable
+  preview card (two per row, virtualized through `:list` so cold boot stays
+  fast), the built-in demos and plugin screens move into a compact
+  "Demos & Device" grid, and a footer credits Mishka Chelekom with a link to
+  https://mishka.tools/chelekom that opens in the browser. `app.ex` registers
+  the composites at boot and `config/config.exs` lists their tags under
+  `config :mob, :extra_tags` so the `~MOB` sigil accepts `<MishkaChip />`
+  (needs the mob release carrying mob PR #161; on older mob the list is
+  ignored and each Mishka tag use compiles with a whitelist warning). `--blank` skips all of it and keeps
+  the previous Light / Dark home screen. The generated test suite gains the
+  Mishka showcase-registry tests; the home-screen scaffold now expands the
+  `:list` and the composites before asserting renderability.
+
+### Added
+- **`mix mob_new.sync_mishka PATH`** (maintainers only) vendors the Mishka
+  app's components, showcase, theme bar and showcase test into
+  `priv/templates`, rewriting `MishkaMob` / `mishka_mob` to the template
+  assigns, regenerating the `:extra_tags` fence in `config.exs.eex`, and
+  recording the upstream commit in `priv/mishka_sync.txt`. Target directories
+  are cleared first so a component removed upstream is removed here. The
+  published `mishka_chelekom` package ships neither its `priv/mob` templates
+  nor a showcase generator, which is why this is vendored rather than
+  generated from the dependency.
+
+### Known gaps
+- The popover-family components (popover, menu, context menu, select,
+  combobox, tree select, preview card, navigation menu) emit an `:anchored`
+  node the Mishka app renders with its own Android bridge additions; the
+  generated bridge and mob's iOS renderer do not render it yet, so those
+  components fall back to inline panels on device and the generated
+  `showcase_test.exs` reports it. Tracked under MOB-188 (native parity).
+
 ### Fixed
 - **`mix mob.new --liveview` next-steps output pointed at port 4000** (MOB-78).
   The generator patches the on-device Phoenix endpoint to a per-app hashed

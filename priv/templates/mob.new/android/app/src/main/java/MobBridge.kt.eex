@@ -586,6 +586,30 @@ object MobBridge {
         }
     }
 
+    /**
+     * Drops every registry entry that belongs to a composition. Called from
+     * MainActivity.onCreate, on the main thread, before setContent.
+     *
+     * LazyListState and ScrollState are bound to the composition and the layout
+     * nodes that created them, but these registries are process-global and the
+     * BEAM outlives the Activity — so without this a relaunched Activity composes
+     * against holders belonging to a disposed one. `lazyListStates` makes it
+     * likelier still: its key is only "stable within a screen", so the same
+     * handle names a different list once the screen changes. The frame
+     * generation is bumped under the same lock setRootJson uses, so a late
+     * onGloballyPositioned from the disposed composition is refused rather than
+     * recorded against the new one.
+     */
+    @JvmStatic
+    fun releaseCompositionState() {
+        synchronized(frameLock) {
+            frameGeneration++
+            elementFramesById.clear()
+        }
+        lazyListStates.clear()
+        scrollHandlesById.clear()
+    }
+
     @Composable
     fun frameTrackingModifier(id: String): Modifier {
         // remember(id), deliberately: neither keyless nor keyed on anything

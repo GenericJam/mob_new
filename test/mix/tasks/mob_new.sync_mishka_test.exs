@@ -197,7 +197,7 @@ defmodule Mix.Tasks.MobNew.SyncMishkaTest do
       assert config =~ "  MishkaToolbar\n)\n# <<< mishka tags"
 
       stamp = File.read!(Path.join(repo, "priv/mishka_sync.txt"))
-      assert stamp =~ "source: #{source}"
+      assert stamp =~ "source: mishka/development/mob"
       # The fixture is not a git checkout, so the commit is recorded as unknown.
       assert result.commit == nil
       assert stamp =~ "commit: unknown"

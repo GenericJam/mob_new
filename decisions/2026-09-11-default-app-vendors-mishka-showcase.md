@@ -63,8 +63,8 @@ untouched (`liveview_phoenix_owned?/3` already blocks `lib/<app>/` and
 - The Mishka app's composite tags need the `~MOB` sigil to accept them
   without rewriting `deps/mob/priv/tags` (the hack the Mishka app itself
   uses). mob PR #161 (same issue) adds `config :mob, :extra_tags` for that;
-  until a mob release carries it, a generated app compiles with one warning
-  per Mishka tag use.
+  until a mob release carries it, a generated app compiles with hundreds of
+  whitelist warnings and fails under `--warnings-as-errors`.
 - Every card preview is composite-expanded inside the home screen's list
   renderer. `Mob.Screen` runs the composite pass before the list pass, so a
   preview emitted from a `:list` row would otherwise reach native as an
@@ -73,9 +73,9 @@ untouched (`liveview_phoenix_owned?/3` already blocks `lib/<app>/` and
 - The popover-family components emit an `:anchored` node that the Mishka app
   renders with roughly a thousand lines of additions to its own Android
   bridge, and that mob's iOS renderer does not have at all. Until those land
-  (native parity, same issue) the generated `showcase_test.exs` reports the
-  gap and those components fall back to inline panels on device. Publishing
-  mob_new with this default app is gated on that parity work.
+  (MOB-189 Android, MOB-190 iOS) the generated `showcase_test.exs` reports
+  the gap and those components fall back to inline panels on device.
+  Publishing mob_new with this default app is gated on that parity work.
 - If Mishka later ships its `priv/mob` templates and a showcase generator in
   Hex, option (1) becomes viable and the sync task can be retired in favour
   of running their generator; nothing here precludes that.

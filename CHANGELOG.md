@@ -23,7 +23,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   the composites at boot and `config/config.exs` lists their tags under
   `config :mob, :extra_tags` so the `~MOB` sigil accepts `<MishkaChip />`
   (needs the mob release carrying mob PR #161; on older mob the list is
-  ignored and each Mishka tag use compiles with a whitelist warning). `--blank` skips all of it and keeps
+  ignored, a fresh app compiles with hundreds of whitelist warnings, and it
+  fails under `--warnings-as-errors`). `--blank` skips all of it and keeps
   the previous Light / Dark home screen. The generated test suite gains the
   Mishka showcase-registry tests; the home-screen scaffold now expands the
   `:list` and the composites before asserting renderability.
@@ -45,7 +46,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   node the Mishka app renders with its own Android bridge additions; the
   generated bridge and mob's iOS renderer do not render it yet, so those
   components fall back to inline panels on device and the generated
-  `showcase_test.exs` reports it. Tracked under MOB-188 (native parity).
+  `showcase_test.exs` reports it. Tracked as MOB-189 (Android bridge) and
+  MOB-190 (iOS).
 
 ### Fixed
 - **`mix mob.new --liveview` next-steps output pointed at port 4000** (MOB-78).

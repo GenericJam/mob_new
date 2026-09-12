@@ -182,7 +182,7 @@ defmodule Mix.Tasks.MobNew.SyncMishka do
 
   defp write_stamp(path, source, commit) do
     File.write!(path, """
-    source: #{source}
+    source: #{Path.basename(Path.dirname(Path.dirname(source)))}/development/mob
     commit: #{commit || "unknown"}
     synced: #{Date.utc_today()}
     upstream: https://github.com/mishka-group/mishka_chelekom/tree/master/development/mob

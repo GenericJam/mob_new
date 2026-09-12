@@ -2739,7 +2739,9 @@ defmodule MobNew.ProjectGeneratorTest do
 
           {:ok, dir} =
             with_env(
-              %{"MOB_DIR" => mob_dir, "MOB_DEV_DIR" => mob_dev_dir},
+              # MOB_NEW_DIR: `local: true` otherwise renders $HOME/code/mob_new's
+              # templates, not this checkout's — a false green for template changes.
+              %{"MOB_DIR" => mob_dir, "MOB_DEV_DIR" => mob_dev_dir, "MOB_NEW_DIR" => File.cwd!()},
               fn -> ProjectGenerator.generate("screen_e2e", tmp, local: true) end
             )
 

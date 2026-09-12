@@ -63,7 +63,17 @@ defmodule MobNew.Templates.AndroidRenderEpochTest do
       |> squish()
 
     refute code =~ ~s|remember(node.props["value"]|
-    assert code =~ "if (!dragging && incomingVal != localVal) localVal = incomingVal"
+    # The epoch is stamped only between drags: a render landing mid-drag (the
+    # BEAM's clamped final value) must still be adopted on release.
+    assert code =~ "if (!dragging && epoch != seenEpoch) { seenEpoch = epoch"
+    assert code =~ "if (incomingVal != localVal) localVal = incomingVal"
+    # The range slider reads the current handle, not the one captured when the
+    # pointerInput lambda was keyed.
+    assert code =~ "val liveHandle by rememberUpdatedState(handle)"
+
+    assert code =~
+             ~s|liveHandle?.let { MobBridge.nativeSendChangeStr(it, "${local.first},${local.second}") }|
+
     assert code =~ "onValueChange = { new -> dragging = true localVal = new"
     assert code =~ "onValueChangeFinished = { dragging = false },"
   end

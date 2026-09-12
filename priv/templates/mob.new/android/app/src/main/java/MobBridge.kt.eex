@@ -4601,9 +4601,13 @@ private fun MobSliderBody(node: MobNode, modifier: Modifier) {
     var seenEpoch by remember { mutableStateOf(-1) }
     var dragging by remember { mutableStateOf(false) }
 
-    if (epoch != seenEpoch) {
+    // Resync only between drags. Stamping the epoch mid-drag would consume the
+    // one render that carries the BEAM's clamped/rejected final value, leaving
+    // the thumb at the finger value until an unrelated push; reading `dragging`
+    // here keeps this recomposing, so the release adopts it.
+    if (!dragging && epoch != seenEpoch) {
         seenEpoch = epoch
-        if (!dragging && incomingVal != localVal) localVal = incomingVal
+        if (incomingVal != localVal) localVal = incomingVal
     }
 
     Slider(
@@ -4654,9 +4658,11 @@ private fun MobRangeSlider(
     var dragging by remember { mutableStateOf(false) }
     var grabLo by remember { mutableStateOf(true) }
 
-    if (epoch != seenEpoch) {
+    // Between drags only — see MobSlider for why the epoch is not stamped
+    // while a drag is in flight.
+    if (!dragging && epoch != seenEpoch) {
         seenEpoch = epoch
-        if (!dragging && incoming != local) local = incoming
+        if (incoming != local) local = incoming
     }
 
     fun snap(v: Float): Float {
@@ -4692,6 +4698,10 @@ private fun MobRangeSlider(
     val track = colors.disabledInactiveTrackColor
     val accent = colors.thumbColor
 
+    // Every render re-registers handles; the pointerInput lambda is keyed on
+    // geometry, not on the handle, so it must read the current one.
+    val liveHandle by rememberUpdatedState(handle)
+
     Canvas(
         modifier = modifier
             .height(44.dp)
@@ -4703,13 +4713,13 @@ private fun MobRangeSlider(
                         grabLo = kotlin.math.abs(v - local.first) <= kotlin.math.abs(v - local.second)
                         dragging = true
                         local = place(v)
-                        handle?.let {
+                        liveHandle?.let {
                             MobBridge.nativeSendChangeStr(it, "${local.first},${local.second}")
                         }
                     },
                     onDrag = { change, _ ->
                         local = place(toValue(change.position.x))
-                        handle?.let {
+                        liveHandle?.let {
                             MobBridge.nativeSendChangeStr(it, "${local.first},${local.second}")
                         }
                     },

@@ -6014,18 +6014,20 @@ private fun nodeModifier(props: Map<String, Any?>): Modifier {
     // entire padded area, not just the inner content.
     if (shape != null) m = m.clip(shape)
 
-    if (boolProp(props, "fill_width") == true) m = m.fillMaxWidth()
-    // fill_height: true stretches the node to the parent's vertical bounds.
-    // Used by full-screen overlay boxes whose center alignment needs the
-    // viewport as its reference frame, not the contained children's height.
-    if (boolProp(props, "fill_height") == true) m = m.fillMaxHeight()
+    val fixedWidth = floatProp(props, "width")?.takeIf { it > 0f }
+    val fixedHeight = floatProp(props, "height")?.takeIf { it > 0f }
+    val fillWidth = boolProp(props, "fill_width") == true
+    val fillHeight = boolProp(props, "fill_height") == true
 
-    // Explicit width / height — when set, the node uses that exact size
-    // instead of stretching to fill its parent. Used by SquareTriangle's
-    // ring cells (110x110 boxes acting as rings via corner_radius +
-    // border).
-    floatProp(props, "width")?.let  { w -> m = m.width(w.dp) }
-    floatProp(props, "height")?.let { h -> m = m.height(h.dp) }
+    // Constraint modifiers are nested in declaration order. Keep an authored
+    // dimension outside the fill on the other axis: fillMaxHeight().width()
+    // triggered a Compose measure/recompose loop for a fixed-width Column with
+    // a weighted vertical scroll, eventually exhausting the device heap.
+    // Fixed dimensions also win over a same-axis fill, matching iOS.
+    fixedWidth?.let  { w -> m = m.width(w.dp) }
+    fixedHeight?.let { h -> m = m.height(h.dp) }
+    if (fillWidth && fixedWidth == null) m = m.fillMaxWidth()
+    if (fillHeight && fixedHeight == null) m = m.fillMaxHeight()
 
     // aspect_ratio: lock a node to width:height = ratio. Common use is
     // <Box fill_width={true} aspect_ratio={1.0}> to make a square area

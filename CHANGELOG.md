@@ -11,6 +11,10 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Fixed
+- **Generated Android Row and Column honor `gap`** (MOB-234). The bridge maps
+  the resolved spacing value to the stack's main-axis Compose arrangement,
+  matching the iOS renderer. Existing generated apps must regenerate or copy
+  the bridge change.
 - **Generated Android constraint modifiers now apply authored dimensions before
   cross-axis fills** (MOB-233), addressing the reported heap-exhaustion case for
   a fixed-width, full-height column with a weighted scroll. Positive fixed

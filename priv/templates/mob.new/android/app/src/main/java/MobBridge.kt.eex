@@ -3799,7 +3799,12 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     val trackId = node.props["id"] as? String
     val m = if (trackId != null) base.then(MobBridge.frameTrackingModifier(trackId)) else base
     when (node.type) {
-        "column" -> Column(modifier = m) {
+        "column" -> Column(
+            modifier = m,
+            verticalArrangement = Arrangement.spacedBy(
+                (floatProp(node.props, "gap") ?: 0f).dp
+            ),
+        ) {
             val keys = mobChildKeys(node.children)
             node.children.forEachIndexed { i, child ->
                 // Modifier.weight is resolved out here, in ColumnScope — forEachIndexed
@@ -3810,7 +3815,13 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                 key(keys[i]) { RenderNode(child, childModifier) }
             }
         }
-        "row" -> Row(modifier = m, verticalAlignment = rowAlignProp(node.props)) {
+        "row" -> Row(
+            modifier = m,
+            horizontalArrangement = Arrangement.spacedBy(
+                (floatProp(node.props, "gap") ?: 0f).dp
+            ),
+            verticalAlignment = rowAlignProp(node.props),
+        ) {
             val keys = mobChildKeys(node.children)
             node.children.forEachIndexed { i, child ->
                 val w = floatProp(child.props, "weight")

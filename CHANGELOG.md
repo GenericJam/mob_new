@@ -8,6 +8,14 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Generated Android constraint modifiers now apply authored dimensions before
+  cross-axis fills** (MOB-233), addressing the reported heap-exhaustion case for
+  a fixed-width, full-height column with a weighted scroll. Positive fixed
+  dimensions also win over same-axis fills, matching iOS.
+
 ## [0.5.1] - 2026-09-12
 
 ### Fixed

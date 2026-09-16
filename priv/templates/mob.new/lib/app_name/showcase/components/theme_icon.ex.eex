@@ -1,7 +1,7 @@
 defmodule <%= module_name %>.Showcase.Components.ThemeIcon do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaThemeIcon` and
-  `<%= module_name %>.Components.MishkaMarquee`.
+  Gallery entry for `MobMishka.Components.MishkaThemeIcon` and
+  `MobMishka.Components.MishkaMarquee`.
 
   Every example owns its own assign and its own `id` prefix. Sharing either
   would make the page untestable: the whole gallery renders into one scrolling
@@ -12,7 +12,7 @@ defmodule <%= module_name %>.Showcase.Components.ThemeIcon do
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaThemeIcon
+  alias MobMishka.Components.MishkaThemeIcon
   alias <%= module_name %>.Showcase.Example
 
   @themes [{:light, "☀"}, {:dark, "🌙"}, {:system, "🖥"}]

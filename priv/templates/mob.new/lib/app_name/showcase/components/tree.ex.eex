@@ -1,7 +1,7 @@
 defmodule <%= module_name %>.Showcase.Components.Tree do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaTree` and
-  `<%= module_name %>.Components.MishkaTreeSelect`.
+  Gallery entry for `MobMishka.Components.MishkaTree` and
+  `MobMishka.Components.MishkaTreeSelect`.
 
   Every example keeps its **own** assigns and its **own** `id`. Sharing either
   would make the page untestable: two trees driven by one `expanded` list move
@@ -23,7 +23,7 @@ defmodule <%= module_name %>.Showcase.Components.Tree do
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaTree
+  alias MobMishka.Components.MishkaTree
   alias <%= module_name %>.Showcase.Example
 
   @nodes [

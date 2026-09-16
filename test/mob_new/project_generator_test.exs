@@ -1473,15 +1473,21 @@ defmodule MobNew.ProjectGeneratorTest do
       assert bar =~ "Mob.State.put(:theme"
     end
 
-    # ── Mishka Chelekom showcase (vendored by mix mob_new.sync_mishka) ────────
+    # ── Mishka Chelekom showcase (composites via :mob_mishka plugin) ─────────
+    #
+    # Composite source files no longer ship in mob_new's template (MOB-252):
+    # they live in the `:mob_mishka` plugin as a Hex dep. Only the gallery
+    # infrastructure (showcase/*) stays here, because it is app-owned
+    # presentation logic that USES the plugin's composites via `<Mishka…>`
+    # tags in ~MOB sigils.
 
-    test "ships the Mishka components, showcase, theme bar and their test", %{tmp: tmp} do
+    test "ships the showcase gallery + theme bar but NO vendored composites", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       lib = Path.join(dir, "lib/test_app")
 
-      components = Path.wildcard(Path.join(lib, "components/*.ex"))
-      assert length(components) > 50
-      assert Path.join(lib, "components/mishka_chip.ex") in components
+      # No `mishka_*.ex` under components/ — the plugin ships those now.
+      refute File.exists?(Path.join(lib, "components/mishka_chip.ex"))
+      refute File.exists?(Path.join(lib, "components/mishka_dialog.ex"))
 
       for file <- ~w(showcase.ex showcase/kit.ex showcase/gallery_screen.ex
                      showcase/component_screen.ex showcase/components/chip.ex theme_bar.ex) do
@@ -1491,37 +1497,70 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(Path.join(dir, "test/test_app/showcase_test.exs"))
     end
 
-    test "vendored Mishka sources carry the app's names, not Mishka's", %{tmp: tmp} do
+    test "showcase files reference plugin composites, not app-local vendored copies", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
+      # The MOB-252 rewrite retargets showcase-file aliases from
+      # `TestApp.Components.Mishka*` to `MobMishka.Components.Mishka*` so
+      # unedited apps reach the plugin's default composite. Users who want
+      # to edit a composite run `mix mob_mishka.gen <name>` — the resulting
+      # app-local copy supersedes the plugin's default via
+      # `config :mob_mishka, :override_namespace`.
       for file <- Path.wildcard(Path.join(dir, "{lib,test}/test_app/**/*.{ex,exs}")) do
         content = File.read!(file)
-        refute content =~ "MishkaMob", "#{file} still names the Mishka app module"
-        refute content =~ "mishka_mob", "#{file} still names the Mishka OTP app"
+        refute content =~ "MishkaMob", "#{file} still names the upstream Mishka app module"
+        refute content =~ "mishka_mob", "#{file} still names the upstream Mishka OTP app"
+
+        refute content =~ ~r/TestApp\.Components\.Mishka[A-Z]/,
+               "#{file} references a vendored TestApp.Components.Mishka* module; " <>
+                 "showcase files should alias MobMishka.Components.* instead."
       end
 
       showcase = File.read!(Path.join(dir, "lib/test_app/showcase.ex"))
       assert showcase =~ "defmodule TestApp.Showcase do"
-      assert showcase =~ "TestApp.Components.MishkaChip"
     end
 
-    test "app.ex registers the showcase composites at boot", %{tmp: tmp} do
+    test "app.ex registers the showcase gallery at boot (composites come from the plugin)", %{
+      tmp: tmp
+    } do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "lib/test_app/app.ex"))
       assert content =~ "TestApp.Showcase.register_all()"
-      # Composites must exist before the root screen renders a card for them.
+
+      # The comment must document the split: this call registers gallery
+      # PAGES; the plugin's on_start registers the composite TAGS.
+      assert content =~ "gallery page", "app.ex should document that this registers gallery pages"
+
+      # The showcase pages need to exist before the root screen renders a
+      # card for them.
       {reg, _} = :binary.match(content, "Showcase.register_all()")
       {root, _} = :binary.match(content, "Mob.Screen.start_root(")
       assert reg < root
     end
 
-    test "config.exs whitelists the Mishka composite tags for the ~MOB sigil", %{tmp: tmp} do
+    test "mix.exs depends on :mob_mishka for the composite tags", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "mix.exs"))
+      assert content =~ ~s({:mob_mishka,)
+    end
+
+    test "config.exs keeps an extra_tags bridge + documents the override key", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "config/config.exs"))
-      assert content =~ "config :mob, :extra_tags, ~w("
+
+      # `mob_mishka`'s plugin manifest whitelists these tags automatically
+      # via MOB-247 (plugin-manifest tag discovery). Until MOB-247 lands in
+      # a shipped mob release, the extra_tags block here is a compatibility
+      # bridge that keeps ~MOB compile silent on the current mob floor. It
+      # can be dropped once the generated `mob` dep spec is bumped past the
+      # release that ships MOB-247.
+      assert content =~ "config :mob, :extra_tags"
       assert content =~ "MishkaChip"
-      # Slot tags are tags too — consumed by a parent's expand/3, still validated.
-      assert content =~ "MishkaAccordionItem"
+
+      # The config MUST also tell the user how to activate an
+      # ejected-composite override, since that config key lives in
+      # :mob_mishka and users won't discover it otherwise.
+      assert content =~ "mob_mishka, :override_namespace"
     end
 
     test "home_screen.ex shows the component cards, demos and credits Mishka", %{tmp: tmp} do
@@ -2416,9 +2455,12 @@ defmodule MobNew.ProjectGeneratorTest do
       end
     end
 
-    test "skips the vendored Mishka showcase only when blank: true" do
-      for rel <- ~w(lib/app_name/components/mishka_chip.ex.eex
-                    lib/app_name/showcase/kit.ex.eex
+    test "skips the Mishka showcase gallery only when blank: true" do
+      # Composite source files under lib/app_name/components/ no longer exist
+      # in the template (MOB-252) — the plugin ships them. Only the showcase
+      # gallery pages, the theme bar, and the showcase test remain to be
+      # excluded when --blank.
+      for rel <- ~w(lib/app_name/showcase/kit.ex.eex
                     lib/app_name/showcase/components/chip.ex.eex
                     lib/app_name/showcase.ex.eex
                     lib/app_name/theme_bar.ex.eex

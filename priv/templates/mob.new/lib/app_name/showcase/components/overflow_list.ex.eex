@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.OverflowList do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaOverflowList`.
+  Gallery entry for `MobMishka.Components.MishkaOverflowList`.
 
   The web version watches its container and hides whatever will not fit. Mob
   cannot measure, so `visible` is declared — which makes the *counter* the
@@ -9,9 +9,9 @@ defmodule <%= module_name %>.Showcase.Components.OverflowList do
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaPill, only: [pill: 1]
+  import MobMishka.Components.MishkaPill, only: [pill: 1]
 
-  alias <%= module_name %>.Components.MishkaOverflowList
+  alias MobMishka.Components.MishkaOverflowList
   alias <%= module_name %>.Showcase.Example
 
   @tags ~w(Design Phoenix Elixir LiveView Tailwind Headless Accessibility)

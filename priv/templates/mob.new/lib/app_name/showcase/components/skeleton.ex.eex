@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Skeleton do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaSkeleton`.
+  Gallery entry for `MobMishka.Components.MishkaSkeleton`.
 
   The first example is live: it swaps the placeholder for the real row, which is
   the only way to see whether the two actually line up.

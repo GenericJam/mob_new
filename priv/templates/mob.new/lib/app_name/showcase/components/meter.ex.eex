@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Meter do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaMeter`.
+  Gallery entry for `MobMishka.Components.MishkaMeter`.
 
   Examples lean on gauge-shaped data (storage, battery, signal) to make the
   distinction from Progress concrete: a meter reads a measurement, a progress bar

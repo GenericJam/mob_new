@@ -30,9 +30,12 @@ defmodule <%= module_name %>.App do
 <%= if python do %>
     init_pythonx()
 <% end %><%= unless blank do %>
-    # Register the vendored Mishka Chelekom composites (`<MishkaChip />` and
-    # friends) and every gallery page. The catalog lives in
-    # <%= module_name %>.Showcase, so the app and its tests cannot drift apart.
+    # Register every gallery page in the Mishka Chelekom showcase. The
+    # `<Mishka…>` composite tags themselves come from the `:mob_mishka`
+    # plugin — its own lifecycle registers them at boot, so nothing here
+    # needs to touch `Mob.Composite`. The catalog of gallery ENTRIES (one
+    # per showcased composite) lives in <%= module_name %>.Showcase, so
+    # the app and its tests cannot drift apart.
     <%= module_name %>.Showcase.register_all()
 <% end %>
     Mob.Screen.start_root(<%= module_name %>.HomeScreen)

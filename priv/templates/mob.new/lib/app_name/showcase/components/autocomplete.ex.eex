@@ -1,14 +1,14 @@
 defmodule <%= module_name %>.Showcase.Components.Autocomplete do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaAutocomplete` and
-  `<%= module_name %>.Components.MishkaPillsInput`.
+  Gallery entry for `MobMishka.Components.MishkaAutocomplete` and
+  `MobMishka.Components.MishkaPillsInput`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaPill, only: [pill: 1]
+  import MobMishka.Components.MishkaPill, only: [pill: 1]
 
-  alias <%= module_name %>.Components.{MishkaCombobox, MishkaMenu}
+  alias MobMishka.Components.{MishkaCombobox, MishkaMenu}
   alias <%= module_name %>.Showcase.Example
 
   @cities ["Tehran", "Toronto", "Tokyo", "Berlin", "Bergen", "Lisbon"]

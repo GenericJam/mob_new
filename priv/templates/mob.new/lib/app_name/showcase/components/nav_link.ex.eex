@@ -1,15 +1,15 @@
 defmodule <%= module_name %>.Showcase.Components.NavLink do
   @moduledoc """
-  Gallery entry for the navigation family: `<%= module_name %>.Components.MishkaNavLink`,
-  `<%= module_name %>.Components.MishkaAnchor`, `<%= module_name %>.Components.MishkaMenubar`,
-  `<%= module_name %>.Components.MishkaNavigationMenu` and
-  `<%= module_name %>.Components.MishkaVisuallyHidden`.
+  Gallery entry for the navigation family: `MobMishka.Components.MishkaNavLink`,
+  `MobMishka.Components.MishkaAnchor`, `MobMishka.Components.MishkaMenubar`,
+  `MobMishka.Components.MishkaNavigationMenu` and
+  `MobMishka.Components.MishkaVisuallyHidden`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.{MishkaAnchor, MishkaMenubar, MishkaNavigationMenu}
+  alias MobMishka.Components.{MishkaAnchor, MishkaMenubar, MishkaNavigationMenu}
   alias <%= module_name %>.Showcase.Example
 
   @menus [

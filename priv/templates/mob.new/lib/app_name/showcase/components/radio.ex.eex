@@ -1,11 +1,11 @@
 defmodule <%= module_name %>.Showcase.Components.Radio do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaRadio`.
+  Gallery entry for `MobMishka.Components.MishkaRadio`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaRadio, only: [radio: 1]
+  import MobMishka.Components.MishkaRadio, only: [radio: 1]
 
   alias <%= module_name %>.Showcase.Example
 

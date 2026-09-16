@@ -1,12 +1,12 @@
 defmodule <%= module_name %>.Showcase.Components.ToggleGroup do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaToggleGroup`.
+  Gallery entry for `MobMishka.Components.MishkaToggleGroup`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaToggleGroup
+  alias MobMishka.Components.MishkaToggleGroup
   alias <%= module_name %>.Showcase.Example
 
   @impl true

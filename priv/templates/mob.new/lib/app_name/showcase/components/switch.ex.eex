@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Switch do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaSwitch`.
+  Gallery entry for `MobMishka.Components.MishkaSwitch`.
 
   The first live-input component in the gallery: its examples round-trip through
   `{:change, tag, value}`, which `<%= module_name %>.Showcase.ComponentScreen` forwards to

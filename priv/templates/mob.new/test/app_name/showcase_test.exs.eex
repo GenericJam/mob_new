@@ -2,7 +2,7 @@ defmodule <%= module_name %>.ShowcaseTest do
   # async: false — the registry and composite registry are global (persistent_term).
   use Mob.ScreenCase, async: false
 
-  alias <%= module_name %>.Components.MishkaMark
+  alias MobMishka.Components.MishkaMark
   alias <%= module_name %>.Showcase
   alias <%= module_name %>.Showcase.{ComponentScreen, GalleryScreen}
 

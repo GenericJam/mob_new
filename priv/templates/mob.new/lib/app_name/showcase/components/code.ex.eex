@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Code do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaCode`.
+  Gallery entry for `MobMishka.Components.MishkaCode`.
   """
   use <%= module_name %>.Showcase
 
@@ -51,7 +51,7 @@ defmodule <%= module_name %>.Showcase.Components.Code do
             <Spacer size={12} />
             <MishkaCode
               block={true}
-              text="Mob.Composite.register(:mishka_code, {<%= module_name %>.Components.MishkaCode, :expand})"
+              text="Mob.Composite.register(:mishka_code, {MobMishka.Components.MishkaCode, :expand})"
             />
           </Column>
           """

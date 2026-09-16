@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.SegmentedControl do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaSegmentedControl`.
+  Gallery entry for `MobMishka.Components.MishkaSegmentedControl`.
   """
   use <%= module_name %>.Showcase
 
@@ -8,7 +8,7 @@ defmodule <%= module_name %>.Showcase.Components.SegmentedControl do
 
   # Only option/2 now: the segments are written as <MishkaSegmentedControlOption>
   # tags everywhere except the data-driven example, which has nothing to disable.
-  import <%= module_name %>.Components.MishkaSegmentedControl, only: [option: 2]
+  import MobMishka.Components.MishkaSegmentedControl, only: [option: 2]
 
   alias <%= module_name %>.Showcase.Example
 

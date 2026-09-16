@@ -1,12 +1,12 @@
 defmodule <%= module_name %>.Showcase.Components.Field do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaField` and
-  `<%= module_name %>.Components.MishkaFieldset`.
+  Gallery entry for `MobMishka.Components.MishkaField` and
+  `MobMishka.Components.MishkaFieldset`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaField, only: [field: 2]
+  import MobMishka.Components.MishkaField, only: [field: 2]
 
   alias <%= module_name %>.Showcase.Example
 
@@ -432,10 +432,10 @@ defmodule <%= module_name %>.Showcase.Components.Field do
   @roles [{:owner, "Owner"}, {:admin, "Admin"}, {:member, "Member"}]
 
   defp role_picker(value) do
-    <%= module_name %>.Components.MishkaSegmentedControl.segmented_control(
+    MobMishka.Components.MishkaSegmentedControl.segmented_control(
       %{value: value, on_change: :fld_role, id: "fld-role", text_size: :sm},
       Enum.map(@roles, fn {id, label} ->
-        <%= module_name %>.Components.MishkaSegmentedControl.option(id, label)
+        MobMishka.Components.MishkaSegmentedControl.option(id, label)
       end)
     )
   end

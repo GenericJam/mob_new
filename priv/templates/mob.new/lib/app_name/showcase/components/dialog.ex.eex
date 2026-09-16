@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Dialog do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaDialog`.
+  Gallery entry for `MobMishka.Components.MishkaDialog`.
 
   Like the Drawer, the dialogs themselves are rendered by `overlay/1` at the
   screen root so they stack over the whole page; the example cards hold only the

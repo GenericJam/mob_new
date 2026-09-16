@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Slider do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaSlider`.
+  Gallery entry for `MobMishka.Components.MishkaSlider`.
 
   The stepped example is the interesting one: it shows `snap/2` doing in the
   screen what the native widget cannot do in the track.
@@ -9,7 +9,7 @@ defmodule <%= module_name %>.Showcase.Components.Slider do
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaSlider
+  alias MobMishka.Components.MishkaSlider
   alias <%= module_name %>.Showcase.Example
 
   @impl true

@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Collapsible do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaCollapsible`.
+  Gallery entry for `MobMishka.Components.MishkaCollapsible`.
 
   Each example drives its own boolean, so the difference from the Accordion is
   visible: nothing here coordinates with anything else.

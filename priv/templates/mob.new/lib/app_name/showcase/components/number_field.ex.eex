@@ -1,12 +1,12 @@
 defmodule <%= module_name %>.Showcase.Components.NumberField do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaNumberField`.
+  Gallery entry for `MobMishka.Components.MishkaNumberField`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaNumberField
+  alias MobMishka.Components.MishkaNumberField
   alias <%= module_name %>.Showcase.Example
 
   @impl true

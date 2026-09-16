@@ -1,12 +1,12 @@
 defmodule <%= module_name %>.Showcase.Components.Popover do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaPopover`.
+  Gallery entry for `MobMishka.Components.MishkaPopover`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaPopover
+  alias MobMishka.Components.MishkaPopover
   alias <%= module_name %>.Showcase.Example
 
   @impl true
@@ -268,7 +268,7 @@ defmodule <%= module_name %>.Showcase.Components.Popover do
             "list the function is the right form — a comprehension can return trigger/1, and " <>
             "there is no way to write a tag from one.",
         code: ~S"""
-        alias <%= module_name %>.Components.MishkaPopover
+        alias MobMishka.Components.MishkaPopover
 
         rows = Enum.map(@parcels, &line/1)
 

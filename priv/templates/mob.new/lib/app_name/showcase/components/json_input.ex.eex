@@ -1,13 +1,13 @@
 defmodule <%= module_name %>.Showcase.Components.JsonInput do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaJsonInput` and
-  `<%= module_name %>.Components.MishkaNumberFormatter`.
+  Gallery entry for `MobMishka.Components.MishkaJsonInput` and
+  `MobMishka.Components.MishkaNumberFormatter`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaJsonInput
+  alias MobMishka.Components.MishkaJsonInput
   alias <%= module_name %>.Showcase.Example
 
   @impl true

@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.TreeSelect do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaTreeSelect`.
+  Gallery entry for `MobMishka.Components.MishkaTreeSelect`.
 
   Every example carries its own `id` and its own assigns, so a device test can
   say which trigger it tapped and which panel answered.
@@ -9,7 +9,7 @@ defmodule <%= module_name %>.Showcase.Components.TreeSelect do
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaTree
+  alias MobMishka.Components.MishkaTree
   alias <%= module_name %>.Showcase.Example
 
   @files [

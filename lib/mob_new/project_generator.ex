@@ -118,7 +118,8 @@ defmodule MobNew.ProjectGenerator do
       |> String.replace("_", "_1")
       |> String.replace(".", "_")
 
-    {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib} = resolve_deps(opts)
+    {mob_dep, mob_dev_dep, mob_mishka_dep, mob_exs_mob_dir, mob_exs_elixir_lib} =
+      resolve_deps(opts)
 
     %{
       app_name: app_name,
@@ -131,6 +132,7 @@ defmodule MobNew.ProjectGenerator do
       java_path: java_path,
       mob_dep: mob_dep,
       mob_dev_dep: mob_dev_dep,
+      mob_mishka_dep: mob_mishka_dep,
       mob_exs_mob_dir: mob_exs_mob_dir,
       mob_exs_elixir_lib: mob_exs_elixir_lib,
       ndk_version: MobNew.NdkVersion.recommended(),
@@ -525,7 +527,15 @@ defmodule MobNew.ProjectGenerator do
     if File.exists?(path) do
       a = assigns(Path.basename(project_dir), opts)
       content = File.read!(path)
-      patched = MobNew.LiveViewPatcher.inject_deps(content, a.mob_dep, a.mob_dev_dep)
+
+      patched =
+        MobNew.LiveViewPatcher.inject_deps(
+          content,
+          a.mob_dep,
+          a.mob_dev_dep,
+          if(a.blank, do: nil, else: a.mob_mishka_dep)
+        )
+
       File.write!(path, patched)
       Mix.shell().info([:green, "* patch ", :reset, path, " (added mob deps)"])
       :ok
@@ -1143,21 +1153,29 @@ defmodule MobNew.ProjectGenerator do
       # sub-dependency requirement.
       mob_dep = ~s({:mob,     path: "#{mob_dir}", override: true})
       mob_dev_dep = ~s({:mob_dev, path: "#{mob_dev_dir}", only: :dev, runtime: false})
+
+      # mob_mishka is a sibling repo during the extraction spike (MOB-246);
+      # once it publishes to Hex, `--local` can fall back to the Hex dep.
+      # The optional MOB_MISHKA_DIR env var supports a mob_mishka checkout
+      # in a non-standard location.
+      mob_mishka_dep = resolve_mob_mishka_dep_local()
+
       mob_exs_mob_dir = inspect(mob_dir)
       mob_exs_elixir_lib = inspect(elixir_lib)
 
-      {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
+      {mob_dep, mob_dev_dep, mob_mishka_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
     else
       # Floor at 0.8.3, not "~> 0.8". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
-      #   * The generated `config :mob, :extra_tags` (the vendored Mishka
-      #     Chelekom catalog's composite tags) is read by the `~MOB` sigil from
-      #     mob 0.8.3 (MOB-188). On an older mob the list is ignored and a
-      #     fresh app compiles with hundreds of whitelist warnings.
-      #   * The vendored popover family emits `:anchored`, which mob 0.8.3's
-      #     iOS renderer draws as a floating panel and lists on its whitelist
+      #   * The `:mob_mishka` plugin (MOB-246) supplies the ~75 <Mishka…>
+      #     composite tags via its manifest — the `~MOB` sigil reads plugin
+      #     manifests for tag membership from the mob version that ships
+      #     MOB-247. On an older mob those tags are unknown and a fresh app
+      #     compiles with hundreds of whitelist warnings.
+      #   * The popover family emits `:anchored`, which mob 0.8.3's iOS
+      #     renderer draws as a floating panel and lists on its whitelist
       #     (MOB-190). On an older mob it falls to a plain column — popovers
       #     stack inline — and the generated showcase test fails.
       #   * Earlier floors' reasons still hold: beam_jni.c calls
@@ -1167,6 +1185,7 @@ defmodule MobNew.ProjectGenerator do
       # `~>` still allows the whole 0.8.x line above the floor.
       mob_dep = ~s({:mob,     "~> 0.8.3"})
       mob_dev_dep = ~s({:mob_dev, "~> 0.6", only: :dev, runtime: false})
+      mob_mishka_dep = ~s({:mob_mishka, "~> 0.0"})
       mob_exs_mob_dir = "Path.join(File.cwd!(), \"deps/mob\")"
 
       # Default to the running Elixir's actual lib dir — `:code.lib_dir(:elixir)`
@@ -1179,7 +1198,26 @@ defmodule MobNew.ProjectGenerator do
       mob_exs_elixir_lib =
         "System.get_env(\"MOB_ELIXIR_LIB\", :code.lib_dir(:elixir) |> to_string() |> Path.dirname())"
 
-      {mob_dep, mob_dev_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
+      {mob_dep, mob_dev_dep, mob_mishka_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
+    end
+  end
+
+  # Prefer a local mob_mishka checkout when one is around, else fall back to
+  # the Hex dep. During the extraction spike (MOB-246) mob_mishka is a
+  # private repo and not on Hex; once it publishes, this simplifies.
+  defp resolve_mob_mishka_dep_local do
+    cond do
+      path = System.get_env("MOB_MISHKA_DIR") ->
+        ~s({:mob_mishka, path: "#{Path.expand(path)}"})
+
+      File.dir?(sibling = Path.expand("./mob_mishka")) ->
+        ~s({:mob_mishka, path: "#{sibling}"})
+
+      File.dir?(sibling = Path.expand("../mob_mishka")) ->
+        ~s({:mob_mishka, path: "#{sibling}"})
+
+      true ->
+        ~s({:mob_mishka, "~> 0.0"})
     end
   end
 
@@ -1245,13 +1283,14 @@ defmodule MobNew.ProjectGenerator do
     end
   end
 
-  # The vendored Mishka Chelekom showcase (see `mix mob_new.sync_mishka`): the
-  # components, the gallery that presents them, the theme bar (which needs the
-  # mob_themes package a blank app does not depend on), and the showcase test.
-  # `home_screen.ex.eex` and `app.ex.eex` gate their references with `blank`.
+  # The Mishka Chelekom showcase: the gallery pages, the theme bar (which
+  # needs the mob_themes package a blank app does not depend on), and the
+  # showcase test. `home_screen.ex.eex` and `app.ex.eex` gate their
+  # references with `blank`. The composite source files that used to live
+  # under `lib/app_name/components/` no longer ship here — the `:mob_mishka`
+  # plugin owns them (see MOB-246 extraction epic).
   defp mishka_template?(rel) do
-    String.starts_with?(rel, "lib/app_name/components/") or
-      String.starts_with?(rel, "lib/app_name/showcase/") or
+    String.starts_with?(rel, "lib/app_name/showcase/") or
       rel in [
         "lib/app_name/showcase.ex.eex",
         "lib/app_name/theme_bar.ex.eex",

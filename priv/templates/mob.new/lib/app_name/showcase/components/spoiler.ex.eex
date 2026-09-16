@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Spoiler do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaSpoiler`.
+  Gallery entry for `MobMishka.Components.MishkaSpoiler`.
   """
   use <%= module_name %>.Showcase
 

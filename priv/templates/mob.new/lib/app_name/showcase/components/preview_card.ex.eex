@@ -1,13 +1,13 @@
 defmodule <%= module_name %>.Showcase.Components.PreviewCard do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaPreviewCard` and
-  `<%= module_name %>.Components.MishkaScroller`.
+  Gallery entry for `MobMishka.Components.MishkaPreviewCard` and
+  `MobMishka.Components.MishkaScroller`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaScroller
+  alias MobMishka.Components.MishkaScroller
   alias <%= module_name %>.Showcase.Example
 
   # Two of them, because one trigger can only prove that a card opens — two prove

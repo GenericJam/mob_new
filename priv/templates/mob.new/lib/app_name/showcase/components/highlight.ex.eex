@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Highlight do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaHighlight`.
+  Gallery entry for `MobMishka.Components.MishkaHighlight`.
 
   The first example is live: type-free, but the query cycles through buttons so
   the matching is visible rather than described.

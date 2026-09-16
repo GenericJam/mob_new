@@ -31,7 +31,15 @@ defmodule <%= module_name %>.MixProject do
       {:mob_camera, "~> 0.1"},
       {:mob_location, "~> 0.1"},
       {:mob_biometric, "~> 0.1"},
-      {:mob_themes, "~> 0.1"},<% end %>
+      {:mob_themes, "~> 0.1"},
+      # Mishka Chelekom composites — the ~75 <Mishka…> tags the generated
+      # app uses across its home screen, showcase gallery, and demo screens.
+      # Ships as a plugin (MOB-246): `MobMishka.register_all/0` is called from
+      # the plugin's own on_start, so nothing here needs to reference it.
+      # `mix mob_mishka.gen <name>` ejects a composite into your lib/ for
+      # editing (activate with `config :mob_mishka, :override_namespace,
+      # <%= module_name %>.Components`).
+      <%= mob_mishka_dep %>,<% end %>
       # Code quality — Credo + ex_slop (catches AI-generated patterns
       # like blanket rescue, narrator docs, redundant Enum chains, etc).
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

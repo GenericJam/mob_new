@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.RollingNumber do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaRollingNumber`.
+  Gallery entry for `MobMishka.Components.MishkaRollingNumber`.
 
   The number really counts: the buttons hand `steps/3` to the screen, which walks
   the sequence on a timer. That round trip is the component's whole story, so the
@@ -10,7 +10,7 @@ defmodule <%= module_name %>.Showcase.Components.RollingNumber do
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaRollingNumber
+  alias MobMishka.Components.MishkaRollingNumber
   alias <%= module_name %>.Showcase.Example
 
   @impl true

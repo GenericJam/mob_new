@@ -56,6 +56,7 @@ import androidx.compose.ui.platform.LocalDensity
 import kotlin.math.abs
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size as ComposeSize
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -118,7 +119,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
@@ -5143,7 +5143,15 @@ private fun MobCanvas(node: MobNode, modifier: Modifier) {
         }
     }
 
-    Canvas(modifier = dragged) {
+    // clipToBounds so canvas ops that draw outside the declared width/height
+    // don't paint over sibling nodes stacked below (MOB-256). SwiftUI's
+    // Canvas clips by default; Compose's does not. MishkaSemiCircleProgress
+    // is one composite that relies on the clip: its `Mob.Canvas.arc(cx, cy,
+    // r, 180, 360)` draws a full-radius arc centred at (size/2, size/2)
+    // inside a Box whose height is only `size * 0.54`, so the bottom half of
+    // the arc is meant to be cropped away. Without clipping on Android, the
+    // full circle draws through the caption Text below the gauge.
+    Canvas(modifier = dragged.clipToBounds()) {
         ops.forEach { op -> drawCanvasOp(op) }
     }
 }

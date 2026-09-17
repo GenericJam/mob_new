@@ -518,6 +518,23 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(path)
     end
 
+    test "MobBridge.kt Canvas clips ops to its bounds (MOB-256)", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # SwiftUI's Canvas clips its content to its declared width/height by
+      # default; Compose's Canvas does not. `MishkaSemiCircleProgress` in
+      # mob_mishka relies on the clip — it draws a full-radius arc centred
+      # at (size/2, size/2) inside a Box whose height is only `size * 0.54`,
+      # so the bottom half of the arc is meant to be cropped away. Without
+      # explicit clipToBounds() on Android, the arc painted over the caption
+      # Text below the gauge (verified on physical Moto G Power 2026-09-17).
+      assert content =~ "import androidx.compose.ui.draw.clipToBounds"
+      assert content =~ "dragged.clipToBounds()"
+    end
+
     test "MobBridge.kt declares ttsSpeak/ttsStop for text-to-speech", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

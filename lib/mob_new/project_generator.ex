@@ -1183,9 +1183,9 @@ defmodule MobNew.ProjectGenerator do
       #     Box accessibility props are validated and encoded from 0.7.32.
       #
       # `~>` still allows the whole 0.8.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.8.3"})
+      mob_dep = ~s({:mob,     "~> 0.9.0"})
       mob_dev_dep = ~s({:mob_dev, "~> 0.6", only: :dev, runtime: false})
-      mob_mishka_dep = ~s({:mob_mishka, "~> 0.0"})
+      mob_mishka_dep = ~s({:mob_mishka, "~> 0.1"})
       mob_exs_mob_dir = "Path.join(File.cwd!(), \"deps/mob\")"
 
       # Default to the running Elixir's actual lib dir — `:code.lib_dir(:elixir)`

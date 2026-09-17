@@ -235,8 +235,11 @@ defmodule MobNew.ProjectGeneratorTest do
     test "mix.exs floors mob at the release the generated app relies on", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "mix.exs"))
-      # 0.8.3 reads config :mob, :extra_tags and renders :anchored on iOS.
-      assert content =~ ~s({:mob,     "~> 0.8.3"})
+      # 0.9.0 unions plugin-manifest :tags into the ~MOB whitelist (MOB-247),
+      # which is what lets mob_mishka's <MishkaHueSlider> etc. compile
+      # without a config :mob, :extra_tags block.
+      assert content =~ ~s({:mob,     "~> 0.9.0"})
+      assert content =~ ~s({:mob_mishka, "~> 0.1"})
     end
 
     test "mix.exs contains correct app name", %{tmp: tmp} do

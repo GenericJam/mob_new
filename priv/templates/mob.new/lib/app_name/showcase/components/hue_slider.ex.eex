@@ -4,7 +4,7 @@ defmodule <%= module_name %>.Showcase.Components.HueSlider do
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.{Color, MishkaHueSlider}
+  alias MobMishka.Components.{Color, MishkaHueSlider}
   alias <%= module_name %>.Showcase.Example
 
   @impl true

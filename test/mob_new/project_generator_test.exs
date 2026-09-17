@@ -1501,18 +1501,25 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       # The MOB-252 rewrite retargets showcase-file aliases from
-      # `TestApp.Components.Mishka*` to `MobMishka.Components.Mishka*` so
-      # unedited apps reach the plugin's default composite. Users who want
-      # to edit a composite run `mix mob_mishka.gen <name>` — the resulting
-      # app-local copy supersedes the plugin's default via
-      # `config :mob_mishka, :override_namespace`.
+      # `TestApp.Components.*` to `MobMishka.Components.*` so unedited apps
+      # reach the plugin's default composite AND its support modules
+      # (Event, Color, Anchored). Users who want to edit a composite run
+      # `mix mob_mishka.gen <name>` — the resulting app-local copy supersedes
+      # the plugin's default via `config :mob_mishka, :override_namespace`.
       for file <- Path.wildcard(Path.join(dir, "{lib,test}/test_app/**/*.{ex,exs}")) do
         content = File.read!(file)
         refute content =~ "MishkaMob", "#{file} still names the upstream Mishka app module"
         refute content =~ "mishka_mob", "#{file} still names the upstream Mishka OTP app"
 
-        refute content =~ ~r/TestApp\.Components\.Mishka[A-Z]/,
-               "#{file} references a vendored TestApp.Components.Mishka* module; " <>
+        # Match ANY identifier under TestApp.Components, not just Mishka* —
+        # a first pass missed `Event.handler`, `Color.hue_rgb`, etc. which
+        # live under Components without the Mishka prefix. Real regression:
+        # showcase/components/color_picker.ex references Event.handler/1
+        # (via `alias Event` at the top of the file) and MishkaColorPicker.area/5
+        # by short name, so leaving even one `TestApp.Components.X` alias in
+        # place makes the whole generated app fail to compile.
+        refute content =~ ~r/TestApp\.Components\.[A-Z]/,
+               "#{file} references a TestApp.Components.* module; " <>
                  "showcase files should alias MobMishka.Components.* instead."
       end
 

@@ -4,7 +4,7 @@ defmodule <%= module_name %>.Showcase.Components.ColorPicker do
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.{Color, Event, MishkaColorPicker, MishkaHueSlider}
+  alias MobMishka.Components.{Color, Event, MishkaColorPicker, MishkaHueSlider}
   alias <%= module_name %>.Showcase.Example
 
   # The picker's own default width. The handler converts a touch x back to a

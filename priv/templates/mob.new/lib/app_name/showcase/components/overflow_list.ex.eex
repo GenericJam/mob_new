@@ -246,7 +246,7 @@ defmodule <%= module_name %>.Showcase.Components.OverflowList do
         width: @surface_width,
         height: @rail_height,
         id: "rail-handle",
-        on_drag: <%= module_name %>.Components.Event.handler(:width),
+        on_drag: MobMishka.Components.Event.handler(:width),
         draw: [
           # Drawn just OUTSIDE the box, not straddling its edge: at width - 3 it
           # sat on top of the "+N" counter, which lives hard against that edge.

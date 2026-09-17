@@ -8,9 +8,26 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.6.0] - 2026-09-17
+
+### Changed
+- **Generated apps no longer vendor Mishka Chelekom composites** (MOB-252).
+  `mix mob.new` used to copy 75+ `.ex` files (`lib/<app>/components/mishka_*.ex`)
+  and a fenced `config :mob, :extra_tags` block into every project. The template
+  now pins `{:mob_mishka, "~> 0.1"}` instead — composites ship as a Hex plugin,
+  upgrade like any other dep, and stay swappable via `mix mob_mishka.gen`
+  (opt-in vendoring). Existing apps: run `mix mob_mishka.migrate` to convert.
+  Requires mob 0.9.0+ (MOB-247 plugin-manifest tag discovery); generated
+  `mix.exs` floors `{:mob, "~> 0.9.0"}` accordingly.
 
 ### Fixed
+- **Generated Android arc handler no longer scales angles by device density**
+  (MOB-256). The `arc` op unpacked `start_deg`/`end_deg` with `canvasFloat`,
+  which applies `.dp.toPx()` and multiplied 180° into 315° on a 1.75× screen.
+  `MishkaSemiCircleProgress` and `MishkaAngleSlider` painted almost anywhere
+  except where their contracts said. Angles now use the untransformed
+  `numberFloat` helper. `.clipToBounds()` on the Compose Canvas stays for
+  iOS-parity when composites deliberately draw outside declared bounds.
 - **Generated Android Row and Column honor `gap`** (MOB-234). The bridge maps
   the resolved spacing value to the stack's main-axis Compose arrangement,
   matching the iOS renderer. Existing generated apps must regenerate or copy

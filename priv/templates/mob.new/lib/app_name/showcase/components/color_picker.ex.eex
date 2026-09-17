@@ -1,10 +1,10 @@
 defmodule <%= module_name %>.Showcase.Components.ColorPicker do
-  @moduledoc "Gallery entry for `<%= module_name %>.Components.MishkaColorPicker`."
+  @moduledoc "Gallery entry for `MobMishka.Components.MishkaColorPicker`."
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.{Color, Event, MishkaColorPicker, MishkaHueSlider}
+  alias MobMishka.Components.{Color, Event, MishkaColorPicker, MishkaHueSlider}
   alias <%= module_name %>.Showcase.Example
 
   # The picker's own default width. The handler converts a touch x back to a

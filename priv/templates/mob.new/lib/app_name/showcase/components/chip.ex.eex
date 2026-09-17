@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Chip do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaChip`.
+  Gallery entry for `MobMishka.Components.MishkaChip`.
 
   Shows both selection shapes the web component gets from `type`: the first
   example toggles membership (checkbox chips), the second replaces the selection
@@ -9,7 +9,7 @@ defmodule <%= module_name %>.Showcase.Components.Chip do
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaChip, only: [chip: 1]
+  import MobMishka.Components.MishkaChip, only: [chip: 1]
 
   alias <%= module_name %>.Showcase.Example
 

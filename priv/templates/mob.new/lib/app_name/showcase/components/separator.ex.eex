@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Separator do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaSeparator`.
+  Gallery entry for `MobMishka.Components.MishkaSeparator`.
 
   The examples are written with the `~MOB` sigil: native widgets as tags, the
   Chelekom component as an interpolated function call — the same split HEEx

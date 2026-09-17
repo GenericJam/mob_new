@@ -1,13 +1,13 @@
 defmodule <%= module_name %>.Showcase.Components.ContextMenu do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaContextMenu`.
+  Gallery entry for `MobMishka.Components.MishkaContextMenu`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaMenu, only: [item: 3, separator: 0]
+  import MobMishka.Components.MishkaMenu, only: [item: 3, separator: 0]
 
-  alias <%= module_name %>.Components.MishkaContextMenu
+  alias MobMishka.Components.MishkaContextMenu
   alias <%= module_name %>.Showcase.Example
 
   @files [{:report, "report.pdf"}, {:notes, "notes.md"}]

@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Toast do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaToast`.
+  Gallery entry for `MobMishka.Components.MishkaToast`.
 
   The toasts really stack, dedup and cap — the buttons drive the queue functions,
   and `overlay/1` renders the viewport over the whole page.
@@ -8,9 +8,9 @@ defmodule <%= module_name %>.Showcase.Components.Toast do
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaToast, only: [toast: 1]
+  import MobMishka.Components.MishkaToast, only: [toast: 1]
 
-  alias <%= module_name %>.Components.MishkaToast.Queue
+  alias MobMishka.Components.MishkaToast.Queue
   alias <%= module_name %>.Showcase.Example
 
   @impl true

@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.AlertDialog do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaAlertDialog`.
+  Gallery entry for `MobMishka.Components.MishkaAlertDialog`.
 
   Rendered through `overlay/1` at the screen root, like the Dialog and Drawer.
 
@@ -20,7 +20,7 @@ defmodule <%= module_name %>.Showcase.Components.AlertDialog do
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaAlertDialog
+  alias MobMishka.Components.MishkaAlertDialog
   alias <%= module_name %>.Showcase.Example
 
   @impl true

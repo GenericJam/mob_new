@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.LoadingOverlay do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaLoadingOverlay`.
+  Gallery entry for `MobMishka.Components.MishkaLoadingOverlay`.
 
   Every example is live: the overlay really covers its region, and the counter
   under the first one proves it really absorbs the taps aimed at what it covers.

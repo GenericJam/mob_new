@@ -1,12 +1,12 @@
 defmodule <%= module_name %>.Showcase.Components.SemiCircleProgress do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaSemiCircleProgress`.
+  Gallery entry for `MobMishka.Components.MishkaSemiCircleProgress`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
 
-  import <%= module_name %>.Components.MishkaSemiCircleProgress, only: [semi_circle_progress: 1]
+  import MobMishka.Components.MishkaSemiCircleProgress, only: [semi_circle_progress: 1]
 
   alias <%= module_name %>.Showcase.Example
 

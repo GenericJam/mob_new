@@ -1,7 +1,7 @@
 defmodule <%= module_name %>.Showcase.Components.Toolbar do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaToolbar` and
-  `<%= module_name %>.Components.MishkaBurger`.
+  Gallery entry for `MobMishka.Components.MishkaToolbar` and
+  `MobMishka.Components.MishkaBurger`.
 
   Every example owns its assigns and its own toolbar `id`. Sharing one `@pressed`
   between two bars makes every device assertion ambiguous the moment the second
@@ -10,10 +10,10 @@ defmodule <%= module_name %>.Showcase.Components.Toolbar do
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaToggle, only: [toggle: 1]
-  import <%= module_name %>.Components.MishkaActionIcon, only: [action_icon: 1]
+  import MobMishka.Components.MishkaToggle, only: [toggle: 1]
+  import MobMishka.Components.MishkaActionIcon, only: [action_icon: 1]
 
-  alias <%= module_name %>.Components.MishkaToolbar
+  alias MobMishka.Components.MishkaToolbar
   alias <%= module_name %>.Showcase.Example
 
   # Both overflow examples draw from these, so the only thing that differs

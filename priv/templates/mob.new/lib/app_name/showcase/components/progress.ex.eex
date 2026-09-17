@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Progress do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaProgress`.
+  Gallery entry for `MobMishka.Components.MishkaProgress`.
 
   The determinate examples are driven by a live value the buttons move, so the
   bar, the readout and the clamping are all visible on device rather than being

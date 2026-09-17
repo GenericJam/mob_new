@@ -1,13 +1,13 @@
 defmodule <%= module_name %>.Showcase.Components.Select do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaSelect`.
+  Gallery entry for `MobMishka.Components.MishkaSelect`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaSelect, only: [option: 2]
+  import MobMishka.Components.MishkaSelect, only: [option: 2]
 
-  alias <%= module_name %>.Components.MishkaSelect
+  alias MobMishka.Components.MishkaSelect
   alias <%= module_name %>.Showcase.Example
 
   @countries [

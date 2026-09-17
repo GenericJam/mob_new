@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.TagsInput do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaTagsInput`.
+  Gallery entry for `MobMishka.Components.MishkaTagsInput`.
 
   Fully live: type a tag, press return, tap a ✕ to remove it.
   """
@@ -8,7 +8,7 @@ defmodule <%= module_name %>.Showcase.Components.TagsInput do
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaTagsInput
+  alias MobMishka.Components.MishkaTagsInput
   alias <%= module_name %>.Showcase.Example
 
   @impl true

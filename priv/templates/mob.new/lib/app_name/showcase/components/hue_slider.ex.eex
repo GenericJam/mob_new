@@ -1,10 +1,10 @@
 defmodule <%= module_name %>.Showcase.Components.HueSlider do
-  @moduledoc "Gallery entry for `<%= module_name %>.Components.MishkaHueSlider`."
+  @moduledoc "Gallery entry for `MobMishka.Components.MishkaHueSlider`."
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.{Color, MishkaHueSlider}
+  alias MobMishka.Components.{Color, MishkaHueSlider}
   alias <%= module_name %>.Showcase.Example
 
   @impl true

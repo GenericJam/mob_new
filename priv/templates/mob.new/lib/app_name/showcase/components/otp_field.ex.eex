@@ -1,13 +1,13 @@
 defmodule <%= module_name %>.Showcase.Components.OtpField do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaOtpField` and
-  `<%= module_name %>.Components.MishkaMaskInput`.
+  Gallery entry for `MobMishka.Components.MishkaOtpField` and
+  `MobMishka.Components.MishkaMaskInput`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.{MishkaMaskInput, MishkaOtpField}
+  alias MobMishka.Components.{MishkaMaskInput, MishkaOtpField}
   alias <%= module_name %>.Showcase.Example
 
   @phone_mask "(999) 999-9999"
@@ -62,7 +62,7 @@ defmodule <%= module_name %>.Showcase.Components.OtpField do
         # The function form is still there and gives identical output, for
         # anything a tag cannot express:
         #
-        #   import <%= module_name %>.Components.MishkaOtpField, only: [otp_field: 1]
+        #   import MobMishka.Components.MishkaOtpField, only: [otp_field: 1]
         #   {otp_field(value: @code, length: 6, on_change: :code)}
         ''',
         render: fn assigns ->

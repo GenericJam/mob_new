@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Accordion do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaAccordion`.
+  Gallery entry for `MobMishka.Components.MishkaAccordion`.
 
   Each example owns a separate open set in the screen's assigns and a separate
   `on_toggle` tag, so opening a panel in one example never disturbs another —
@@ -11,7 +11,7 @@ defmodule <%= module_name %>.Showcase.Components.Accordion do
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaAccordion
+  alias MobMishka.Components.MishkaAccordion
   alias <%= module_name %>.Showcase.Example
 
   @impl true

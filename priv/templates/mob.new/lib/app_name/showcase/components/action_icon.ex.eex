@@ -1,7 +1,7 @@
 defmodule <%= module_name %>.Showcase.Components.ActionIcon do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaActionIcon` and its
-  `<%= module_name %>.Components.MishkaCloseButton` wrapper.
+  Gallery entry for `MobMishka.Components.MishkaActionIcon` and its
+  `MobMishka.Components.MishkaCloseButton` wrapper.
   """
   use <%= module_name %>.Showcase
 

@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Pill do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaPill`.
+  Gallery entry for `MobMishka.Components.MishkaPill`.
 
   The first example is live: the pills really are removable, and a reset button
   brings them back.
@@ -8,7 +8,7 @@ defmodule <%= module_name %>.Showcase.Components.Pill do
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaPill, only: [pill: 1]
+  import MobMishka.Components.MishkaPill, only: [pill: 1]
 
   alias <%= module_name %>.Showcase.Example
 

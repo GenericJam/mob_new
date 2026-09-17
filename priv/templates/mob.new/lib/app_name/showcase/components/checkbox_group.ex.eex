@@ -1,13 +1,13 @@
 defmodule <%= module_name %>.Showcase.Components.CheckboxGroup do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaCheckboxGroup`.
+  Gallery entry for `MobMishka.Components.MishkaCheckboxGroup`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaCheckboxGroup, only: [item: 2]
+  import MobMishka.Components.MishkaCheckboxGroup, only: [item: 2]
 
-  alias <%= module_name %>.Components.MishkaCheckboxGroup
+  alias MobMishka.Components.MishkaCheckboxGroup
   alias <%= module_name %>.Showcase.Example
 
   @langs [{:beam, "BEAM"}, {:otp, "OTP"}, {:phoenix, "Phoenix"}, {:ecto, "Ecto"}]

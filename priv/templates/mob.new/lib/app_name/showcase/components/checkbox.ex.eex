@@ -1,6 +1,6 @@
 defmodule <%= module_name %>.Showcase.Components.Checkbox do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaCheckbox`.
+  Gallery entry for `MobMishka.Components.MishkaCheckbox`.
 
   The "select all" example is the one worth reading: it is the tristate parent
   from the web component, rebuilt as a reducer in the screen with `toggle/1`.
@@ -8,7 +8,7 @@ defmodule <%= module_name %>.Showcase.Components.Checkbox do
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaCheckbox, only: [checkbox: 1]
+  import MobMishka.Components.MishkaCheckbox, only: [checkbox: 1]
 
   alias <%= module_name %>.Showcase.Example
 

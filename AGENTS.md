@@ -183,26 +183,32 @@ Two rules that outrank the list:
   never re-keys a `remember`. `navKey` stays the navigation-only signal
   (`LocalSlotEpoch`); do not fold the two together.
 
-## The default app is the Mishka Chelekom showcase (vendored)
+## The default app is the Mishka Chelekom showcase (via the mob_mishka plugin)
 
-`priv/templates/mob.new/lib/app_name/{components,showcase,showcase.ex,theme_bar.ex}`
-and `test/app_name/showcase_test.exs.eex` are **not hand-edited**. They are
-copied from the `mishka_chelekom` monorepo's `development/mob` app (itself a
-`mix mob.new` project) by
+The Mishka composites are no longer vendored into the template
+(`priv/templates/mob.new/lib/app_name/components/mishka_*.ex.eex` deleted
+in MOB-252). They ship as the `:mob_mishka` Hex plugin, which the
+generated `mix.exs` depends on. The plugin's `on_start` registers each
+`<Mishka…>` tag via `Mob.Composite`; the plugin's `priv/mob_plugin.exs`
+whitelists them for `~MOB` via MOB-247's plugin-manifest tag discovery.
 
-```bash
-mix mob_new.sync_mishka ~/code/mishka_chelekom   # then regenerate + test a project
-```
+What still lives here in `priv/templates/mob.new/lib/app_name/`:
 
-which rewrites `MishkaMob` → `<%= module_name %>` and `mishka_mob` →
-`<%= app_name %>`, clears the target directories first, refills the fenced
-`config :mob, :extra_tags` block in `config/config.exs.eex` from the catalog in
-`showcase.ex`, and stamps the upstream commit into `priv/mishka_sync.txt`. Fix
-a component upstream (Kevin's fork tracks it) and re-sync; a local edit to a
-vendored template is lost on the next sync. `home_screen.ex.eex`, `app.ex.eex`
-and `home_screen_test.exs.eex` are hand-maintained and carry the `--blank`
-gating as two whole modules in one file rather than interleaved fragments;
-`blank_excluded?/3` is what keeps the vendored tree out of a blank app.
+- `showcase/` — the gallery pages that USE the plugin's composites via
+  `<Mishka…>` tags in `~MOB` sigils, plus the `showcase.ex` registry.
+- `theme_bar.ex.eex` — the theme picker.
+- `showcase_test.exs.eex` — the gallery test.
+
+These files alias `MobMishka.Components.Mishka*` for the few sites that
+need to reference a composite by module. If a user runs
+`mix mob_mishka.gen <name>` to eject a composite into their `lib/`, the
+plugin's registry picks up the app-local override on next boot (via
+`config :mob_mishka, :override_namespace, <App>.Components`).
+
+`home_screen.ex.eex`, `app.ex.eex` and `home_screen_test.exs.eex` are
+hand-maintained and carry the `--blank` gating as two whole modules in
+one file rather than interleaved fragments; `blank_excluded?/3` keeps
+the showcase tree out of a blank app.
 
 Verifying a template change against a real project from a worktree needs three
 env vars: `--local` resolves templates from `$HOME/code/mob_new` unless

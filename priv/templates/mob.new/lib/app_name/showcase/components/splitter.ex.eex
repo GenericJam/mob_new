@@ -1,12 +1,12 @@
 defmodule <%= module_name %>.Showcase.Components.Splitter do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaSplitter`.
+  Gallery entry for `MobMishka.Components.MishkaSplitter`.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
 
-  alias <%= module_name %>.Components.MishkaSplitter
+  alias MobMishka.Components.MishkaSplitter
   alias <%= module_name %>.Showcase.Example
 
   @extent 300

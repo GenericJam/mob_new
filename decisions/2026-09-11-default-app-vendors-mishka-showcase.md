@@ -1,7 +1,7 @@
 # The default generated app vendors the Mishka Chelekom showcase
 
 - Date: 2026-09-11
-- Status: accepted
+- Status: superseded by 2026-09-16-retire-mishka-vendoring-for-plugin.md
 - Issue: MOB-188
 
 ## Context

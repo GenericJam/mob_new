@@ -107,19 +107,21 @@ defmodule MobNew.LiveViewPatcher do
   any non-stdlib module (an earlier Sourceror-based version crashed every
   installed user with `UndefinedFunctionError`; see issues.md #1).
   """
-  def inject_deps(content, mob_dep, mob_dev_dep) do
-    case inject_deps_via_ast(content, mob_dep, mob_dev_dep) do
+  def inject_deps(content, mob_dep, mob_dev_dep, mob_mishka_dep \\ nil) do
+    case inject_deps_via_ast(content, mob_dep, mob_dev_dep, mob_mishka_dep) do
       {:ok, patched} -> patched
       :unchanged -> content
     end
   end
 
-  defp inject_deps_via_ast(content, mob_dep, mob_dev_dep) do
+  defp inject_deps_via_ast(content, mob_dep, mob_dev_dep, mob_mishka_dep) do
     with {:ok, ast} <- Code.string_to_quoted(content),
          false <- mob_already_present?(ast),
          {:ok, mob_quoted} <- parse_dep_tuple(mob_dep),
          {:ok, mob_dev_quoted} <- parse_dep_tuple(mob_dev_dep),
-         {:ok, patched_ast} <- append_to_deps(ast, [mob_quoted, mob_dev_quoted]) do
+         {:ok, mishka_asts} <- parse_optional_dep(mob_mishka_dep),
+         {:ok, patched_ast} <-
+           append_to_deps(ast, [mob_quoted, mob_dev_quoted] ++ mishka_asts) do
       {:ok, quoted_to_source(patched_ast)}
     else
       # mob already declared — no-op for idempotency
@@ -134,6 +136,18 @@ defmodule MobNew.LiveViewPatcher do
   end
 
   defp parse_dep_tuple(tuple_str), do: Code.string_to_quoted(tuple_str)
+
+  # Optional dep — callers that don't pass one (older callers, or the
+  # `--blank` template that shouldn't pull in mob_mishka either) get an
+  # empty list back so append_to_deps stays a single code path.
+  defp parse_optional_dep(nil), do: {:ok, []}
+
+  defp parse_optional_dep(tuple_str) do
+    case Code.string_to_quoted(tuple_str) do
+      {:ok, ast} -> {:ok, [ast]}
+      err -> err
+    end
+  end
 
   # Serialize the patched AST back to source with **stdlib only** — NOT Sourceror.
   # This module is reachable from `mix mob.new` running as a Mix *archive*, and

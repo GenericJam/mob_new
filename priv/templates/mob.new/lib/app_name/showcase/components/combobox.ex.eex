@@ -1,15 +1,15 @@
 defmodule <%= module_name %>.Showcase.Components.Combobox do
   @moduledoc """
-  Gallery entry for `<%= module_name %>.Components.MishkaCombobox`.
+  Gallery entry for `MobMishka.Components.MishkaCombobox`.
 
   Fully live: type to filter, tap to choose, ✕ to clear.
   """
   use <%= module_name %>.Showcase
 
   import Mob.Sigil
-  import <%= module_name %>.Components.MishkaCombobox, only: [option: 2, option: 3]
+  import MobMishka.Components.MishkaCombobox, only: [option: 2, option: 3]
 
-  alias <%= module_name %>.Components.{MishkaCombobox, MishkaSelect}
+  alias MobMishka.Components.{MishkaCombobox, MishkaSelect}
   alias <%= module_name %>.Showcase.Example
 
   @countries [

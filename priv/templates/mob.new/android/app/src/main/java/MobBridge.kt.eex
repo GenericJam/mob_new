@@ -5200,17 +5200,19 @@ private fun DrawScope.drawCanvasOp(op: Map<String, Any?>) {
 
         "arc" -> {
             // Mob.Canvas arc: degrees, 0° to the right, sweeping clockwise.
-            // Compose drawArc takes startAngle + sweepAngle in degrees, same convention.
+            // Compose drawArc uses the same convention, so pass through.
+            // start_deg / end_deg are ANGLES — do NOT run them through
+            // canvasFloat, which converts dp to px and scales by device
+            // density (e.g. 180° × 1.75 = 315 on a 2.75x screen).
             val cx = canvasFloat(op["x"])
             val cy = canvasFloat(op["y"])
             val r = canvasFloat(op["r"])
-            val startDeg = canvasFloat(op["start_deg"])
-            val endDeg = canvasFloat(op["end_deg"])
-            val sweep = endDeg - startDeg
+            val startDeg = numberFloat(op["start_deg"])
+            val endDeg = numberFloat(op["end_deg"])
             drawArc(
                 color = color,
                 startAngle = startDeg,
-                sweepAngle = sweep,
+                sweepAngle = endDeg - startDeg,
                 useCenter = false,
                 topLeft = Offset(cx - r, cy - r),
                 size = ComposeSize(r * 2, r * 2),
@@ -5309,6 +5311,17 @@ private fun DrawScope.canvasFloat(v: Any?): Float {
         else      -> 0f
     }
     return dp.dp.toPx()
+}
+
+// Plain Float — for values that are NOT screen coordinates (e.g. degrees).
+// Skips the dp→px conversion; passing 180° through canvasFloat scales it by
+// the device density (180 × 1.75 = 315 px "degrees" — a real bug we hit).
+private fun numberFloat(v: Any?): Float = when (v) {
+    is Float  -> v
+    is Double -> v.toFloat()
+    is Int    -> v.toFloat()
+    is Long   -> v.toFloat()
+    else      -> 0f
 }
 
 private fun canvasColor(v: Any?): Color = when (v) {

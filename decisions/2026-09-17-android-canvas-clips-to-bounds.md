@@ -1,8 +1,23 @@
 # Android Canvas clips its content to declared bounds
 
 - Date: 2026-09-17
-- Status: accepted
+- Status: superseded by [2026-09-17-android-arc-angle-dp-scaling.md](2026-09-17-android-arc-angle-dp-scaling.md)
 - Issue: MOB-256
+
+> **Superseded 2026-09-17.** This record diagnosed the
+> `MishkaSemiCircleProgress` overdraw on Android as a clipping gap
+> between SwiftUI's `Canvas` and Compose's, and fixed it with
+> `.clipToBounds()`. The real cause turned out to be the `arc` handler
+> unpacking `start_deg`/`end_deg` with `canvasFloat`, which runs values
+> through `.dp.toPx()` and scaled the angles by the device density —
+> `MishkaSemiCircleProgress`'s `arc(cx, cy, r, 180, 360)` arrived at
+> `drawArc` as `startAngle = 315f, sweepAngle = 315f` on a 1.75x
+> screen. Once the angles are unpacked as actual degrees the arc lands
+> in bounds and no clip is needed to hide the overdraw. `.clipToBounds()`
+> is retained as an iOS-parity feature for other composites that may
+> legitimately draw beyond the canvas's declared bounds; the
+> superseding record justifies it explicitly. The record below is kept
+> intact so the ruled-out reasoning is findable.
 
 ## Context
 

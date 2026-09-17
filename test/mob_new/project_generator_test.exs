@@ -518,6 +518,45 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(path)
     end
 
+    test "MobBridge.kt arc handler does not scale angles by device density (MOB-256)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      content =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # The Compose `arc` handler previously unpacked `start_deg` and
+      # `end_deg` with `canvasFloat`, the same helper that converts
+      # canvas-side dp coordinates to DrawScope pixels via `.dp.toPx()`.
+      # Angles are not coordinates, and applying dp→px scales them by
+      # the device density. On the Moto G Power (2021) at density 1.75,
+      # `Mob.Canvas.arc(cx, cy, r, 180, 360, ...)` reached drawArc as
+      # `startAngle = 315f, sweepAngle = 315f` and painted an arc almost
+      # anywhere except a semi-circle. Verified on the physical Moto
+      # 2026-09-17 during MOB-246 verification.
+      #
+      # A `numberFloat` helper unpacks non-coordinate BEAM values
+      # (degrees, ratios) without touching them. The `arc` handler uses
+      # it for `start_deg` and `end_deg`; `cx`, `cy`, and `r` remain
+      # `canvasFloat`.
+      assert content =~ "private fun numberFloat(v: Any?): Float"
+      assert content =~ "val startDeg = numberFloat(op[\"start_deg\"])"
+      assert content =~ "val endDeg = numberFloat(op[\"end_deg\"])"
+
+      # With the angles arriving as actual degrees, Compose's drawArc
+      # takes the same numeric convention as Mob.Canvas and iOS's
+      # Path.addArc, so the sweep is a straight subtraction — no sign
+      # flip and no 180° shift.
+      assert content =~ "sweepAngle = endDeg - startDeg"
+
+      # SwiftUI's Canvas clips to its declared width/height by default;
+      # Compose's does not. clipToBounds() gives Mob.Canvas composites
+      # the same parity so a composite that legitimately draws past its
+      # declared bounds doesn't paint into sibling nodes.
+      assert content =~ "import androidx.compose.ui.draw.clipToBounds"
+      assert content =~ "dragged.clipToBounds()"
+    end
+
     test "MobBridge.kt declares ttsSpeak/ttsStop for text-to-speech", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

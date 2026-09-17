@@ -56,6 +56,7 @@ import androidx.compose.ui.platform.LocalDensity
 import kotlin.math.abs
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size as ComposeSize
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -118,7 +119,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
@@ -5143,7 +5143,15 @@ private fun MobCanvas(node: MobNode, modifier: Modifier) {
         }
     }
 
-    Canvas(modifier = dragged) {
+    // clipToBounds so canvas ops that draw outside the declared width/height
+    // don't paint over sibling nodes stacked below (MOB-256). SwiftUI's
+    // Canvas clips by default; Compose's does not. MishkaSemiCircleProgress
+    // is one composite that relies on the clip: its `Mob.Canvas.arc(cx, cy,
+    // r, 180, 360)` draws a full-radius arc centred at (size/2, size/2)
+    // inside a Box whose height is only `size * 0.54`, so the bottom half of
+    // the arc is meant to be cropped away. Without clipping on Android, the
+    // full circle draws through the caption Text below the gauge.
+    Canvas(modifier = dragged.clipToBounds()) {
         ops.forEach { op -> drawCanvasOp(op) }
     }
 }
@@ -5192,17 +5200,19 @@ private fun DrawScope.drawCanvasOp(op: Map<String, Any?>) {
 
         "arc" -> {
             // Mob.Canvas arc: degrees, 0° to the right, sweeping clockwise.
-            // Compose drawArc takes startAngle + sweepAngle in degrees, same convention.
+            // Compose drawArc uses the same convention, so pass through.
+            // start_deg / end_deg are ANGLES — do NOT run them through
+            // canvasFloat, which converts dp to px and scales by device
+            // density (e.g. 180° × 1.75 = 315 on a 2.75x screen).
             val cx = canvasFloat(op["x"])
             val cy = canvasFloat(op["y"])
             val r = canvasFloat(op["r"])
-            val startDeg = canvasFloat(op["start_deg"])
-            val endDeg = canvasFloat(op["end_deg"])
-            val sweep = endDeg - startDeg
+            val startDeg = numberFloat(op["start_deg"])
+            val endDeg = numberFloat(op["end_deg"])
             drawArc(
                 color = color,
                 startAngle = startDeg,
-                sweepAngle = sweep,
+                sweepAngle = endDeg - startDeg,
                 useCenter = false,
                 topLeft = Offset(cx - r, cy - r),
                 size = ComposeSize(r * 2, r * 2),
@@ -5301,6 +5311,17 @@ private fun DrawScope.canvasFloat(v: Any?): Float {
         else      -> 0f
     }
     return dp.dp.toPx()
+}
+
+// Plain Float — for values that are NOT screen coordinates (e.g. degrees).
+// Skips the dp→px conversion; passing 180° through canvasFloat scales it by
+// the device density (180 × 1.75 = 315 px "degrees" — a real bug we hit).
+private fun numberFloat(v: Any?): Float = when (v) {
+    is Float  -> v
+    is Double -> v.toFloat()
+    is Int    -> v.toFloat()
+    is Long   -> v.toFloat()
+    else      -> 0f
 }
 
 private fun canvasColor(v: Any?): Color = when (v) {

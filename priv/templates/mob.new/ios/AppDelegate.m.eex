@@ -104,6 +104,31 @@ static void mob_boot_runtime(void) {
     NSLog(@"[Mob] Failed to register for remote notifications: %@", error);
 }
 
+// Silent APNs receive — dispatches to mob_wake's iOS NIF (MobWakeDispatcher)
+// when the payload carries a mob_wake_id, so on-device handlers registered
+// via Mob.Wake.register/3 fire. Reflection-based so an app WITHOUT mob_wake
+// (or with a future template variant that doesn't ship it) still compiles
+// and behaves like before — the class-not-found path drops to NoData so
+// iOS learns not to prioritise pushes the app has no receiver for.
+- (void)application:(UIApplication*)app
+    didReceiveRemoteNotification:(NSDictionary*)userInfo
+        fetchCompletionHandler:(void (^)(UIBackgroundFetchResult))completionHandler {
+    if (userInfo[@"mob_wake_id"] != nil) {
+        Class dispatcher = NSClassFromString(@"MobWakeDispatcher");
+        SEL sel = NSSelectorFromString(@"onPushFired:completionHandler:");
+        if (dispatcher != nil && [dispatcher respondsToSelector:sel]) {
+            // Typed function-pointer cast because performSelector: can't
+            // pass a block argument through the ObjC runtime.
+            void (*fn)(id, SEL, NSDictionary*, void (^)(UIBackgroundFetchResult)) =
+                (void (*)(id, SEL, NSDictionary*, void (^)(UIBackgroundFetchResult)))
+                [dispatcher methodForSelector:sel];
+            fn(dispatcher, sel, userInfo, completionHandler);
+            return;
+        }
+    }
+    completionHandler(UIBackgroundFetchResultNoData);
+}
+
 @end
 
 // SceneDelegate — Xcode 27 requires scene-based app startup, so window creation

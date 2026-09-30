@@ -1,0 +1,36 @@
+defmodule <%= module_name %>.WelcomeScreen do
+  @moduledoc """
+  An expansion screen: delivered by mob_deliver, not shipped in the app.
+
+  Everything under `mobile/` follows this convention. The directory is not in
+  the project's `elixirc_paths`, so `mix compile` and `mix mob.deploy` never
+  put it in the app binary. `mix mob_deliver.publish` compiles it against this
+  project's compiled code (same deps, same toolchain as the shipped app),
+  signs the result, and an installed app fetches it the first time a user
+  navigates here. Screens that must work offline or on first launch belong in
+  `lib/<%= app_name %>/` instead: the directory decides.
+
+  Edit this file and publish again, and installed apps pick up the new version
+  without a store release.
+  """
+  use Mob.Screen
+
+  def mount(_params, _session, socket), do: {:ok, socket}
+
+  def render(_assigns) do
+    back = {self(), :back}
+
+    ~MOB"""
+    <Column background={:background} padding={:space_lg} fill_width={true}>
+      <Text text="Delivered just in time" text_size={:xl} text_color={:on_surface} />
+      <Spacer size={12} />
+      <Text text="This screen lives in mobile/ and was fetched from your mob_deliver endpoint, not shipped in the app." text_size={:sm} text_color={:muted} />
+      <Spacer size={24} />
+      <Button text="Back" background={:primary} text_color={:on_primary} padding={:space_md} fill_width={true} on_tap={back} />
+    </Column>
+    """
+  end
+
+  def handle_info({:tap, :back}, socket), do: {:noreply, Mob.Socket.pop_screen(socket)}
+  def handle_info(_message, socket), do: {:noreply, socket}
+end

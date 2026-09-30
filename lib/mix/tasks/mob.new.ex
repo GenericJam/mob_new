@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mob.New do
   @moduledoc """
   Creates a new Mob project with Android and iOS boilerplate.
 
-      mix mob.new APP_NAME [--liveview] [--python] [--blank] [--ios | --android] [--no-install] [--dest DIR] [--local]
+      mix mob.new APP_NAME [--liveview] [--python] [--blank] [--deliver] [--ios | --android] [--no-install] [--dest DIR] [--local]
 
   ## Platform selection
 
@@ -50,6 +50,17 @@ defmodule Mix.Tasks.Mob.New do
                          home screen still auto-lists any plugins you add later.
                          Ignored in `--liveview` mode (which has no native demo
                          screens to begin with).
+    * `--deliver`      — wire the app for mob_deliver: signed OTA updates and
+                         just-in-time screen delivery. Adds the `:mob_deliver`
+                         dep (plus `:mob_deliver_server`, dev-only, for
+                         `mix mob_deliver.publish`), activates the plugin in
+                         `mob.exs`, boots through `MobDeliver.root_screen/1`,
+                         generates an Ed25519 signing key
+                         (`mob_deliver_signing.key`, mode 0600, gitignored)
+                         with its public half in `config/config.exs`, and an
+                         example expansion screen in `mobile/APP_NAME/`.
+                         `mobile/` is never compiled into the app binary.
+                         Native projects only — rejected with `--liveview`.
     * `--no-install`   — skip running `mix deps.get` after generation
     * `--dest DIR`     — create project in DIR (default: current directory)
     * `--local`        — use `path:` deps pointing to local mob/mob_dev repos
@@ -65,6 +76,9 @@ defmodule Mix.Tasks.Mob.New do
                          resolved from `MOB_NEW_DIR`, falling back to
                          `$HOME/code/mob_new`. Pre-fills `mob.exs` so
                          `mix mob.install` skips path configuration prompts.
+                         With `--deliver`, mob_deliver / mob_deliver_server
+                         resolve the same way from `MOB_DELIVER_DIR` /
+                         `MOB_DELIVER_SERVER_DIR`.
 
                          If the local mob_new checkout can't be found, falls
                          back to the installed archive's templates and notes
@@ -131,7 +145,8 @@ defmodule Mix.Tasks.Mob.New do
     local: :boolean,
     liveview: :boolean,
     python: :boolean,
-    blank: :boolean
+    blank: :boolean,
+    deliver: :boolean
   ]
 
   @impl Mix.Task
@@ -164,6 +179,12 @@ defmodule Mix.Tasks.Mob.New do
   defp parse_gen_opts(opts) do
     dest_dir = opts[:dest] || "."
     liveview = opts[:liveview] || false
+    deliver = opts[:deliver] || false
+
+    if liveview and deliver do
+      Mix.raise("--deliver is for native Mob projects; it cannot be combined with --liveview.")
+    end
+
     {no_ios, no_android} = resolve_platforms!(opts)
 
     gen_opts = [
@@ -171,7 +192,8 @@ defmodule Mix.Tasks.Mob.New do
       no_ios: no_ios,
       no_android: no_android,
       python: opts[:python] || false,
-      blank: opts[:blank] || false
+      blank: opts[:blank] || false,
+      deliver: deliver
     ]
 
     {dest_dir, liveview, gen_opts}
@@ -258,6 +280,14 @@ defmodule Mix.Tasks.Mob.New do
         :reset
       ])
     end
+
+    if gen_opts[:deliver] do
+      Mix.shell().info([
+        :cyan,
+        "* --deliver: mob_deliver OTA + just-in-time screens (mobile/ is never bundled)",
+        :reset
+      ])
+    end
   end
 
   defp generate(app_name, dest_dir, true = _liveview, gen_opts) do
@@ -310,6 +340,11 @@ defmodule Mix.Tasks.Mob.New do
 
     common = ["mix.exs", "lib/#{app_name}/app.ex", "lib/#{app_name}/home_screen.ex"]
 
+    deliver_files =
+      if gen_opts[:deliver],
+        do: ["mobile/#{app_name}/welcome_screen.ex", MobNew.ProjectGenerator.deliver_key_file()],
+        else: []
+
     android_files =
       if no_android,
         do: [],
@@ -328,7 +363,7 @@ defmodule Mix.Tasks.Mob.New do
 
     ios_files = if no_ios, do: [], else: ["ios/beam_main.m", "ios/Info.plist"]
 
-    Enum.each(common ++ android_files ++ ios_files, fn f ->
+    Enum.each(common ++ deliver_files ++ android_files ++ ios_files, fn f ->
       Mix.shell().info([:green, "* creating ", :reset, Path.join(project_dir, f)])
     end)
   end
@@ -358,6 +393,33 @@ defmodule Mix.Tasks.Mob.New do
 
         mix mob.deploy                 # fast push + restart
         mix mob.watch                  # auto-push on file save
+    """)
+
+    if gen_opts[:deliver], do: print_deliver_next_steps(app_name)
+  end
+
+  defp print_deliver_next_steps(app_name) do
+    bundle_id = "#{MobNew.ProjectGenerator.bundle_prefix()}.#{app_name}"
+    key_file = MobNew.ProjectGenerator.deliver_key_file()
+    out = MobNew.ProjectGenerator.deliver_publish_dir()
+
+    Mix.shell().info("""
+    mob_deliver — signed OTA updates + just-in-time screens:
+
+      * mobile/ holds expansion screens. It is never compiled into the app
+        binary; the installed app fetches each one the first time it's opened.
+        Screens in lib/#{app_name}/ ship in the binary as usual.
+      * #{key_file} is the publish signing key (mode 0600, gitignored).
+        Keep it out of version control; store it as a CI secret. Its public
+        half is already in config/config.exs as :trusted_publish_key.
+      * Point `endpoint:` in config/config.exs at your server, then publish:
+
+        mix mob_deliver.publish --app #{bundle_id} --key-file #{key_file} --out #{out}
+
+      * Serve #{out}/ with MobDeliverServer.Plug, e.g. in a Phoenix router:
+
+        forward "/deliver", MobDeliverServer.Plug,
+          storage: {MobDeliverServer.Storage.FS, root: "#{out}"}
     """)
   end
 

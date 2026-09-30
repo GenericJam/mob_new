@@ -38,7 +38,10 @@ defmodule <%= module_name %>.App do
     # the app and its tests cannot drift apart.
     <%= module_name %>.Showcase.register_all()
 <% end %>
-    Mob.Screen.start_root(<%= module_name %>.HomeScreen)
+<%= if deliver do %>    # mob_deliver's plugin on_start has already loaded any delivered update;
+    # root_screen/1 boots into its "please update" screen instead once this
+    # app version is past a published forced-update deadline.
+    Mob.Screen.start_root(MobDeliver.root_screen(<%= module_name %>.HomeScreen))<% else %>    Mob.Screen.start_root(<%= module_name %>.HomeScreen)<% end %>
     Mob.Dist.ensure_started(node: :"<%= app_name %>_android@127.0.0.1", cookie: :mob_secret)
   end
 <%= if python do %>

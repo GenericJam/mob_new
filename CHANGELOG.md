@@ -10,6 +10,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **`mix mob.new --deliver`** wires a native app for mob_deliver (signed OTA
+  updates and just-in-time screens). It adds the `:mob_deliver` and dev-only
+  `:mob_deliver_server` deps (as `path:` deps under `--local`, via
+  `MOB_DELIVER_DIR` / `MOB_DELIVER_SERVER_DIR`), activates the plugin in
+  `mob.exs`, boots through `MobDeliver.root_screen/1`, and generates an Ed25519
+  publish key (`mob_deliver_signing.key`, 0600, gitignored) whose public half
+  goes into `config :mob_deliver`. It also adds an example expansion screen in
+  `mobile/<app>/`, which is never compiled into the binary, and a home-screen
+  button that fetches it. Off by default: projects generated without the flag
+  are byte-identical to before. Rejected together with `--liveview`.
+
 ### Fixed
 - **NIF compiles no longer warn `'STATIC_ERLANG_NIF' macro redefined`**
   (MOB-284). The generated iOS `ios/build.zig` / `ios/build_device.zig` and

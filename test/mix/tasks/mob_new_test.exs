@@ -48,4 +48,16 @@ defmodule Mix.Tasks.Mob.NewTest do
       assert platforms(["my_app", "--ios", "--no-android"]) == {:ok, {false, true}}
     end
   end
+
+  describe "run/1 flag validation" do
+    @tag :tmp_dir
+    test "--deliver with --liveview is rejected before anything is generated",
+         %{tmp_dir: tmp} do
+      assert_raise Mix.Error, ~r/--deliver .* cannot be combined with --liveview/, fn ->
+        New.run(["my_app", "--liveview", "--deliver", "--no-install", "--dest", tmp])
+      end
+
+      refute File.exists?(Path.join(tmp, "my_app"))
+    end
+  end
 end

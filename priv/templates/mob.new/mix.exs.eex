@@ -21,7 +21,12 @@ defmodule <%= module_name %>.MixProject do
   defp deps do
     [
       <%= mob_dep %>,
-      <%= mob_dev_dep %>,
+      <%= mob_dev_dep %>,<%= if deliver do %>
+      # Signed OTA + just-in-time screen delivery. mob_deliver runs on the
+      # device; mob_deliver_server is dev-only and supplies
+      # `mix mob_deliver.publish`, which compiles mobile/ against this project.
+      <%= mob_deliver_dep %>,
+      <%= mob_deliver_server_dep %>,<% end %>
       {:ecto_sqlite3, "~> 0.18"},<%= unless blank do %>
       # Showcase plugins — each ships a demo screen the home auto-lists, so a
       # fresh app demonstrates real device capabilities out of the box. Remove

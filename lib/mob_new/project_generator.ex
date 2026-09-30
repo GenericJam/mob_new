@@ -32,6 +32,12 @@ defmodule MobNew.ProjectGenerator do
   @external_resource @zig_version_path
   @required_zig_version @zig_version_path |> File.read!() |> String.trim()
 
+  # Where the generated docs tell `mix mob_deliver.publish` to write. NOT under
+  # priv/: mob_dev copies the app's whole priv/ into the native bundle, which
+  # would ship the published mobile/ BEAMs inside the binary.
+  @deliver_publish_dir "mob_deliver_publish"
+  @deliver_key_file "mob_deliver_signing.key"
+
   # Template + static roots. Default to the installed archive's priv dir
   # (the loaded mob_new code's :code.priv_dir/1). When the caller asks for
   # local-override behaviour AND a usable mob_new checkout is reachable,
@@ -102,6 +108,10 @@ defmodule MobNew.ProjectGenerator do
     repos instead of hex version constraints. Paths are resolved from the
     `MOB_DIR` and `MOB_DEV_DIR` environment variables, falling back to
     `../mob` and `../mob_dev` relative to the generated project location.
+  - `:deliver` — wires the app for mob_deliver (signed OTA + just-in-time
+    screen delivery). Under `:local` its deps resolve from `MOB_DELIVER_DIR` /
+    `MOB_DELIVER_SERVER_DIR` the same way. `deliver_public_key` stays `nil`
+    here: `generate/3` fills it with the keypair it writes to disk.
   """
   @spec assigns(String.t(), keyword()) :: map()
   def assigns(app_name, opts \\ []) do
@@ -123,6 +133,10 @@ defmodule MobNew.ProjectGenerator do
     {mob_dep, mob_dev_dep, mob_mishka_dep, mob_exs_mob_dir, mob_exs_elixir_lib} =
       resolve_deps(opts)
 
+    blank = Keyword.get(opts, :blank, false)
+    deliver = Keyword.get(opts, :deliver, false)
+    {mob_deliver_dep, mob_deliver_server_dep} = resolve_deliver_deps(opts)
+
     %{
       app_name: app_name,
       module_name: module_name,
@@ -139,8 +153,23 @@ defmodule MobNew.ProjectGenerator do
       mob_exs_elixir_lib: mob_exs_elixir_lib,
       ndk_version: MobNew.NdkVersion.recommended(),
       python: Keyword.get(opts, :python, false),
-      blank: Keyword.get(opts, :blank, false)
+      blank: blank,
+      mob_plugins: mob_plugins(blank, deliver),
+      deliver: deliver,
+      deliver_local: deliver and Keyword.get(opts, :local, false),
+      deliver_public_key: nil,
+      deliver_publish_dir: @deliver_publish_dir,
+      deliver_key_file: @deliver_key_file,
+      mob_deliver_dep: mob_deliver_dep,
+      mob_deliver_server_dep: mob_deliver_server_dep
     }
+  end
+
+  # Plugins `mob.exs` activates: the showcase trio unless `--blank`, plus
+  # mob_deliver under `--deliver`.
+  defp mob_plugins(blank, deliver) do
+    showcase = if blank, do: [], else: [:mob_camera, :mob_location, :mob_biometric]
+    if deliver, do: showcase ++ [:mob_deliver], else: showcase
   end
 
   @doc """
@@ -156,13 +185,66 @@ defmodule MobNew.ProjectGenerator do
       {:error, "Directory already exists: #{project_dir}"}
     else
       File.mkdir_p!(project_dir)
-      a = assigns(app_name, opts)
+      {a, deliver_seed} = with_deliver_key(assigns(app_name, opts))
       render_templates(a, project_dir, opts)
       copy_static(project_dir, opts)
       write_dotfiles(project_dir, opts)
+      if deliver_seed, do: write_deliver_files(project_dir, deliver_seed)
       if Keyword.get(opts, :python, false), do: apply_python_patches(project_dir, app_name)
       {:ok, project_dir}
     end
+  end
+
+  # ── --deliver (mob_deliver) ─────────────────────────────────────────────────
+
+  @doc false
+  @spec deliver_key_file() :: String.t()
+  def deliver_key_file, do: @deliver_key_file
+
+  @doc false
+  @spec deliver_publish_dir() :: String.t()
+  def deliver_publish_dir, do: @deliver_publish_dir
+
+  # The signing keypair is made here, once per generation, so the public half
+  # rendered into config/config.exs and the private half written to disk match.
+  defp with_deliver_key(%{deliver: true} = a) do
+    {public, seed} = :crypto.generate_key(:eddsa, :ed25519)
+    {%{a | deliver_public_key: "ed25519:" <> Base.encode64(public)}, seed}
+  end
+
+  defp with_deliver_key(a), do: {a, nil}
+
+  # The private key in mob_deliver_server's key-file form
+  # (`"ed25519-private:" <> base64(seed)`), created 0600 before any key bytes
+  # land; plus the ignore entries and formatter coverage for mobile/.
+  defp write_deliver_files(project_dir, seed) do
+    key_path = Path.join(project_dir, @deliver_key_file)
+
+    File.open!(key_path, [:write, :exclusive, :binary], fn device ->
+      File.chmod!(key_path, 0o600)
+      IO.binwrite(device, "ed25519-private:" <> Base.encode64(seed) <> "\n")
+    end)
+
+    File.write!(
+      Path.join(project_dir, ".gitignore"),
+      """
+
+      # mob_deliver: the publish signing key (NEVER commit — keep it as a CI
+      # secret) and `mix mob_deliver.publish` output
+      /#{@deliver_key_file}
+      /#{@deliver_publish_dir}/
+      """,
+      [:append]
+    )
+
+    formatter = Path.join(project_dir, ".formatter.exs")
+
+    File.write!(
+      formatter,
+      formatter
+      |> File.read!()
+      |> String.replace("{config,lib,test}", "{config,lib,mobile,test}")
+    )
   end
 
   @doc """
@@ -566,7 +648,9 @@ defmodule MobNew.ProjectGenerator do
     t_root
     |> find_templates()
     |> Enum.filter(&platform_included?(&1, t_root, no_ios, no_android))
-    |> Enum.reject(&liveview_phoenix_owned?(&1, t_root, opts))
+    |> Enum.reject(
+      &(liveview_phoenix_owned?(&1, t_root, opts) or deliver_excluded?(&1, t_root, opts))
+    )
     |> Enum.each(fn template_path ->
       rel = Path.relative_to(template_path, t_root)
       dest_rel = expand_path(rel, a)
@@ -1204,6 +1288,27 @@ defmodule MobNew.ProjectGenerator do
     end
   end
 
+  # mob_deliver runs on the device; mob_deliver_server is dev-only — it
+  # supplies `mix mob_deliver.publish`, which compiles mobile/ against this
+  # project. `--local` resolves both like mob / mob_dev.
+  defp resolve_deliver_deps(opts) do
+    cond do
+      not Keyword.get(opts, :deliver, false) ->
+        {nil, nil}
+
+      opts[:local] ->
+        deliver_dir = resolve_local_path("MOB_DELIVER_DIR", "mob_deliver")
+        server_dir = resolve_local_path("MOB_DELIVER_SERVER_DIR", "mob_deliver_server")
+
+        {~s({:mob_deliver, path: "#{deliver_dir}"}),
+         ~s({:mob_deliver_server, path: "#{server_dir}", only: :dev, runtime: false})}
+
+      true ->
+        {~s({:mob_deliver, "~> 0.1"}),
+         ~s({:mob_deliver_server, "~> 0.1", only: :dev, runtime: false})}
+    end
+  end
+
   # Prefer a local mob_mishka checkout when one is around, else fall back to
   # the Hex dep. During the extraction spike (MOB-246) mob_mishka is a
   # private repo and not on Hex; once it publishes, this simplifies.
@@ -1264,6 +1369,20 @@ defmodule MobNew.ProjectGenerator do
   )
 
   @doc """
+  Whether a template should be skipped because `--deliver` was not requested.
+
+  `mobile/` holds mob_deliver expansion screens — sources `mix
+  mob_deliver.publish` compiles and the app fetches at runtime, never
+  compiled into the binary — so it only exists in a `--deliver` project.
+  Public for testing.
+  """
+  @spec deliver_excluded?(String.t(), String.t(), keyword()) :: boolean()
+  def deliver_excluded?(path, root, opts) do
+    not Keyword.get(opts, :deliver, false) and
+      String.starts_with?(Path.relative_to(path, root), "mobile/")
+  end
+
+  @doc """
   Whether a template should be skipped because `--blank` was requested.
 
   Only the demo/sample screens under `lib/app_name/` are skipped; the core
@@ -1309,7 +1428,7 @@ defmodule MobNew.ProjectGenerator do
     t_root
     |> find_templates()
     |> Enum.filter(&platform_included?(&1, t_root, no_ios, no_android))
-    |> Enum.reject(&blank_excluded?(&1, t_root, opts))
+    |> Enum.reject(&(blank_excluded?(&1, t_root, opts) or deliver_excluded?(&1, t_root, opts)))
     |> Enum.each(fn template_path ->
       rel = Path.relative_to(template_path, t_root)
       dest_rel = expand_path(rel, assigns)

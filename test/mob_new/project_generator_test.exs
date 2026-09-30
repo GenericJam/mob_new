@@ -2755,6 +2755,175 @@ defmodule MobNew.ProjectGeneratorTest do
     end
   end
 
+  # ── --deliver flag (mob_deliver OTA + JIT screens) ────────────────────────────
+
+  describe "deliver_excluded?/3" do
+    @root "/tmpl"
+
+    test "skips mobile/ unless deliver: true" do
+      path = "/tmpl/mobile/app_name/welcome_screen.ex.eex"
+
+      assert ProjectGenerator.deliver_excluded?(path, @root, [])
+      assert ProjectGenerator.deliver_excluded?(path, @root, deliver: false)
+      refute ProjectGenerator.deliver_excluded?(path, @root, deliver: true)
+    end
+
+    test "never skips anything outside mobile/" do
+      for rel <- ~w(mix.exs.eex lib/app_name/home_screen.ex.eex config/config.exs.eex) do
+        refute ProjectGenerator.deliver_excluded?("/tmpl/#{rel}", @root, [])
+      end
+    end
+  end
+
+  describe "generate/3 with deliver: true" do
+    @describetag :tmp_dir
+
+    defp public_key_from_config(dir) do
+      dir
+      |> Path.join("config/config.exs")
+      |> Config.Reader.read!()
+      |> get_in([:mob_deliver, :trusted_publish_key])
+    end
+
+    test "writes the example expansion screen under mobile/, not lib/", %{tmp_dir: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("deliver_app", tmp, deliver: true)
+      screen = File.read!(Path.join(dir, "mobile/deliver_app/welcome_screen.ex"))
+
+      assert screen =~ "defmodule DeliverApp.WelcomeScreen do"
+      assert screen =~ "use Mob.Screen"
+      assert screen =~ "Mob.Socket.pop_screen(socket)"
+      refute File.exists?(Path.join(dir, "lib/deliver_app/welcome_screen.ex"))
+      # mobile/ stays out of the binary only while elixirc_paths is the default ["lib"].
+      refute File.read!(Path.join(dir, "mix.exs")) =~ "elixirc_paths"
+      assert File.read!(Path.join(dir, ".formatter.exs")) =~ "{config,lib,mobile,test}"
+    end
+
+    test "mix.exs depends on mob_deliver and, dev-only, mob_deliver_server", %{tmp_dir: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("deliver_app", tmp, deliver: true)
+      content = File.read!(Path.join(dir, "mix.exs"))
+
+      assert content =~ ~s({:mob_deliver, "~> 0.1"})
+      assert content =~ ~s({:mob_deliver_server, "~> 0.1", only: :dev, runtime: false})
+      assert {:ok, _} = Code.string_to_quoted(content)
+    end
+
+    test "config's trusted key is the public half of the 0600 key file", %{tmp_dir: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("deliver_app", tmp, deliver: true)
+      key_path = Path.join(dir, "mob_deliver_signing.key")
+
+      assert "ed25519-private:" <> encoded = key_path |> File.read!() |> String.trim()
+      assert {:ok, <<_::binary-size(32)>> = seed} = Base.decode64(encoded)
+      assert Bitwise.band(File.stat!(key_path).mode, 0o777) == 0o600
+
+      assert "ed25519:" <> public_b64 = public_key_from_config(dir)
+      assert {:ok, <<_::binary-size(32)>> = public} = Base.decode64(public_b64)
+      assert {^public, _} = :crypto.generate_key(:eddsa, :ed25519, seed)
+
+      gitignore = File.read!(Path.join(dir, ".gitignore"))
+      assert gitignore =~ ~r{^/mob_deliver_signing\.key$}m
+      assert gitignore =~ ~r{^/mob_deliver_publish/$}m
+    end
+
+    test "every generated project gets its own keypair", %{tmp_dir: tmp} do
+      {:ok, a} = ProjectGenerator.generate("deliver_a", tmp, deliver: true)
+      {:ok, b} = ProjectGenerator.generate("deliver_b", tmp, deliver: true)
+
+      refute public_key_from_config(a) == public_key_from_config(b)
+    end
+
+    test "config/config.exs configures the client for this app", %{tmp_dir: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("deliver_app", tmp, deliver: true)
+      config = Config.Reader.read!(Path.join(dir, "config/config.exs"))[:mob_deliver]
+
+      assert config[:app] == "com.example.deliver_app"
+      assert config[:channel] == :production
+      assert config[:endpoint] == "https://updates.example.com"
+      assert config[:app_version] == "0.1.0"
+      assert Keyword.fetch!(config, :store_url) == nil
+    end
+
+    test "mob.exs activates and trusts :mob_deliver", %{tmp_dir: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("deliver_app", tmp, deliver: true)
+      mob = Config.Reader.read!(Path.join(dir, "mob.exs"))[:mob]
+
+      assert :mob_deliver in mob[:plugins]
+      assert :mob_camera in mob[:plugins]
+      assert Map.has_key?(mob[:trusted_plugins], :mob_deliver)
+      # Only a --local checkout is unsigned.
+      refute Keyword.has_key?(mob, :acknowledge_unsafe_plugins)
+    end
+
+    test "boots through MobDeliver.root_screen and links the delivered screen from home",
+         %{tmp_dir: tmp} do
+      for {name, opts} <- [{"deliver_full", []}, {"deliver_blank", [blank: true]}] do
+        {:ok, dir} = ProjectGenerator.generate(name, tmp, [deliver: true] ++ opts)
+        module = Macro.camelize(name)
+        app = File.read!(Path.join(dir, "lib/#{name}/app.ex"))
+        home = File.read!(Path.join(dir, "lib/#{name}/home_screen.ex"))
+
+        assert app =~ "Mob.Screen.start_root(MobDeliver.root_screen(#{module}.HomeScreen))"
+        assert home =~ ":open_welcome"
+        assert home =~ "MobDeliver.resolve(#{module}.WelcomeScreen)"
+        assert home =~ "Mob.Socket.push_screen(socket, #{module}.WelcomeScreen)"
+
+        if opts[:blank] do
+          assert File.read!(Path.join(dir, "mob.exs")) =~
+                   "config :mob, :plugins, [:mob_deliver]"
+        end
+      end
+    end
+
+    test "--local resolves both deps from MOB_DELIVER_DIR / MOB_DELIVER_SERVER_DIR",
+         %{tmp_dir: tmp} do
+      env = %{
+        "MOB_DIR" => Path.join(tmp, "mob"),
+        "MOB_DEV_DIR" => Path.join(tmp, "mob_dev"),
+        "MOB_DELIVER_DIR" => Path.join(tmp, "mob_deliver"),
+        "MOB_DELIVER_SERVER_DIR" => Path.join(tmp, "mob_deliver_server"),
+        "MOB_NEW_DIR" => File.cwd!()
+      }
+
+      {:ok, dir} =
+        with_env(env, fn ->
+          ProjectGenerator.generate("deliver_app", Path.join(tmp, "out"),
+            deliver: true,
+            local: true
+          )
+        end)
+
+      content = File.read!(Path.join(dir, "mix.exs"))
+      assert content =~ ~s({:mob_deliver, path: "#{env["MOB_DELIVER_DIR"]}"})
+
+      assert content =~
+               ~s({:mob_deliver_server, path: "#{env["MOB_DELIVER_SERVER_DIR"]}", only: :dev, runtime: false})
+
+      # The local checkout is unsigned, so the plugin trust gate needs the ack.
+      mob = Config.Reader.read!(Path.join(dir, "mob.exs"))[:mob]
+      assert mob[:acknowledge_unsafe_plugins] == [:mob_deliver]
+    end
+  end
+
+  describe "generate/3 without deliver" do
+    @describetag :tmp_dir
+
+    test "emits no mob_deliver artefacts", %{tmp_dir: tmp} do
+      for {name, opts} <- [{"plain_app", []}, {"plain_blank", [blank: true]}] do
+        {:ok, dir} = ProjectGenerator.generate(name, tmp, opts)
+
+        refute File.exists?(Path.join(dir, "mobile"))
+        refute File.exists?(Path.join(dir, "mob_deliver_signing.key"))
+
+        for rel <- ~w(mix.exs mob.exs config/config.exs .gitignore .formatter.exs
+                      lib/#{name}/app.ex lib/#{name}/home_screen.ex) do
+          content = File.read!(Path.join(dir, rel))
+
+          refute content =~ ~r/mob_deliver|MobDeliver|WelcomeScreen|mobile/,
+                 "#{rel} mentions mob_deliver"
+        end
+      end
+    end
+  end
+
   describe "apply_python_patches/2" do
     @tag :tmp_dir
     test "is idempotent — running twice doesn't double-add the dep", %{tmp_dir: tmp} do
@@ -2940,6 +3109,78 @@ defmodule MobNew.ProjectGeneratorTest do
           assert compile_code == 0,
                  "generated project (incl. scaffolded Mob.ScreenCase test) failed " <>
                    "to compile under MIX_ENV=test:\n#{compile_out}"
+      end
+    end
+  end
+
+  # ── --deliver project end-to-end ─────────────────────────────────────────────
+  #
+  # Generates a --deliver --local project against the sibling mob / mob_dev /
+  # mob_deliver / mob_deliver_server checkouts, compiles it (MIX_ENV=test, so
+  # the scaffolded tests too), then runs the real `mix mob_deliver.publish` the
+  # generated next steps tell users to run. Proves the app compiles WITHOUT
+  # mobile/ (the home screen only names WelcomeScreen) and that publish
+  # compiles mobile/ against it. Skips with a warning when a checkout is
+  # missing: an environment gap, not a mob_new regression.
+  describe "--deliver project end-to-end" do
+    @describetag :tmp_dir
+
+    @tag :integration
+    test "generated --deliver project compiles and publishes mobile/", %{tmp_dir: tmp} do
+      siblings =
+        Map.new(
+          [
+            {"MOB_DIR", "mob"},
+            {"MOB_DEV_DIR", "mob_dev"},
+            {"MOB_DELIVER_DIR", "mob_deliver"},
+            {"MOB_DELIVER_SERVER_DIR", "mob_deliver_server"}
+          ],
+          fn {var, repo} -> {var, System.get_env(var) || Path.expand("../#{repo}")} end
+        )
+
+      case Enum.reject(siblings, fn {_, path} -> File.dir?(path) end) do
+        [] ->
+          env = Map.put(siblings, "MOB_NEW_DIR", File.cwd!())
+
+          {:ok, dir} =
+            with_env(env, fn ->
+              ProjectGenerator.generate("deliver_e2e", tmp, deliver: true, local: true)
+            end)
+
+          mix = System.find_executable("mix") || flunk("mix not on PATH")
+
+          run = fn args, env ->
+            System.cmd(mix, args, cd: dir, env: env, stderr_to_stdout: true)
+          end
+
+          {out, code} = run.(["deps.get"], [])
+          assert code == 0, "deps.get failed:\n#{out}"
+
+          {out, code} = run.(["compile", "--warnings-as-errors"], [{"MIX_ENV", "test"}])
+          assert code == 0, "generated --deliver project failed to compile:\n#{out}"
+
+          publish =
+            ~w(mob_deliver.publish --app com.example.deliver_e2e
+               --key-file mob_deliver_signing.key --out mob_deliver_publish)
+
+          # `mix test` exports MIX_ENV=test; the publish task is in a dev-only dep.
+          {out, code} = run.(publish, [{"MIX_ENV", "dev"}])
+          assert code == 0, "mob_deliver.publish failed:\n#{out}"
+          assert out =~ "DeliverE2e.WelcomeScreen"
+
+          assert File.exists?(
+                   Path.join(
+                     dir,
+                     "mob_deliver_publish/manifests/com.example.deliver_e2e/production.json"
+                   )
+                 )
+
+          # The expansion screen reached the publish output, never the app's build.
+          assert Path.wildcard(Path.join(dir, "_build/*/lib/deliver_e2e/ebin/*WelcomeScreen*")) ==
+                   []
+
+        missing ->
+          IO.warn("skipping --deliver end-to-end: missing checkouts #{inspect(Map.new(missing))}")
       end
     end
   end

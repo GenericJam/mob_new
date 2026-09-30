@@ -7,7 +7,24 @@ config :<%= app_name %>, ecto_repos: [<%= module_name %>.Repo]
 
 # Wire the Repo into Mob.ScreenState so screens using `vsn:` get automatic
 # state persistence. Remove this line to disable screen state persistence.
-config :mob, :repo, <%= module_name %>.Repo
+config :mob, :repo, <%= module_name %>.Repo<%= if deliver do %>
+
+# mob_deliver: signed OTA updates + just-in-time screens (sources in mobile/).
+config :mob_deliver,
+  # The trust root for this app's deliveries, baked in at compile time:
+  # "ed25519:" <> base64 of the public half of <%= deliver_key_file %>. Changing
+  # it strands every installed copy, so keep that private key safe.
+  trusted_publish_key: "<%= deliver_public_key %>",
+  app: "<%= bundle_id %>",
+  channel: :production,
+  # CHANGE ME: the URL where MobDeliverServer.Plug serves your
+  # `mix mob_deliver.publish` output.
+  endpoint: "https://updates.example.com",
+  # The shipped app's version, for the forced-update window. Bump it with
+  # every store release.
+  app_version: "0.1.0",
+  # Your App Store / Play Store page, once it exists.
+  store_url: nil<% end %>
 <%= unless blank do %>
 # `mob_mishka` supplies the `<Mishka…>` composite tags. The ~MOB sigil in
 # mob-that-ships-MOB-247 reads the plugin's manifest and whitelists them

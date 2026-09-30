@@ -28,6 +28,7 @@ mix mob.install    # first-run setup: download OTP runtime, generate icons, writ
 | `--android` | Generate Android boilerplate only (skip `ios/`) |
 | `--liveview` | Wrap a Phoenix LiveView app in a Mob WebView (combines with `--ios` / `--android`) |
 | `--no-install` | Skip `mix deps.get` after generation |
+| `--deliver` | Wire the app for [mob_deliver](https://github.com/GenericJam/mob_deliver) (signed OTA + just-in-time screens) — see below. Native only; rejected with `--liveview` |
 | `--dest DIR` | Create the project in DIR (default: current directory) |
 | `--local` | Use `path:` deps pointing to local mob/mob_dev repos — see below |
 | `--no-ios` | Alias for `--android` (skip iOS boilerplate) |
@@ -37,6 +38,32 @@ mix mob.install    # first-run setup: download OTP runtime, generate icons, writ
 platform set from on-disk layout, so a single-platform project skips the
 absent platform's setup automatically (no Android OTP download, no iOS
 toolchain check, etc.).
+
+### Signed OTA and just-in-time screens (`--deliver`)
+
+`mix mob.new my_app --deliver` adds `:mob_deliver` (and, dev-only,
+`:mob_deliver_server` for its publish task), activates the plugin in
+`mob.exs`, and boots through `MobDeliver.root_screen/1`. It also generates:
+
+- `mob_deliver_signing.key`: a fresh Ed25519 publish key (mode 0600,
+  gitignored; keep it as a CI secret). Its public half is in
+  `config/config.exs` as `:trusted_publish_key`, next to `app`, `channel`,
+  `app_version`, `store_url`, and the `endpoint` you point at your server.
+- `mobile/my_app/welcome_screen.ex`: an example **expansion screen**, opened
+  from the home screen. `mobile/` is not in `elixirc_paths`, so it is never
+  compiled into the app binary. The installed app fetches each screen the
+  first time it is opened. Screens in `lib/my_app/` ship in the binary as usual.
+
+Publish, then serve the output directory with `MobDeliverServer.Plug`
+(`storage: {MobDeliverServer.Storage.FS, root: "mob_deliver_publish"}`):
+
+```bash
+mix mob_deliver.publish --app com.example.my_app \
+  --key-file mob_deliver_signing.key --out mob_deliver_publish
+```
+
+The output stays outside `priv/` on purpose: mob_dev copies `priv/` into the
+native bundle.
 
 ### Local development mode (`--local`)
 

@@ -1,6 +1,8 @@
 <%= if blank do %>defmodule <%= module_name %>.HomeScreen do
   @moduledoc "Landing screen for <%= display_name %>."
-  use Mob.Screen
+  use Mob.Screen<%= if deliver do %>
+
+  require Logger<% end %>
 
   def mount(_params, _session, socket) do
     theme = Mob.State.get(:theme, :dark)
@@ -19,7 +21,9 @@
         <Text text="<%= display_name %>" text_size={:xl} text_color={:on_surface} padding={:space_sm} />
         <Text text="BEAM running on device" text_size={:sm} text_color={:primary} padding={4} />
         <Spacer size={40} />
-        {plugin_section(assigns.plugin_screens)}
+        {plugin_section(assigns.plugin_screens)}<%= if deliver do %>
+        <Spacer size={16} />
+        {nav_button("Delivered Screen", :open_welcome)}<% end %>
         <Spacer size={32} />
         <Text text="Theme" text_size={:sm} text_color={:muted} padding={4} />
         <Spacer size={8} />
@@ -43,7 +47,23 @@
     Mob.Theme.set(Mob.Theme.Dark)
     Mob.State.put(:theme, :dark)
     {:noreply, Mob.Socket.assign(socket, :theme, :dark)}
-  end
+  end<%= if deliver do %>
+
+  # WelcomeScreen lives in mobile/, outside this binary: MobDeliver.resolve/1
+  # fetches, verifies and loads it from the mob_deliver endpoint the first time
+  # it is opened (mob with router hooks does this on every push by itself).
+  # Until `mix mob_deliver.publish` output is served there, the fetch fails and
+  # the tap only logs.
+  def handle_info({:tap, :open_welcome}, socket) do
+    case MobDeliver.resolve(<%= module_name %>.WelcomeScreen) do
+      :ok ->
+        {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.WelcomeScreen)}
+
+      {:error, reason} ->
+        Logger.warning("could not fetch the delivered WelcomeScreen: #{inspect(reason)}")
+        {:noreply, socket}
+    end
+  end<% end %>
 
   # Plugin demo screens are tagged by their route string (see plugin_section/1).
   def handle_info({:tap, route}, socket) when is_binary(route) do
@@ -135,7 +155,9 @@ end
     4. a footer crediting Mishka Chelekom, whose components and styling this
        app ships — https://mishka.tools/chelekom.
   """
-  use Mob.Screen
+  use Mob.Screen<%= if deliver do %>
+
+  require Logger<% end %>
 
   alias <%= module_name %>.{Showcase, ThemeBar}
   alias <%= module_name %>.Showcase.Kit
@@ -284,7 +306,8 @@ end
       Kit.compact_button("Roll Dice", :open_dice),
       Kit.compact_button("WebView", :open_webview),
       Kit.compact_button("Audio", :open_audio),
-      Kit.compact_button("Storage", :open_storage)
+      Kit.compact_button("Storage", :open_storage)<%= if deliver do %>,
+      Kit.compact_button("Delivered Screen", :open_welcome)<% end %>
     ] ++
       Enum.map(plugin_screens, fn %{default_route: route} ->
         Kit.compact_button(plugin_label(route), route)
@@ -349,7 +372,23 @@ end
     do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.AudioScreen)}
 
   def handle_info({:tap, :open_storage}, socket),
-    do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.StorageScreen)}
+    do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.StorageScreen)}<%= if deliver do %>
+
+  # WelcomeScreen lives in mobile/, outside this binary: MobDeliver.resolve/1
+  # fetches, verifies and loads it from the mob_deliver endpoint the first time
+  # it is opened (mob with router hooks does this on every push by itself).
+  # Until `mix mob_deliver.publish` output is served there, the fetch fails and
+  # the tap only logs.
+  def handle_info({:tap, :open_welcome}, socket) do
+    case MobDeliver.resolve(<%= module_name %>.WelcomeScreen) do
+      :ok ->
+        {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.WelcomeScreen)}
+
+      {:error, reason} ->
+        Logger.warning("could not fetch the delivered WelcomeScreen: #{inspect(reason)}")
+        {:noreply, socket}
+    end
+  end<% end %>
 
   # Plugin demo screens are tagged by their route string (see demo_buttons/1).
   def handle_info({:tap, route}, socket) when is_binary(route) do

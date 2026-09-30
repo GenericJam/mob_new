@@ -33,5 +33,10 @@ Elixir at read time.
   path prompt, `mix mob.adopt.mob_exs --local`) and that gitignore `mob.exs`
   (`mix mob.adopt.mob_exs`) must follow the same split; that change lives in
   mob_dev.
-- Values mob_dev appends to `mob.exs` after the import line (e.g.
-  `mix mob.deploy --beam-flags`) override the same key in `mob.local.exs`.
+- The import must stay the last statement for local values to win. mob_dev
+  tasks that write into `mob.exs` (plugin trust, `mix mob.deploy
+  --beam-flags`, `mix mob.enable` liveview_port) insert above the import for
+  that reason — see mob_dev's
+  `decisions/2026-09-30-mob-local-exs-overrides.md`. mob_dev versions from
+  before that change append after the import, so their value overrides
+  `mob.local.exs`.

@@ -385,8 +385,11 @@ defmodule Mix.Tasks.Mob.New do
         cd #{app_name}
         mix mob.install                # generates app icon + first-run setup
     #{provision_hint}
-    First deploy — edit mob.exs#{paths_hint}, then build native binaries
-    (#{binaries_hint}), install on device, and push BEAMs:
+    Machine-specific overrides (e.g. a custom mob_dir) go in mob.local.exs
+    (gitignored), not mob.exs, which is project config to commit.#{paths_hint}
+
+    First deploy — build native binaries (#{binaries_hint}), install on device,
+    and push BEAMs:
 
         mix mob.deploy --native        # first time, or after native code changes
 
@@ -450,9 +453,9 @@ defmodule Mix.Tasks.Mob.New do
       # iOS only — no Android SDK path needed
       {true, false} -> {"", "iOS app"}
       # Android only
-      {false, true} -> {" and android/local.properties with your local paths", "APK"}
+      {false, true} -> {"\nEdit android/local.properties with your local paths.", "APK"}
       # Both
-      _ -> {" and android/local.properties with your local paths", "APK + iOS app"}
+      _ -> {"\nEdit android/local.properties with your local paths.", "APK + iOS app"}
     end
   end
 

@@ -10,6 +10,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **Android `MainActivity` reports app lifecycle to `Mob.Device`** (`:app`
+  category), through a new `nativeNotifyAppLifecycle` extern and its
+  `beam_jni.c` thunk into mob 0.9.6's `mob_send_app_lifecycle`: `onResume` →
+  `:did_become_active`, `onPause` → `:will_resign_active`, `onStop` →
+  `:did_enter_background`, `onStart` after a stop → `:will_enter_foreground`,
+  `onDestroy` while finishing → `:will_terminate`. A configuration change
+  (an activity recreated for rotation, locale, …) sends nothing. Before
+  this, Android subscribers never got these events and
+  `Mob.Device.foreground?/0` was always `true`. Existing apps: see mob's
+  CHANGELOG for the lines to copy into their app-owned files.
+
 ### Changed
 - Generated apps require **mob `~> 0.9.6`** and **mob_dev `~> 0.7.4`**: mob
   0.9.6 starts each activated plugin's OTP application and loads the app's

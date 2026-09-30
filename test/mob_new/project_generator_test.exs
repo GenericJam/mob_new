@@ -360,6 +360,19 @@ defmodule MobNew.ProjectGeneratorTest do
       assert beam_jni =~ "Java_com_example_test_1app_MainActivity_nativeNotifyConnectivity"
       assert beam_jni =~ "mob_send_connectivity_changed"
 
+      # App lifecycle (Mob.Device :app). The call is wrapped in a catch, so a
+      # MainActivity extern without its beam_jni thunk would fail silently and
+      # no :app event would ever arrive; mob ignores misspelled event names
+      # just as silently.
+      assert main_activity =~ "external fun nativeNotifyAppLifecycle"
+      assert beam_jni =~ "Java_com_example_test_1app_MainActivity_nativeNotifyAppLifecycle"
+      assert beam_jni =~ "mob_send_app_lifecycle"
+
+      for event <- ~w(did_become_active will_resign_active did_enter_background
+                      will_enter_foreground will_terminate) do
+        assert main_activity =~ ~s[notifyAppLifecycle("#{event}")]
+      end
+
       # Sheet dismissal needs its own MobBridge-extern ↔ beam_jni-thunk pair:
       # {:dismiss, tag} is a different message from {:tap, tag}, so it can't
       # ride the tap sender (MOB-104).

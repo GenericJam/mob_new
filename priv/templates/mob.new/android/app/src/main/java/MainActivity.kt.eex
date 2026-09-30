@@ -45,6 +45,15 @@ class MainActivity : ComponentActivity() {
         /** Guards the one-per-process BEAM start; see onCreate. */
         private val beamStarted = AtomicBoolean(false)
 
+        // Process-wide, not per instance: an activity recreated by the system
+        // (config change, or destroyed while in the background) has to know
+        // what the previous instance already reported.
+        /** onStop reported did_enter_background; the next onStart is a return. */
+        private var backgrounded = false
+
+        /** onPause was a configuration change; the new instance's onResume is silent. */
+        private var recreating = false
+
         init { System.loadLibrary("<%= app_name %>") }
     }
 
@@ -57,6 +66,45 @@ class MainActivity : ComponentActivity() {
         expensive: Boolean,
         validated: Boolean,
     )
+    external fun nativeNotifyAppLifecycle(event: String)
+
+    // ── App lifecycle → Mob.Device :app ───────────────────────────────────
+    // The iOS UIApplication notifications, from this activity's callbacks.
+    // A configuration change (rotation, when not handled via configChanges)
+    // pauses, stops and recreates the activity without the app leaving the
+    // screen, so it reports nothing.
+    private fun notifyAppLifecycle(event: String) {
+        try {
+            nativeNotifyAppLifecycle(event)
+        } catch (_: Throwable) {
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (backgrounded) {
+            backgrounded = false
+            notifyAppLifecycle("will_enter_foreground")
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (recreating) recreating = false else notifyAppLifecycle("did_become_active")
+    }
+
+    override fun onPause() {
+        if (isChangingConfigurations) recreating = true else notifyAppLifecycle("will_resign_active")
+        super.onPause()
+    }
+
+    override fun onStop() {
+        if (!isChangingConfigurations) {
+            backgrounded = true
+            notifyAppLifecycle("did_enter_background")
+        }
+        super.onStop()
+    }
 
     // ── Network connectivity ──────────────────────────────────────────────
     // A ConnectivityManager.NetworkCallback drives Mob.Device.network_state/0
@@ -379,6 +427,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // Only when the user or the app is closing it: a system-initiated
+        // destroy (config change, reclaiming a backgrounded activity) isn't
+        // the app terminating.
+        if (isFinishing) notifyAppLifecycle("will_terminate")
         super.onDestroy()
         val cm = connectivityManager
         val cb = networkCallback

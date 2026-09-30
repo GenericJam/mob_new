@@ -122,7 +122,6 @@ pub fn build(b: *std.Build) void {
         "-ffunction-sections",
         "-fdata-sections",
         "-fPIC",
-        "-DSTATIC_ERLANG_NIF",
         b.fmt("--sysroot={s}", .{ndk_sysroot}),
         "-isystem",
         b.fmt("{s}/usr/include", .{ndk_sysroot}),
@@ -131,6 +130,13 @@ pub fn build(b: *std.Build) void {
     };
     for (base_c_flags) |f| c_flags_buf.append(b.allocator, f) catch unreachable;
     if (nxeigen_static) c_flags_buf.append(b.allocator, "-DMOB_STATIC_NX_EIGEN_NIF") catch unreachable;
+    // Per-NIF compiles (project + plugin C NIFs) start from this snapshot and
+    // add only -DSTATIC_ERLANG_NIF_LIBNAME=<name>: erl_nif.h derives
+    // STATIC_ERLANG_NIF from it, so also passing the bare define trips
+    // -Wmacro-redefined on every NIF (MOB-284). Core objects (no LIBNAME)
+    // get the bare define below.
+    const nif_c_flags = b.allocator.dupe([]const u8, c_flags_buf.items) catch @panic("OOM");
+    c_flags_buf.append(b.allocator, "-DSTATIC_ERLANG_NIF") catch unreachable;
     const c_flags: []const []const u8 = c_flags_buf.items;
 
     const c_objects_step = b.step("c-objects", "Compile C objects (no link)");
@@ -226,9 +232,10 @@ pub fn build(b: *std.Build) void {
 
     // --- Project-side C NIFs (auto-wired from mob.exs :static_nifs) ───────────
     // Mirrors the iOS template (ios/build_device.zig). Each entry name
-    // maps to `<project_root>/c_src/<name>.c`. The base `c_flags` already
-    // include `-DSTATIC_ERLANG_NIF`, so per-NIF we only need to append
-    // `-DSTATIC_ERLANG_NIF_LIBNAME=<name>` — that overrides the
+    // maps to `<project_root>/c_src/<name>.c`. Per-NIF flags are
+    // `nif_c_flags` (no bare `-DSTATIC_ERLANG_NIF`) plus
+    // `-DSTATIC_ERLANG_NIF_LIBNAME=<name>` — erl_nif.h defines
+    // STATIC_ERLANG_NIF from it, and the LIBNAME overrides the
     // ERL_NIF_INIT macro's symbol mangling so the init function is
     // emitted as `<name>_nif_init` (the symbol driver_tab_android
     // declares). Without it the macro tries to mangle the BEAM module
@@ -238,9 +245,9 @@ pub fn build(b: *std.Build) void {
         var c_it = std.mem.splitScalar(u8, project_c_nifs, ',');
         while (c_it.next()) |nif_name| {
             if (nif_name.len == 0) continue;
-            const flags = b.allocator.alloc([]const u8, c_flags.len + 1) catch @panic("OOM");
-            @memcpy(flags[0..c_flags.len], c_flags);
-            flags[c_flags.len] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{nif_name});
+            const flags = b.allocator.alloc([]const u8, nif_c_flags.len + 1) catch @panic("OOM");
+            @memcpy(flags[0..nif_c_flags.len], nif_c_flags);
+            flags[nif_c_flags.len] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{nif_name});
 
             const obj = addCObject(b, .{
                 .name = nif_name,
@@ -272,9 +279,9 @@ pub fn build(b: *std.Build) void {
                 basename[0 .. basename.len - 2]
             else
                 basename;
-            const flags = b.allocator.alloc([]const u8, c_flags.len + 1) catch @panic("OOM");
-            @memcpy(flags[0..c_flags.len], c_flags);
-            flags[c_flags.len] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name});
+            const flags = b.allocator.alloc([]const u8, nif_c_flags.len + 1) catch @panic("OOM");
+            @memcpy(flags[0..nif_c_flags.len], nif_c_flags);
+            flags[nif_c_flags.len] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name});
 
             const obj = addCObject(b, .{
                 .name = name,

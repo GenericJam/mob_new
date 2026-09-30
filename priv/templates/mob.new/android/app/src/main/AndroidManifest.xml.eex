@@ -77,8 +77,10 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-    <!-- The QR-scanner <activity> moved to the mob_scanner plugin
-         (io.mob.scanner.MobScannerActivity; see its host_requirements). -->
+    <!-- The QR-scanner <activity> (io.mob.scanner.MobScannerActivity) is
+         contributed by the mob_scanner plugin itself (0.1.3+, its manifest
+         android.manifest_application_snippets) and spliced in by the
+         native deploy build; no host action needed. -->
 
         <!-- Scheduled local notification delivery -->
         <receiver android:name=".NotificationReceiver"

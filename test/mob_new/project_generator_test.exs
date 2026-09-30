@@ -196,6 +196,77 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(Path.join(dir, "mix.exs"))
     end
 
+    # erl_nif.h defines STATIC_ERLANG_NIF itself when STATIC_ERLANG_NIF_LIBNAME
+    # is set, so passing both makes clang warn -Wmacro-redefined on every NIF
+    # compile and zig prints each as a "failed command" (MOB-284).
+    test "iOS build files never pass -DSTATIC_ERLANG_NIF alongside the LIBNAME define",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      for file <- ["ios/build.zig", "ios/build_device.zig"] do
+        src = File.read!(Path.join(dir, file))
+        assert src =~ "-DSTATIC_ERLANG_NIF_LIBNAME="
+
+        # A LIBNAME-bearing flag group: an extra_flags literal, or the flag
+        # slots assigned just before a LIBNAME slot.
+        refute src =~ ~r/"-DSTATIC_ERLANG_NIF",\s*b\.fmt\("-DSTATIC_ERLANG_NIF_LIBNAME=/,
+               "#{file}: pairs -DSTATIC_ERLANG_NIF with its LIBNAME in extra_flags"
+
+        refute src =~
+                 ~r/= "-DSTATIC_ERLANG_NIF";\s*\n\s*flags\[[^\]]*\] = b\.fmt\("-DSTATIC_ERLANG_NIF_LIBNAME=/,
+               "#{file}: pairs -DSTATIC_ERLANG_NIF with its LIBNAME in a flags array"
+      end
+    end
+
+    # aapt / the manifest merger reject malformed XML, e.g. "--" inside a
+    # comment (XML 1.0 §2.5), which is easy to write when citing a CLI flag.
+    test "rendered AndroidManifest.xml is well-formed XML", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      xml = File.read!(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
+      Mix.ensure_application!(:xmerl)
+
+      assert {_doc, _rest} = :xmerl_scan.string(:binary.bin_to_list(xml), quiet: true)
+    end
+
+    test "Android build files never give a LIBNAME NIF compile the bare STATIC_ERLANG_NIF",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      jni = Path.join(dir, "android/app/src/main/jni")
+      zig = File.read!(Path.join(jni, "build.zig"))
+
+      # Every per-NIF flag set copies some base slice, then adds the LIBNAME.
+      # That base must be fixed before any bare -DSTATIC_ERLANG_NIF appears.
+      bases =
+        ~r/@memcpy\(flags\[0\.\.(\w+)\.len\], \1\);\s*\n\s*flags\[\1\.len\] = b\.fmt\("-DSTATIC_ERLANG_NIF_LIBNAME=/
+        |> Regex.scan(zig, capture: :all_but_first)
+        |> List.flatten()
+
+      assert bases != []
+
+      for base <- Enum.uniq(bases) do
+        [before, _] = Regex.split(~r/\bconst #{base}\b/, zig, parts: 2)
+
+        refute before =~ ~s("-DSTATIC_ERLANG_NIF"),
+               "build.zig: per-NIF base `#{base}` already carries -DSTATIC_ERLANG_NIF"
+      end
+
+      cmake = File.read!(Path.join(jni, "CMakeLists.txt"))
+      assert cmake =~ "STATIC_ERLANG_NIF_LIBNAME=${_nif_name}"
+
+      refute cmake =~ ~r/target_compile_definitions\(test_app\b[^)]*\bSTATIC_ERLANG_NIF\b/,
+             "CMakeLists.txt: target-wide STATIC_ERLANG_NIF also reaches the LIBNAME NIF sources"
+
+      assert [_, per_nif] =
+               Regex.run(
+                 ~r/foreach\(_nif_src IN LISTS PROJECT_NIF_C_SRCS\)(.*?)endforeach\(\)/s,
+                 cmake
+               ),
+             "CMakeLists.txt: per-NIF foreach over PROJECT_NIF_C_SRCS not found"
+
+      refute per_nif =~ ~r/STATIC_ERLANG_NIF\b(?!_)/,
+             "CMakeLists.txt: project NIF sources get the bare STATIC_ERLANG_NIF"
+    end
+
     test "pins the Android native-build Zig version", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       tool_versions = File.read!(Path.join(dir, ".tool-versions"))

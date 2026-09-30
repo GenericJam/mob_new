@@ -1,6 +1,9 @@
-# mob.exs — Mob build environment configuration.
-# Set these paths for your machine. Not committed to version control.
-# (Add mob.exs to .gitignore if you share this project.)
+# mob.exs — Mob project configuration: plugin activation, plugin trust,
+# styles, and build settings. Commit it — a clone without it activates no
+# plugins, so their NIFs are left out of the native build.
+#
+# Machine-specific overrides (e.g. a local `mob_dir` checkout) go in
+# mob.local.exs, which is gitignored and imported at the end of this file.
 #
 # OTP runtimes for Android and iOS are downloaded automatically by `mix mob.install`.
 
@@ -8,10 +11,10 @@ import Config
 
 config :mob_dev,
   # Path to the mob library repo (native source files for iOS/Android builds).
-  mob_dir: <%= mob_exs_mob_dir %>,
+  mob_dir: Path.join(File.cwd!(), "deps/mob"),
 
   # Path to your Elixir lib dir (e.g. ~/.local/share/mise/installs/elixir/1.18.4-otp-28/lib).
-  elixir_lib: <%= mob_exs_elixir_lib %>
+  elixir_lib: System.get_env("MOB_ELIXIR_LIB", :code.lib_dir(:elixir) |> to_string() |> Path.dirname())
 
 # Activated capability plugins (the packages added in mix.exs). Each contributes
 # its native code, permissions, and any demo screens at build time. Drop a name
@@ -49,3 +52,5 @@ config :mob, :acknowledge_unsafe_plugins, [:mob_deliver]<% end %>
 config :mob, :styles, [:mob_themes]
 config :mob, :default_style, :mob_themes
 <% end %>
+
+if File.exists?(Path.join(__DIR__, "mob.local.exs")), do: import_config("mob.local.exs")

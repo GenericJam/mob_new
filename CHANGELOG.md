@@ -42,6 +42,36 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   0.1.3+ contributes `MobScannerActivity` itself via
   `android.manifest_application_snippets`, spliced by `mix mob.deploy --native`
   (MOB-279); no host action needed.
+### Fixed
+- **Generated projects commit `mob.exs`** (MOB-286). The generated
+  `.gitignore` (native and `--liveview`) ignored `mob.exs`, but it holds project
+  config — `config :mob, :plugins`, `:trusted_plugins`, `:styles`. A fresh
+  clone had no `mob.exs`, activated no plugins, and built a native binary with
+  no plugin NIFs; plugin calls then raised `:nif_not_loaded` at runtime.
+  `mob.exs` is now tracked, and machine-specific overrides go in
+  `mob.local.exs` — gitignored, imported at the end of `mob.exs` only when it
+  exists. `--local` writes its checkout `mob_dir` there instead of into
+  `mob.exs`, and no longer pins `elixir_lib` (the portable default resolves
+  the running Elixir).
+
+  Existing apps, before committing `mob.exs`:
+  1. In `.gitignore`, replace the `mob.exs` line with `mob.local.exs`.
+  2. Move any absolute paths from `mob.exs` into a new `mob.local.exs`
+     (`import Config` + the same `config :mob_dev, ...` keys).
+  3. Keep portable defaults in `mob.exs` rather than deleting the keys.
+     `mix mob.install` treats a missing `mob_dir` as unconfigured, and older
+     mob_dev versions then rewrite the whole file, dropping `:plugins`:
+
+     ```elixir
+     config :mob_dev,
+       mob_dir: Path.join(File.cwd!(), "deps/mob"),
+       elixir_lib: System.get_env("MOB_ELIXIR_LIB", :code.lib_dir(:elixir) |> to_string() |> Path.dirname())
+     ```
+  4. Make this the last line of `mob.exs`:
+
+     ```elixir
+     if File.exists?(Path.join(__DIR__, "mob.local.exs")), do: import_config("mob.local.exs")
+     ```
 
 ## [0.6.0] - 2026-09-17
 

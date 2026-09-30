@@ -149,7 +149,7 @@ Two rules that outrank the list:
   it enumerates `Mob.Plugins.screens/0` and renders a button per
   manifest-declared demo screen, so adding/removing a plugin needs no home
   edit. These are native-only: the activation lives in `mob.exs.eex` (the LV
-  path overwrites mob.exs via `LiveViewPatcher.mob_exs_content/2` and uses
+  path overwrites mob.exs via `LiveViewPatcher.mob_exs_content/0` and uses
   Phoenix's own mix.exs), so LiveView projects don't get them. The
   `--local` path dep is `override: true` so a local mob checkout satisfies the
   Hex plugins' `mob ~> 0.7` requirement.

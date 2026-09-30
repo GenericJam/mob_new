@@ -237,12 +237,18 @@ defmodule MobNew.LiveViewPatcher do
 
   @doc """
   Generates mob.exs config content for a LiveView project.
+
+  The content is portable (no machine paths) so the file can be committed;
+  machine-local overrides go in a gitignored `mob.local.exs`, imported last.
   """
-  def mob_exs_content(mob_exs_mob_dir, mob_exs_elixir_lib) do
+  def mob_exs_content do
     """
-    # mob.exs — Mob build environment configuration.
-    # Set these paths for your machine. Not committed to version control.
-    # (Add mob.exs to .gitignore if you share this project.)
+    # mob.exs — Mob project configuration: plugin activation, plugin trust,
+    # styles, and build settings. Commit it — a clone without it activates no
+    # plugins, so their NIFs are left out of the native build.
+    #
+    # Machine-specific overrides (e.g. a local `mob_dir` checkout) go in
+    # mob.local.exs, which is gitignored and imported at the end of this file.
     #
     # OTP runtimes for Android and iOS are downloaded automatically by `mix mob.install`.
 
@@ -250,10 +256,10 @@ defmodule MobNew.LiveViewPatcher do
 
     config :mob_dev,
       # Path to the mob library repo (native source files for iOS/Android builds).
-      mob_dir: #{mob_exs_mob_dir},
+      mob_dir: Path.join(File.cwd!(), "deps/mob"),
 
       # Path to your Elixir lib dir (e.g. ~/.local/share/mise/installs/elixir/1.18.4-otp-28/lib).
-      elixir_lib: #{mob_exs_elixir_lib}
+      elixir_lib: System.get_env("MOB_ELIXIR_LIB", :code.lib_dir(:elixir) |> to_string() |> Path.dirname())
 
     # The on-device LiveView endpoint port. Defaults to a deterministic
     # value derived from the app name (4200..4999) so multiple Mob LV apps
@@ -261,6 +267,8 @@ defmodule MobNew.LiveViewPatcher do
     # port. Uncomment + set this only if you need a fixed value (e.g.
     # because your test harness pins one).
     # config :mob, liveview_port: 4200
+
+    if File.exists?(Path.join(__DIR__, "mob.local.exs")), do: import_config("mob.local.exs")
     """
   end
 

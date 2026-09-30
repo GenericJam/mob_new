@@ -1349,10 +1349,52 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.exists?(Path.join(dir, ".gitignore"))
     end
 
-    test ".gitignore excludes mob.exs", %{tmp: tmp} do
+    test "mob.exs is committed; mob.local.exs is gitignored", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      content = File.read!(Path.join(dir, ".gitignore"))
-      assert content =~ "mob.exs"
+
+      # Regression (MOB-286): mob.exs holds plugin activation. Ignoring it
+      # meant a clone activated zero plugins and the native build silently
+      # linked no plugin NIFs.
+      refute git_ignored?(dir, "mob.exs"), "mob.exs is project config — it must be committed"
+      assert git_ignored?(dir, "mob.local.exs"), "mob.local.exs holds machine paths"
+    end
+
+    test "mob.exs imports mob.local.exs only when present", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      mob_exs = Path.join(dir, "mob.exs")
+
+      refute File.exists?(Path.join(dir, "mob.local.exs"))
+      default_mob_dir = Config.Reader.read!(mob_exs)[:mob_dev][:mob_dir]
+      assert default_mob_dir == Path.join(File.cwd!(), "deps/mob")
+
+      File.write!(Path.join(dir, "mob.local.exs"), """
+      import Config
+      config :mob_dev, mob_dir: "/elsewhere/mob"
+      """)
+
+      config = Config.Reader.read!(mob_exs)
+      assert config[:mob_dev][:mob_dir] == "/elsewhere/mob"
+      assert config[:mob][:plugins] == [:mob_camera, :mob_location, :mob_biometric]
+    end
+
+    test "--local writes the mob checkout path to mob.local.exs, not mob.exs", %{tmp: tmp} do
+      mob_dir = Path.join(tmp, "checkouts/mob")
+
+      {:ok, dir} =
+        with_env(
+          %{
+            "MOB_DIR" => mob_dir,
+            "MOB_DEV_DIR" => Path.join(tmp, "checkouts/mob_dev"),
+            # Render this checkout's templates, not $HOME/code/mob_new's.
+            "MOB_NEW_DIR" => File.cwd!()
+          },
+          fn -> ProjectGenerator.generate("local_app", tmp, local: true) end
+        )
+
+      refute File.read!(Path.join(dir, "mob.exs")) =~ mob_dir,
+             "mob.exs is committed — a machine path in it breaks every other clone"
+
+      assert Config.Reader.read!(Path.join(dir, "mob.exs"))[:mob_dev][:mob_dir] == mob_dir
     end
 
     test "generates .formatter.exs with Mob.Formatter plugin", %{tmp: tmp} do
@@ -2183,10 +2225,10 @@ defmodule MobNew.ProjectGeneratorTest do
     end
 
     @tag :integration
-    test ".gitignore is Phoenix's plus mob.exs patch", %{tmp: tmp} do
+    test ".gitignore is Phoenix's plus mob.local.exs patch", %{tmp: tmp} do
       # Phoenix's .gitignore ignores _build, deps, *.beam, etc. The native template
       # has its own slimmer version. The blocklist keeps Phoenix's; apply_liveview_patches
-      # appends mob.exs to it. Both should be present — regression: clobbering Phoenix's
+      # appends mob.local.exs to it. Both should be present — regression: clobbering Phoenix's
       # .gitignore would lose the standard Elixir/Phoenix exclusions.
       {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
       content = File.read!(Path.join(dir, ".gitignore"))
@@ -2195,7 +2237,7 @@ defmodule MobNew.ProjectGeneratorTest do
              "phx.new's .gitignore got clobbered — _build exclusion missing"
 
       # And the patch step still ran:
-      assert content =~ "mob.exs"
+      assert git_ignored?(dir, "mob.local.exs")
     end
 
     @tag :integration
@@ -2322,10 +2364,10 @@ defmodule MobNew.ProjectGeneratorTest do
     end
 
     @tag :integration
-    test ".gitignore excludes mob.exs", %{tmp: tmp} do
+    test "mob.exs is committed; mob.local.exs is gitignored", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
-      content = File.read!(Path.join(dir, ".gitignore"))
-      assert content =~ "mob.exs"
+      refute git_ignored?(dir, "mob.exs"), "mob.exs is project config — it must be committed"
+      assert git_ignored?(dir, "mob.local.exs")
     end
 
     @tag :integration
@@ -3295,6 +3337,18 @@ defmodule MobNew.ProjectGeneratorTest do
         {k, v} -> System.put_env(k, v)
       end)
     end
+  end
+
+  # Asks git itself whether `rel` is ignored in the generated project, so the
+  # assertion covers the .gitignore semantics (negations, anchoring) rather
+  # than substring matches. The user's global excludes file is bypassed.
+  defp git_ignored?(dir, rel) do
+    {_, 0} = System.cmd("git", ["init", "-q"], cd: dir)
+
+    {_, status} =
+      System.cmd("git", ["-c", "core.excludesFile=/dev/null", "check-ignore", "-q", rel], cd: dir)
+
+    status == 0
   end
 
   # Returns the path to the NDK's aarch64 clang, or nil if no NDK is

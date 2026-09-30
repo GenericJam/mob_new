@@ -130,8 +130,7 @@ defmodule MobNew.ProjectGenerator do
       |> String.replace("_", "_1")
       |> String.replace(".", "_")
 
-    {mob_dep, mob_dev_dep, mob_mishka_dep, mob_exs_mob_dir, mob_exs_elixir_lib} =
-      resolve_deps(opts)
+    {mob_dep, mob_dev_dep, mob_mishka_dep, mob_local_dir} = resolve_deps(opts)
 
     blank = Keyword.get(opts, :blank, false)
     deliver = Keyword.get(opts, :deliver, false)
@@ -149,8 +148,7 @@ defmodule MobNew.ProjectGenerator do
       mob_dep: mob_dep,
       mob_dev_dep: mob_dev_dep,
       mob_mishka_dep: mob_mishka_dep,
-      mob_exs_mob_dir: mob_exs_mob_dir,
-      mob_exs_elixir_lib: mob_exs_elixir_lib,
+      mob_local_dir: mob_local_dir,
       ndk_version: MobNew.NdkVersion.recommended(),
       python: Keyword.get(opts, :python, false),
       blank: blank,
@@ -190,6 +188,7 @@ defmodule MobNew.ProjectGenerator do
       copy_static(project_dir, opts)
       write_dotfiles(project_dir, opts)
       if deliver_seed, do: write_deliver_files(project_dir, deliver_seed)
+      write_mob_local_exs(project_dir, a.mob_local_dir)
       if Keyword.get(opts, :python, false), do: apply_python_patches(project_dir, app_name)
       {:ok, project_dir}
     end
@@ -488,7 +487,9 @@ defmodule MobNew.ProjectGenerator do
     *.so
     *.a
     erl_crash.dump
-    mob.exs
+
+    # Machine-local Mob config overrides (mob.exs itself is project config — commit it)
+    mob.local.exs
 
     # Signing secrets — NEVER commit
     android/keystore.properties
@@ -776,8 +777,9 @@ defmodule MobNew.ProjectGenerator do
     # 6. Patch mix.exs to include src/ in erlc_paths
     patch_mix_exs_erlc(project_dir, app_name)
 
-    # 7. Write mob.exs with liveview_port
-    write_mob_exs(project_dir, a.mob_exs_mob_dir, a.mob_exs_elixir_lib)
+    # 7. Write mob.exs (committed) and, for --local, mob.local.exs (gitignored)
+    write_mob_exs(project_dir)
+    write_mob_local_exs(project_dir, a.mob_local_dir)
 
     # 7b. Patch Phoenix's config files to use 4200 (dev) and 4202 (test) so
     #     `mix phx.server` doesn't collide with another LV project on 4000.
@@ -785,7 +787,7 @@ defmodule MobNew.ProjectGenerator do
     #     up the host-side dev/test endpoints with that.
     patch_config_ports(project_dir)
 
-    # 8. Write .gitignore entry for mob.exs (append if file exists)
+    # 8. Write .gitignore entry for mob.local.exs (append if file exists)
     patch_gitignore(project_dir)
 
     # 9. Generate the notes starter app: Repo, Note schema, Notes context,
@@ -858,9 +860,31 @@ defmodule MobNew.ProjectGenerator do
     Mix.shell().info([:green, "* create ", :reset, path])
   end
 
-  defp write_mob_exs(project_dir, mob_exs_mob_dir, mob_exs_elixir_lib) do
+  defp write_mob_exs(project_dir) do
     path = Path.join(project_dir, "mob.exs")
-    File.write!(path, MobNew.LiveViewPatcher.mob_exs_content(mob_exs_mob_dir, mob_exs_elixir_lib))
+    File.write!(path, MobNew.LiveViewPatcher.mob_exs_content())
+    Mix.shell().info([:green, "* create ", :reset, path])
+  end
+
+  # `--local` points mob_dir at a machine-specific checkout, so it goes in the
+  # gitignored mob.local.exs (imported by mob.exs) rather than the committed
+  # mob.exs. elixir_lib is not pinned here: mob.exs already resolves the
+  # running Elixir's lib dir at read time, and a path pinned at generation
+  # drifts the moment the mise install moves (an old Elixir stdlib copied into
+  # a newer OTP tarball breaks Phoenix's Regex layer on device).
+  defp write_mob_local_exs(_project_dir, nil), do: :ok
+
+  defp write_mob_local_exs(project_dir, mob_dir) do
+    path = Path.join(project_dir, "mob.local.exs")
+
+    File.write!(path, """
+    # mob.local.exs — machine-specific Mob overrides. Gitignored; imported at
+    # the end of mob.exs when present, so values here win.
+    import Config
+
+    config :mob_dev, mob_dir: #{inspect(mob_dir)}
+    """)
+
     Mix.shell().info([:green, "* create ", :reset, path])
   end
 
@@ -1194,7 +1218,7 @@ defmodule MobNew.ProjectGenerator do
       # each guarded by a sentinel so re-running the generator stays idempotent.
       additions =
         [
-          {"mob.exs", "# Mob local config\nmob.exs\n"},
+          {"mob.local.exs", "# Mob machine-local config overrides\nmob.local.exs\n"},
           {"android/app/.cxx/", mob_native_gitignore_block()}
         ]
         |> Enum.reject(fn {sentinel, _} -> String.contains?(content, sentinel) end)
@@ -1231,7 +1255,6 @@ defmodule MobNew.ProjectGenerator do
     if opts[:local] do
       mob_dir = resolve_local_path("MOB_DIR", "mob")
       mob_dev_dir = resolve_local_path("MOB_DEV_DIR", "mob_dev")
-      elixir_lib = :code.lib_dir(:elixir) |> to_string() |> Path.dirname() |> Path.expand()
 
       # override: true so the local checkout satisfies the `mob ~> 0.7`
       # requirement that the Hex showcase plugins (mob_camera, mob_themes, …)
@@ -1246,10 +1269,7 @@ defmodule MobNew.ProjectGenerator do
       # in a non-standard location.
       mob_mishka_dep = resolve_mob_mishka_dep_local()
 
-      mob_exs_mob_dir = inspect(mob_dir)
-      mob_exs_elixir_lib = inspect(elixir_lib)
-
-      {mob_dep, mob_dev_dep, mob_mishka_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
+      {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
     else
       # Floor at 0.8.3, not "~> 0.8". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
@@ -1272,19 +1292,8 @@ defmodule MobNew.ProjectGenerator do
       mob_dep = ~s({:mob,     "~> 0.9.0"})
       mob_dev_dep = ~s({:mob_dev, "~> 0.6", only: :dev, runtime: false})
       mob_mishka_dep = ~s({:mob_mishka, "~> 0.1"})
-      mob_exs_mob_dir = "Path.join(File.cwd!(), \"deps/mob\")"
 
-      # Default to the running Elixir's actual lib dir — `:code.lib_dir(:elixir)`
-      # returns ".../lib/elixir", so `Path.dirname/1` yields the parent that
-      # holds elixir/, logger/, eex/, etc. that build.sh's stdlib copy needs.
-      # A hardcoded version path here drifts the moment the user's mise
-      # install moves; a build.sh that copies from an old Elixir into a tarball
-      # whose OTP is much newer breaks Phoenix's Regex layer
-      # (Elixir.Regex.safe_run/3 function_clause on the on-device re_pattern).
-      mob_exs_elixir_lib =
-        "System.get_env(\"MOB_ELIXIR_LIB\", :code.lib_dir(:elixir) |> to_string() |> Path.dirname())"
-
-      {mob_dep, mob_dev_dep, mob_mishka_dep, mob_exs_mob_dir, mob_exs_elixir_lib}
+      {mob_dep, mob_dev_dep, mob_mishka_dep, nil}
     end
   end
 

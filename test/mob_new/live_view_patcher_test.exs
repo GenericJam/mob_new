@@ -400,29 +400,32 @@ defmodule MobNew.LiveViewPatcherTest do
   # all moved into mob_dev's NativeBuild. Coverage for the new code path
   # lives in mob_dev's test suite.
 
-  # ── mob_exs_content/2 ─────────────────────────────────────────────────────────
+  # ── mob_exs_content/0 ─────────────────────────────────────────────────────────
 
-  describe "mob_exs_content/2" do
-    test "contains mob_dir config" do
-      content = LiveViewPatcher.mob_exs_content(~s("/path/to/mob"), ~s("/path/to/elixir/lib"))
-      assert content =~ "mob_dir:"
+  describe "mob_exs_content/0" do
+    @describetag :tmp_dir
+
+    test "evaluates to portable build paths and no pinned liveview_port", %{tmp_dir: dir} do
+      path = Path.join(dir, "mob.exs")
+      File.write!(path, LiveViewPatcher.mob_exs_content())
+      config = Config.Reader.read!(path)
+
+      assert config[:mob_dev][:mob_dir] == Path.join(File.cwd!(), "deps/mob")
+      assert is_binary(config[:mob_dev][:elixir_lib])
+      # Unset so the runtime's per-app hash (4200..4999, issues.md #4) applies.
+      assert config[:mob][:liveview_port] == nil
     end
 
-    test "contains elixir_lib config" do
-      content = LiveViewPatcher.mob_exs_content(~s("/path/to/mob"), ~s("/path/to/elixir/lib"))
-      assert content =~ "elixir_lib:"
-    end
+    test "imports mob.local.exs only when present (MOB-286)", %{tmp_dir: dir} do
+      path = Path.join(dir, "mob.exs")
+      File.write!(path, LiveViewPatcher.mob_exs_content())
 
-    test "documents liveview_port (commented; runtime hashes per app — issues.md #4)" do
-      content = LiveViewPatcher.mob_exs_content(~s("/path/to/mob"), ~s("/path/to/elixir/lib"))
-      # The line ships commented out so the runtime default kicks in
-      # (4200..4999 hashed from app name, no collision across apps).
-      assert content =~ "# config :mob, liveview_port: 4200"
-    end
+      File.write!(Path.join(dir, "mob.local.exs"), """
+      import Config
+      config :mob_dev, mob_dir: "/elsewhere/mob"
+      """)
 
-    test "starts with import Config" do
-      content = LiveViewPatcher.mob_exs_content(~s("/path/to/mob"), ~s("/path/to/elixir/lib"))
-      assert content =~ "import Config"
+      assert Config.Reader.read!(path)[:mob_dev][:mob_dir] == "/elsewhere/mob"
     end
   end
 

@@ -17,8 +17,14 @@ mix archive.install hex mob_new
 ```bash
 mix mob.new my_app
 cd my_app
-mix mob.install    # first-run setup: download OTP runtime, generate icons, write mob.exs
+mix mob.install    # first-run setup: download OTP runtime, generate icons
 ```
+
+`mob.exs` is project configuration — activated plugins, plugin trust, styles —
+and is meant to be committed. A clone without it activates no plugins, so the
+native build leaves their NIFs out. Machine-specific overrides go in
+`mob.local.exs`, which the generated `.gitignore` excludes and `mob.exs`
+imports when present.
 
 ### Options
 
@@ -102,9 +108,9 @@ This generates `mix.exs` with `path:` deps:
 {:mob_dev, path: "/path/to/mob_dev", only: :dev, runtime: false}
 ```
 
-It also pre-fills `mob.exs` with your actual local paths so `mix mob.install`
-skips the path configuration prompts and proceeds straight to OTP download and
-icon generation.
+It also writes your local `mob_dir` to `mob.local.exs` (gitignored) so
+`mix mob.install` skips the path configuration prompts and proceeds straight to
+OTP download and icon generation.
 
 **Path resolution** (in order):
 

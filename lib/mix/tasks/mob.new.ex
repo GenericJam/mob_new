@@ -74,11 +74,12 @@ defmodule Mix.Tasks.Mob.New do
                          env vars, falling back to `./mob` / `./mob_dev`,
                          then `../mob` / `../mob_dev`. mob_new template path
                          resolved from `MOB_NEW_DIR`, falling back to
-                         `$HOME/code/mob_new`. Pre-fills `mob.exs` so
-                         `mix mob.install` skips path configuration prompts.
-                         With `--deliver`, mob_deliver / mob_deliver_server
-                         resolve the same way from `MOB_DELIVER_DIR` /
-                         `MOB_DELIVER_SERVER_DIR`.
+                         `$HOME/code/mob_new`. Writes the local `mob_dir` to
+                         a gitignored `mob.local.exs` (imported by the
+                         committed `mob.exs`) so `mix mob.install` skips
+                         path configuration prompts. With `--deliver`,
+                         mob_deliver / mob_deliver_server resolve the same
+                         way from `MOB_DELIVER_DIR` / `MOB_DELIVER_SERVER_DIR`.
 
                          If the local mob_new checkout can't be found, falls
                          back to the installed archive's templates and notes
@@ -113,7 +114,7 @@ defmodule Mix.Tasks.Mob.New do
 
       APP_NAME/
         lib/APP_NAME/mob_screen.ex      # Mob.Screen wrapping the Phoenix WebView
-        mob.exs                          # Mob config; on-device Phoenix port defaults to a per-app hash in 4200..4999
+        mob.exs                          # Mob project config (commit it); on-device Phoenix port defaults to a per-app hash in 4200..4999
         android/                         # same Android boilerplate as native mode
         ios/                             # same iOS boilerplate as native mode
 
@@ -467,7 +468,8 @@ defmodule Mix.Tasks.Mob.New do
     #{install_hint}
     Next steps:
 
-    1. Edit mob.exs with your local paths (mob_dir, elixir_lib).
+    1. Commit mob.exs (project config). Put machine-specific overrides
+       (e.g. a custom mob_dir) in mob.local.exs, which is gitignored.
     2. Edit android/local.properties with your Android SDK path.
     3. Run first-time setup:
 

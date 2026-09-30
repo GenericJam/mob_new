@@ -256,7 +256,14 @@ defmodule MobNew.ProjectGeneratorTest do
       refute cmake =~ ~r/target_compile_definitions\(test_app\b[^)]*\bSTATIC_ERLANG_NIF\b/,
              "CMakeLists.txt: target-wide STATIC_ERLANG_NIF also reaches the LIBNAME NIF sources"
 
-      refute cmake =~ ~r/SOURCE[^)]*PROJECT_NIF_C_SRCS[^)]*STATIC_ERLANG_NIF\b(?!_)/,
+      assert [_, per_nif] =
+               Regex.run(
+                 ~r/foreach\(_nif_src IN LISTS PROJECT_NIF_C_SRCS\)(.*?)endforeach\(\)/s,
+                 cmake
+               ),
+             "CMakeLists.txt: per-NIF foreach over PROJECT_NIF_C_SRCS not found"
+
+      refute per_nif =~ ~r/STATIC_ERLANG_NIF\b(?!_)/,
              "CMakeLists.txt: project NIF sources get the bare STATIC_ERLANG_NIF"
     end
 

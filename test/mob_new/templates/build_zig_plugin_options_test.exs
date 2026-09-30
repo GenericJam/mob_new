@@ -12,9 +12,9 @@ defmodule MobNew.Templates.BuildZigPluginOptionsTest do
   # native_build can emit to the Android zig build.
   @android_plugin_options ~w(plugin_c_nifs plugin_zig_nifs plugin_jni_sources plugin_static_libs)
 
-  @template Path.expand(
-              "../../../priv/templates/mob.new/android/app/src/main/jni/build.zig.eex",
-              __DIR__
+  @template Application.app_dir(
+              :mob_new,
+              "priv/templates/mob.new/android/app/src/main/jni/build.zig.eex"
             )
 
   # mob_dev also passes -Dplugin_static_libs to BOTH iOS sim and iOS device
@@ -22,7 +22,7 @@ defmodule MobNew.Templates.BuildZigPluginOptionsTest do
   # build (a cpp_archive plugin populates it) exactly as on Android. Without
   # this guard an iOS template silently losing the option would break plugin
   # builds with no test catching it.
-  @ios_dir Path.expand("../../../priv/templates/mob.new/ios", __DIR__)
+  @ios_dir Application.app_dir(:mob_new, "priv/templates/mob.new/ios")
   @ios_templates [
     Path.join(@ios_dir, "build.zig.eex"),
     Path.join(@ios_dir, "build_device.zig.eex")

@@ -1,9 +1,9 @@
 defmodule MobNew.Templates.AndroidAnchoredTest do
   use ExUnit.Case, async: true
 
-  @bridge Path.expand(
-            "../../../priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex",
-            __DIR__
+  @bridge Application.app_dir(
+            :mob_new,
+            "priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex"
           )
 
   defp code_only(source) do
@@ -82,7 +82,8 @@ defmodule MobNew.Templates.AndroidAnchoredTest do
           "import androidx.compose.foundation.layout.safeDrawing",
           "import androidx.compose.foundation.layout.widthIn"
         ] do
-      assert length(String.split(source, import <> "\n")) == 2, "#{import} missing or duplicated"
+      assert match?([_, _], String.split(source, import <> "\n")),
+             "#{import} missing or duplicated"
     end
 
     # android.view.WindowInsets is already imported for the decor-view inset

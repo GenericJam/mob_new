@@ -103,7 +103,7 @@ defmodule MobNew.Templates.LintTest do
       """
 
       issues = Lint.unique_kotlin_imports(content)
-      assert length(issues) == 2
+      assert [_, _] = issues
       assert Enum.all?(issues, &(&1.kind == :duplicate_kotlin_import))
     end
 

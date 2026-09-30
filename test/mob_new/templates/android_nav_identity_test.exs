@@ -6,14 +6,14 @@
 defmodule MobNew.Templates.AndroidNavIdentityTest do
   use ExUnit.Case, async: true
 
-  @main Path.expand(
-          "../../../priv/templates/mob.new/android/app/src/main/java/MainActivity.kt.eex",
-          __DIR__
+  @main Application.app_dir(
+          :mob_new,
+          "priv/templates/mob.new/android/app/src/main/java/MainActivity.kt.eex"
         )
 
-  @bridge Path.expand(
-            "../../../priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex",
-            __DIR__
+  @bridge Application.app_dir(
+            :mob_new,
+            "priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex"
           )
 
   setup_all do

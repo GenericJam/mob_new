@@ -5,14 +5,14 @@
 defmodule MobNew.Templates.AndroidFrameGenerationTest do
   use ExUnit.Case, async: true
 
-  @bridge Path.expand(
-            "../../../priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex",
-            __DIR__
+  @bridge Application.app_dir(
+            :mob_new,
+            "priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex"
           )
 
-  @main_activity Path.expand(
-                   "../../../priv/templates/mob.new/android/app/src/main/java/MainActivity.kt.eex",
-                   __DIR__
+  @main_activity Application.app_dir(
+                   :mob_new,
+                   "priv/templates/mob.new/android/app/src/main/java/MainActivity.kt.eex"
                  )
 
   setup_all do

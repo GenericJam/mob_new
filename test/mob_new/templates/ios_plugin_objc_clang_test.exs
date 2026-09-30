@@ -1,7 +1,7 @@
 defmodule MobNew.Templates.IosPluginObjcClangTest do
   use ExUnit.Case, async: true
 
-  @ios Path.expand("../../../priv/templates/mob.new/ios", __DIR__)
+  @ios Application.app_dir(:mob_new, "priv/templates/mob.new/ios")
   @ios_templates [
     Path.join(@ios, "build.zig.eex"),
     Path.join(@ios, "build_device.zig.eex")

@@ -3,14 +3,14 @@
 defmodule MobNew.Templates.AndroidThrottleConfigTest do
   use ExUnit.Case, async: true
 
-  @bridge Path.expand(
-            "../../../priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex",
-            __DIR__
+  @bridge Application.app_dir(
+            :mob_new,
+            "priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex"
           )
 
-  @jni Path.expand(
-         "../../../priv/templates/mob.new/android/app/src/main/jni/beam_jni.c.eex",
-         __DIR__
+  @jni Application.app_dir(
+         :mob_new,
+         "priv/templates/mob.new/android/app/src/main/jni/beam_jni.c.eex"
        )
 
   setup_all do
@@ -87,9 +87,9 @@ defmodule MobNew.Templates.AndroidThrottleConfigTest do
 
     json =
       File.read!(
-        Path.expand(
-          "../../../priv/templates/mob.new/android/app/src/main/java/MobJson.kt.eex",
-          __DIR__
+        Application.app_dir(
+          :mob_new,
+          "priv/templates/mob.new/android/app/src/main/java/MobJson.kt.eex"
         )
       )
 

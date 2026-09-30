@@ -1,9 +1,9 @@
 defmodule MobNew.Templates.AndroidBoxAccessibilityTest do
   use ExUnit.Case, async: true
 
-  @bridge Path.expand(
-            "../../../priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex",
-            __DIR__
+  @bridge Application.app_dir(
+            :mob_new,
+            "priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex"
           )
 
   test "generated boxes expose labels, action roles, and disabled semantics" do

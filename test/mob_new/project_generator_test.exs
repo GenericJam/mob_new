@@ -20,7 +20,7 @@ defmodule MobNew.ProjectGeneratorTest do
 
   test "packaged Zig version stays in lockstep with .tool-versions" do
     packaged_version =
-      Path.expand("../../priv/zig-version", __DIR__)
+      Application.app_dir(:mob_new, "priv/zig-version")
       |> File.read!()
       |> String.trim()
 
@@ -1234,7 +1234,7 @@ defmodule MobNew.ProjectGeneratorTest do
       #    an unguarded boot pass as long as some unrelated lazy-init existed
       #    elsewhere — two erl_starts, green suite. Both entry points fire on a
       #    normal launch and a second erl_start is fatal.
-      assert length(Regex.scan(~r/dispatch_once\(&/, boot)) == 1,
+      assert match?([_], Regex.scan(~r/dispatch_once\(&/, boot)),
              "mob_boot_runtime must hold exactly one dispatch_once guard"
 
       refute did_finish =~ "dispatch_once",

@@ -378,10 +378,7 @@ defmodule MobNew.Templates.Lint do
   end
 
   defp binary_match(content, pattern, from \\ 0) do
-    case :binary.match(content, pattern, scope: {from, byte_size(content) - from}) do
-      :nomatch -> :nomatch
-      result -> result
-    end
+    :binary.match(content, pattern, scope: {from, byte_size(content) - from})
   end
 
   # Byte offset of the `}` that closes the `{` at `open_index`, or nil if

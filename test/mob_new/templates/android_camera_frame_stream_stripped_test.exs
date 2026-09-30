@@ -1,7 +1,7 @@
 defmodule MobNew.Templates.AndroidCameraFrameStreamStrippedTest do
   use ExUnit.Case, async: true
 
-  @android Path.expand("../../../priv/templates/mob.new/android/app/src/main", __DIR__)
+  @android Application.app_dir(:mob_new, "priv/templates/mob.new/android/app/src/main")
   @bridge Path.join(@android, "java/MobBridge.kt.eex")
   @main_activity Path.join(@android, "java/MainActivity.kt.eex")
   @beam_jni Path.join(@android, "jni/beam_jni.c.eex")

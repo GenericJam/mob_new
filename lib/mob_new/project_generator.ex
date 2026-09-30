@@ -26,6 +26,8 @@ defmodule MobNew.ProjectGenerator do
   ships with `com.mob.*` would have to be renamed before reaching either store.
   """
 
+  # Compile-time source path: tracked by @external_resource and valid when built as a Mix archive.
+  # credo:disable-for-next-line ExSlop.Check.Warning.PathExpandPriv
   @zig_version_path Path.expand("../../priv/zig-version", __DIR__)
   @external_resource @zig_version_path
   @required_zig_version @zig_version_path |> File.read!() |> String.trim()

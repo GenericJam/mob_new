@@ -1,7 +1,7 @@
 defmodule MobNew.Templates.AndroidAudioOutputProbesTest do
   use ExUnit.Case, async: true
 
-  @android Path.expand("../../../priv/templates/mob.new/android/app/src/main", __DIR__)
+  @android Application.app_dir(:mob_new, "priv/templates/mob.new/android/app/src/main")
   @bridge Path.join(@android, "java/MobBridge.kt.eex")
 
   # The audio output probes (Mob.Audio.output_status/0, output_level/1) call

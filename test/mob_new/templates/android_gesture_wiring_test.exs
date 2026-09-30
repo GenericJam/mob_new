@@ -3,14 +3,14 @@
 defmodule MobNew.Templates.AndroidGestureWiringTest do
   use ExUnit.Case, async: true
 
-  @bridge Path.expand(
-            "../../../priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex",
-            __DIR__
+  @bridge Application.app_dir(
+            :mob_new,
+            "priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex"
           )
 
-  @jni Path.expand(
-         "../../../priv/templates/mob.new/android/app/src/main/jni/beam_jni.c.eex",
-         __DIR__
+  @jni Application.app_dir(
+         :mob_new,
+         "priv/templates/mob.new/android/app/src/main/jni/beam_jni.c.eex"
        )
 
   setup_all do
@@ -39,7 +39,7 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
     # senders: Kotlin compiles, the app loads, and the first drag dies with
     # UnsatisfiedLinkError as a FATAL EXCEPTION on the UI thread.
     declared = declared_senders(src)
-    assert length(declared) > 10, "expected to find the sender list"
+    assert Enum.count_until(declared, 11) > 10, "expected to find the sender list"
 
     missing = Enum.reject(declared, &String.contains?(jni, "MobBridge_#{&1}("))
     assert missing == [], "Kotlin declares these senders with no JNI stub: #{inspect(missing)}"

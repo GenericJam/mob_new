@@ -3,7 +3,7 @@
 defmodule MobNew.Templates.AndroidJsonParserTest do
   use ExUnit.Case, async: true
 
-  @root Path.expand("../../../priv/templates/mob.new/android/app/src", __DIR__)
+  @root Application.app_dir(:mob_new, "priv/templates/mob.new/android/app/src")
   @bridge Path.join(@root, "main/java/MobBridge.kt.eex")
   @parser Path.join(@root, "main/java/MobJson.kt.eex")
   @parser_test Path.join(@root, "test/java/MobJsonTest.kt.eex")
@@ -65,7 +65,7 @@ defmodule MobNew.Templates.AndroidJsonParserTest do
     # real implementation the parser's tests cannot run at all.
     src =
       File.read!(
-        Path.expand("../../../priv/templates/mob.new/android/app/build.gradle.eex", __DIR__)
+        Application.app_dir(:mob_new, "priv/templates/mob.new/android/app/build.gradle.eex")
       )
 
     assert src =~ "testImplementation 'org.json:json"

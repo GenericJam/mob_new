@@ -1,7 +1,7 @@
 defmodule MobNew.Templates.AndroidRenderEpochTest do
   use ExUnit.Case, async: true
 
-  @dir Path.expand("../../../priv/templates/mob.new/android/app/src/main/java", __DIR__)
+  @dir Application.app_dir(:mob_new, "priv/templates/mob.new/android/app/src/main/java")
 
   defp code_only(source) do
     source

@@ -8,7 +8,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.6.1] - 2026-09-30
 
 ### Added
 - **`mix mob.new --deliver`** wires a native app for mob_deliver (signed OTA
@@ -30,11 +30,6 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   (looked up by reflection, so apps without mob_wake compile and report
   `NoData`). Existing apps that want `Mob.Wake` silent-push handlers need the
   same two edits.
-
-- **Generated apps require mob 0.9.5** (`{:mob, "~> 0.9.5"}`, was
-  `~> 0.9.0`). `--deliver` apps rely on `Mob.Device.app_version/0` and
-  `Mob.Router.Hooks`, both new in mob 0.9.5; with a lockfile still on 0.9.4
-  they compiled, but the forced-update gate silently stayed open.
 
 ### Fixed
 - **NIF compiles no longer warn `'STATIC_ERLANG_NIF' macro redefined`**
@@ -82,6 +77,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
      ```
 
 ### Changed
+- **Generated apps require mob 0.9.5** (`{:mob, "~> 0.9.5"}`, was
+  `~> 0.9.0`). `--deliver` apps rely on `Mob.Device.app_version/0` and
+  `Mob.Router.Hooks`, both new in mob 0.9.5; with a lockfile still on 0.9.4
+  they compiled, but the forced-update gate silently stayed open.
+
 - The Android manifest template's QR-scanner comment now says mob_scanner
   0.1.3+ contributes `MobScannerActivity` itself via
   `android.manifest_application_snippets`, spliced by `mix mob.deploy --native`

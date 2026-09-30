@@ -1271,10 +1271,15 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
     else
-      # Floor at 0.8.3, not "~> 0.8". Generated code depends on a specific
+      # Floor at 0.9.5, not "~> 0.9". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
+      #   * `--deliver` apps leave `app_version` out of `config :mob_deliver`
+      #     and let mob_deliver read the binary's version through
+      #     `Mob.Device.app_version/0`, and mob_deliver's just-in-time screens
+      #     use `Mob.Router.Hooks` — both new in 0.9.5. On 0.9.4 the app
+      #     compiles, but the forced-update gate silently stays open.
       #   * The `:mob_mishka` plugin (MOB-246) supplies the ~75 <Mishka…>
       #     composite tags via its manifest — the `~MOB` sigil reads plugin
       #     manifests for tag membership from the mob version that ships
@@ -1288,8 +1293,8 @@ defmodule MobNew.ProjectGenerator do
       #     mob_send_dismiss (0.7.31, MOB-104); intrinsic Sheet detents and
       #     Box accessibility props are validated and encoded from 0.7.32.
       #
-      # `~>` still allows the whole 0.8.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.9.0"})
+      # `~>` still allows the whole 0.9.x line above the floor.
+      mob_dep = ~s({:mob,     "~> 0.9.5"})
       mob_dev_dep = ~s({:mob_dev, "~> 0.6", only: :dev, runtime: false})
       mob_mishka_dep = ~s({:mob_mishka, "~> 0.1"})
 

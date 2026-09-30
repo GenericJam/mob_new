@@ -304,6 +304,8 @@ defmodule MobNew.LiveViewPatcher do
       only as a WebView wrapper around the running Phoenix endpoint.
       \"\"\"
 
+      require Logger
+
       def start do
         Mob.NativeLogger.install()
 
@@ -368,7 +370,11 @@ defmodule MobNew.LiveViewPatcher do
 
         # Start the MobScreen WebView pointing at the local Phoenix endpoint.
         # The WebView loads http://127.0.0.1:<liveview_port>/ (see mob.exs).
-        Mob.Screen.start_root(#{module_name}.MobScreen)
+        # A root screen that fails to mount leaves a blank window; say why.
+        case Mob.Screen.start_root(#{module_name}.MobScreen) do
+          {:ok, _pid} -> :ok
+          other -> Logger.error("MobScreen failed to start: \#{inspect(other)}")
+        end
 
         # Start Erlang distribution so `mix mob.connect` can attach.
         Mob.Dist.ensure_started(node: :"#{app_name}_android@127.0.0.1", cookie: :mob_secret)

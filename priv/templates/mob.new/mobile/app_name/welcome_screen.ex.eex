@@ -10,6 +10,13 @@ defmodule <%= module_name %>.WelcomeScreen do
   navigates here. Screens that must work offline or on first launch belong in
   `lib/<%= app_name %>/` instead: the directory decides.
 
+  Code in `lib/` reaches a `mobile/` screen by name only, e.g.
+  `Mob.Socket.push_screen(socket, <%= module_name %>.WelcomeScreen)`: mob_deliver's
+  router hook fetches the module before the navigation happens. Don't call
+  functions on `mobile/` modules from `lib/`: `mix compile` never sees
+  `mobile/`, so the call warns as an undefined module (and fails under
+  `--warnings-as-errors`).
+
   Edit this file and publish again, and installed apps pick up the new version
   without a store release.
   """

@@ -98,11 +98,10 @@ defmodule Mix.Tasks.Mob.New do
             build.gradle
             src/main/
               AndroidManifest.xml
-              java/com/mob/APP_NAME/MainActivity.kt
-              java/com/mob/APP_NAME/MobBridge.kt
-              java/com/mob/APP_NAME/MobJson.kt
-              java/com/mob/APP_NAME/MobNode.kt
-              java/com/mob/APP_NAME/MobScannerActivity.kt
+              java/com/example/APP_NAME/MainActivity.kt
+              java/com/example/APP_NAME/MobBridge.kt
+              java/com/example/APP_NAME/MobJson.kt
+              java/com/example/APP_NAME/MobNode.kt
           gradle.properties
         ios/
           beam_main.m
@@ -346,6 +345,11 @@ defmodule Mix.Tasks.Mob.New do
         do: ["mobile/#{app_name}/welcome_screen.ex", MobNew.ProjectGenerator.deliver_key_file()],
         else: []
 
+    # Same package directory the generator writes to (bundle prefix + app name).
+    java_dir =
+      "android/app/src/main/java/" <>
+        String.replace("#{MobNew.ProjectGenerator.bundle_prefix()}.#{app_name}", ".", "/")
+
     android_files =
       if no_android,
         do: [],
@@ -354,11 +358,10 @@ defmodule Mix.Tasks.Mob.New do
           "android/build.gradle",
           "android/app/build.gradle",
           "android/app/src/main/AndroidManifest.xml",
-          "android/app/src/main/java/com/mob/#{app_name}/MainActivity.kt",
-          "android/app/src/main/java/com/mob/#{app_name}/MobBridge.kt",
-          "android/app/src/main/java/com/mob/#{app_name}/MobJson.kt",
-          "android/app/src/main/java/com/mob/#{app_name}/MobNode.kt",
-          "android/app/src/main/java/com/mob/#{app_name}/MobScannerActivity.kt",
+          "#{java_dir}/MainActivity.kt",
+          "#{java_dir}/MobBridge.kt",
+          "#{java_dir}/MobJson.kt",
+          "#{java_dir}/MobNode.kt",
           "android/gradle.properties"
         ]
 
@@ -381,8 +384,8 @@ defmodule Mix.Tasks.Mob.New do
     Mix.shell().info("""
 
     Your Mob app #{app_name} is ready!
-    #{install_hint}
-        cd #{app_name}
+
+        cd #{app_name}#{install_hint}
         mix mob.install                # generates app icon + first-run setup
     #{provision_hint}
     Machine-specific overrides (e.g. a custom mob_dir) go in mob.local.exs
@@ -468,7 +471,7 @@ defmodule Mix.Tasks.Mob.New do
     Mix.shell().info("""
 
     Your Mob LiveView app #{app_name} is ready!
-    #{install_hint}
+
     Next steps:
 
     1. Commit mob.exs (project config). Put machine-specific overrides
@@ -476,7 +479,7 @@ defmodule Mix.Tasks.Mob.New do
     2. Edit android/local.properties with your Android SDK path.
     3. Run first-time setup:
 
-        cd #{app_name}
+        cd #{app_name}#{install_hint}
         mix mob.install                # icon generation + first-run setup
 
     4. Configure your database in config/dev.exs and run:

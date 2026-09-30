@@ -18,12 +18,27 @@ config :mob_deliver,
   app: "<%= bundle_id %>",
   channel: :production,
   # CHANGE ME: the URL where MobDeliverServer.Plug serves your
-  # `mix mob_deliver.publish` output.
-  endpoint: "https://updates.example.com",
+  # `mix mob_deliver.publish` output. The `.invalid` placeholder never
+  # resolves, so update checks fail until you set it.
+  endpoint: "https://change-me.invalid/deliver",
+  # CA certificates for HTTPS to `endpoint`. Android has no trust store the
+  # BEAM can read, so without these every HTTPS request fails. This line runs
+  # on the build machine (mob_dev evaluates config/*.exs at build time and
+  # ships the result to the device), so the app trusts the CAs your machine
+  # trusted when it was built; rebuild to pick up trust store changes. It is
+  # harmless on iOS. To pin your own bundle instead, list its DER certs here
+  # (see Mob.Certs for the priv/cacerts.pem approach).
+  req_options: [
+    connect_options: [
+      transport_opts: [cacerts: for({:cert, der, _} <- :public_key.cacerts_get(), do: der)]
+    ]
+  ],
   # The forced-update window compares min_app_version with the installed
   # binary's own version (Info.plist / build.gradle), read at runtime by
   # Mob.Device.app_version/0. Setting `app_version:` here overrides it.
-  # Your App Store / Play Store page, once it exists.
+  # SET THIS BEFORE RELEASE: your App Store / Play Store page. While it is
+  # nil, the "please update" screen has no Update button, so users past a
+  # forced-update deadline have no way forward from inside the app.
   store_url: nil<% end %>
 <%= unless blank do %>
 # `mob_mishka` supplies the `<Mishka…>` composite tags. The ~MOB sigil in

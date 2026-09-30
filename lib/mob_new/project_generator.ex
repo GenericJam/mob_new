@@ -1271,15 +1271,20 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
     else
-      # Floor at 0.9.5, not "~> 0.9". Generated code depends on a specific
+      # Floor at 0.9.6, not "~> 0.9". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
+      #   * `Mob.App.start/0` starts every activated plugin's OTP application
+      #     and loads the app's config/*.exs onto the device from 0.9.6. On
+      #     0.9.5 a plugin's supervision tree never starts and
+      #     `Application.get_env` is nil for its config: `--deliver` apps
+      #     have no endpoint, and the home screen's plain push of the
+      #     delivered WelcomeScreen relies on mob_deliver's router hook.
       #   * `--deliver` apps leave `app_version` out of `config :mob_deliver`
       #     and let mob_deliver read the binary's version through
       #     `Mob.Device.app_version/0`, and mob_deliver's just-in-time screens
-      #     use `Mob.Router.Hooks` — both new in 0.9.5. On 0.9.4 the app
-      #     compiles, but the forced-update gate silently stays open.
+      #     use `Mob.Router.Hooks` — both new in 0.9.5.
       #   * The `:mob_mishka` plugin (MOB-246) supplies the ~75 <Mishka…>
       #     composite tags via its manifest — the `~MOB` sigil reads plugin
       #     manifests for tag membership from the mob version that ships
@@ -1294,8 +1299,10 @@ defmodule MobNew.ProjectGenerator do
       #     Box accessibility props are validated and encoded from 0.7.32.
       #
       # `~>` still allows the whole 0.9.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.9.5"})
-      mob_dev_dep = ~s({:mob_dev, "~> 0.6", only: :dev, runtime: false})
+      mob_dep = ~s({:mob,     "~> 0.9.6"})
+      # mob_dev 0.7.4 builds config/*.exs into `mob_app_config`, which mob
+      # 0.9.6 loads on the device; older mob_dev ships no app config at all.
+      mob_dev_dep = ~s({:mob_dev, "~> 0.7.4", only: :dev, runtime: false})
       mob_mishka_dep = ~s({:mob_mishka, "~> 0.1"})
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, nil}

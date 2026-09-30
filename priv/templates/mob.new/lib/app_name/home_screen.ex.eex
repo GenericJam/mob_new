@@ -1,8 +1,6 @@
 <%= if blank do %>defmodule <%= module_name %>.HomeScreen do
   @moduledoc "Landing screen for <%= display_name %>."
-  use Mob.Screen<%= if deliver do %>
-
-  require Logger<% end %>
+  use Mob.Screen
 
   def mount(_params, _session, socket) do
     theme = Mob.State.get(:theme, :dark)
@@ -49,21 +47,15 @@
     {:noreply, Mob.Socket.assign(socket, :theme, :dark)}
   end<%= if deliver do %>
 
-  # WelcomeScreen lives in mobile/, outside this binary: MobDeliver.resolve/1
-  # fetches, verifies and loads it from the mob_deliver endpoint the first time
-  # it is opened (mob with router hooks does this on every push by itself).
-  # Until `mix mob_deliver.publish` output is served there, the fetch fails and
-  # the tap only logs.
-  def handle_info({:tap, :open_welcome}, socket) do
-    case MobDeliver.resolve(<%= module_name %>.WelcomeScreen) do
-      :ok ->
-        {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.WelcomeScreen)}
-
-      {:error, reason} ->
-        Logger.warning("could not fetch the delivered WelcomeScreen: #{inspect(reason)}")
-        {:noreply, socket}
-    end
-  end<% end %>
+  # WelcomeScreen lives in mobile/, outside this binary. Pushing it is all it
+  # takes: mob_deliver's router hook fetches, verifies and loads it before the
+  # navigation happens, in the router rather than in this screen. Name mobile/
+  # modules only as atoms like this; calling a function on one warns at
+  # compile time, because `mix compile` never sees mobile/. Until
+  # `mix mob_deliver.publish` output is served at `endpoint:`, the fetch fails,
+  # the router refuses the navigation and logs why, and you stay here.
+  def handle_info({:tap, :open_welcome}, socket),
+    do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.WelcomeScreen)}<% end %>
 
   # Plugin demo screens are tagged by their route string (see plugin_section/1).
   def handle_info({:tap, route}, socket) when is_binary(route) do
@@ -155,9 +147,7 @@ end
     4. a footer crediting Mishka Chelekom, whose components and styling this
        app ships — https://mishka.tools/chelekom.
   """
-  use Mob.Screen<%= if deliver do %>
-
-  require Logger<% end %>
+  use Mob.Screen
 
   alias <%= module_name %>.{Showcase, ThemeBar}
   alias <%= module_name %>.Showcase.Kit
@@ -374,21 +364,15 @@ end
   def handle_info({:tap, :open_storage}, socket),
     do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.StorageScreen)}<%= if deliver do %>
 
-  # WelcomeScreen lives in mobile/, outside this binary: MobDeliver.resolve/1
-  # fetches, verifies and loads it from the mob_deliver endpoint the first time
-  # it is opened (mob with router hooks does this on every push by itself).
-  # Until `mix mob_deliver.publish` output is served there, the fetch fails and
-  # the tap only logs.
-  def handle_info({:tap, :open_welcome}, socket) do
-    case MobDeliver.resolve(<%= module_name %>.WelcomeScreen) do
-      :ok ->
-        {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.WelcomeScreen)}
-
-      {:error, reason} ->
-        Logger.warning("could not fetch the delivered WelcomeScreen: #{inspect(reason)}")
-        {:noreply, socket}
-    end
-  end<% end %>
+  # WelcomeScreen lives in mobile/, outside this binary. Pushing it is all it
+  # takes: mob_deliver's router hook fetches, verifies and loads it before the
+  # navigation happens, in the router rather than in this screen. Name mobile/
+  # modules only as atoms like this; calling a function on one warns at
+  # compile time, because `mix compile` never sees mobile/. Until
+  # `mix mob_deliver.publish` output is served at `endpoint:`, the fetch fails,
+  # the router refuses the navigation and logs why, and you stay here.
+  def handle_info({:tap, :open_welcome}, socket),
+    do: {:noreply, Mob.Socket.push_screen(socket, <%= module_name %>.WelcomeScreen)}<% end %>
 
   # Plugin demo screens are tagged by their route string (see demo_buttons/1).
   def handle_info({:tap, route}, socket) when is_binary(route) do

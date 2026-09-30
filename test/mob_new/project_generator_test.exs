@@ -307,9 +307,10 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "mix.exs"))
       # 0.9.0 unions plugin-manifest :tags into the ~MOB whitelist (MOB-247);
-      # 0.9.5 adds Mob.Device.app_version/0 + Mob.Router.Hooks, which the
-      # --deliver config relies on (without them its update gate stays open).
-      assert content =~ ~s({:mob,     "~> 0.9.5"})
+      # 0.9.6 starts plugin OTP apps and loads app config on the device, which
+      # needs mob_dev 0.7.4 to build that config into the app.
+      assert content =~ ~s({:mob,     "~> 0.9.6"})
+      assert content =~ ~s({:mob_dev, "~> 0.7.4", only: :dev, runtime: false})
       assert content =~ ~s({:mob_mishka, "~> 0.1"})
     end
 
@@ -2879,7 +2880,18 @@ defmodule MobNew.ProjectGeneratorTest do
 
       assert config[:app] == "com.example.deliver_app"
       assert config[:channel] == :production
-      assert config[:endpoint] == "https://updates.example.com"
+      # A placeholder that can never resolve, not a plausible real host.
+      assert String.ends_with?(URI.parse(config[:endpoint]).host, ".invalid")
+
+      # Android's BEAM has no readable trust store: HTTPS needs these certs.
+      cacerts = get_in(config, [:req_options, :connect_options, :transport_opts, :cacerts])
+      assert [_ | _] = cacerts
+
+      assert Enum.all?(
+               cacerts,
+               &match?({:OTPCertificate, _, _, _}, :public_key.pkix_decode_cert(&1, :otp))
+             )
+
       # Unset, so the gate reads the binary's own version: a value here
       # overrides it and drifts from Info.plist / build.gradle.
       refute Keyword.has_key?(config, :app_version)
@@ -2905,9 +2917,10 @@ defmodule MobNew.ProjectGeneratorTest do
         app = File.read!(Path.join(dir, "lib/#{name}/app.ex"))
         home = File.read!(Path.join(dir, "lib/#{name}/home_screen.ex"))
 
-        assert app =~ "Mob.Screen.start_root(MobDeliver.root_screen(#{module}.HomeScreen))"
+        assert app =~ "root = MobDeliver.root_screen(#{module}.HomeScreen)"
         assert home =~ ":open_welcome"
-        assert home =~ "MobDeliver.resolve(#{module}.WelcomeScreen)"
+        # The router hook fetches it; a resolve/1 here would block the screen.
+        refute home =~ "MobDeliver.resolve("
         assert home =~ "Mob.Socket.push_screen(socket, #{module}.WelcomeScreen)"
 
         if opts[:blank] do

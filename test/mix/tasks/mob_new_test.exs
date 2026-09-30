@@ -60,4 +60,40 @@ defmodule Mix.Tasks.Mob.NewTest do
       refute File.exists?(Path.join(tmp, "my_app"))
     end
   end
+
+  describe "run/1 output" do
+    setup do
+      shell = Mix.shell()
+      Mix.shell(Mix.Shell.Process)
+      on_exit(fn -> Mix.shell(shell) end)
+    end
+
+    defp printed_lines do
+      receive do
+        {:mix_shell, :info, [msg]} -> [IO.iodata_to_binary(msg) | printed_lines()]
+      after
+        0 -> []
+      end
+    end
+
+    @tag :tmp_dir
+    test "every file it says it created exists, and deps.get comes after cd",
+         %{tmp_dir: tmp} do
+      New.run(["out_app", "--no-install", "--dest", tmp])
+      output = printed_lines()
+
+      created =
+        for line <- output,
+            String.contains?(line, "* creating "),
+            do: line |> String.split("* creating ") |> List.last()
+
+      assert Enum.any?(created, &String.ends_with?(&1, "MainActivity.kt"))
+      assert Enum.reject(created, &File.exists?/1) == []
+
+      steps = Enum.find(output, &String.contains?(&1, "is ready!"))
+      {cd, _} = :binary.match(steps, "cd out_app")
+      {deps, _} = :binary.match(steps, "mix deps.get")
+      assert cd < deps
+    end
+  end
 end

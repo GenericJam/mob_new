@@ -31,6 +31,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `NoData`). Existing apps that want `Mob.Wake` silent-push handlers need the
   same two edits.
 
+- **Generated apps require mob 0.9.5** (`{:mob, "~> 0.9.5"}`, was
+  `~> 0.9.0`). `--deliver` apps rely on `Mob.Device.app_version/0` and
+  `Mob.Router.Hooks`, both new in mob 0.9.5; with a lockfile still on 0.9.4
+  they compiled, but the forced-update gate silently stayed open.
+
 ### Fixed
 - **NIF compiles no longer warn `'STATIC_ERLANG_NIF' macro redefined`**
   (MOB-284). The generated iOS `ios/build.zig` / `ios/build_device.zig` and

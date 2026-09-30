@@ -2838,7 +2838,9 @@ defmodule MobNew.ProjectGeneratorTest do
       assert config[:app] == "com.example.deliver_app"
       assert config[:channel] == :production
       assert config[:endpoint] == "https://updates.example.com"
-      assert config[:app_version] == "0.1.0"
+      # Unset, so the gate reads the binary's own version: a value here
+      # overrides it and drifts from Info.plist / build.gradle.
+      refute Keyword.has_key?(config, :app_version)
       assert Keyword.fetch!(config, :store_url) == nil
     end
 

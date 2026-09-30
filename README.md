@@ -48,7 +48,8 @@ toolchain check, etc.).
 - `mob_deliver_signing.key`: a fresh Ed25519 publish key (mode 0600,
   gitignored; keep it as a CI secret). Its public half is in
   `config/config.exs` as `:trusted_publish_key`, next to `app`, `channel`,
-  `app_version`, `store_url`, and the `endpoint` you point at your server.
+  `store_url`, and the `endpoint` you point at your server. The update gate
+  reads the app's version from the binary (`Mob.Device.app_version/0`).
 - `mobile/my_app/welcome_screen.ex`: an example **expansion screen**, opened
   from the home screen. `mobile/` is not in `elixirc_paths`, so it is never
   compiled into the app binary. The installed app fetches each screen the

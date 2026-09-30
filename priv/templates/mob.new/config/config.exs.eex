@@ -20,9 +20,9 @@ config :mob_deliver,
   # CHANGE ME: the URL where MobDeliverServer.Plug serves your
   # `mix mob_deliver.publish` output.
   endpoint: "https://updates.example.com",
-  # The shipped app's version, for the forced-update window. Bump it with
-  # every store release.
-  app_version: "0.1.0",
+  # The forced-update window compares min_app_version with the installed
+  # binary's own version (Info.plist / build.gradle), read at runtime by
+  # Mob.Device.app_version/0. Setting `app_version:` here overrides it.
   # Your App Store / Play Store page, once it exists.
   store_url: nil<% end %>
 <%= unless blank do %>

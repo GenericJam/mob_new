@@ -2930,7 +2930,7 @@ defmodule MobNew.ProjectGeneratorTest do
         app = File.read!(Path.join(dir, "lib/#{name}/app.ex"))
         home = File.read!(Path.join(dir, "lib/#{name}/home_screen.ex"))
 
-        assert app =~ "root = MobDeliver.root_screen(#{module}.HomeScreen)"
+        assert app =~ "Mob.Screen.start_root(MobDeliver.root_screen(#{module}.HomeScreen))"
         assert home =~ ":open_welcome"
         # The router hook fetches it; a resolve/1 here would block the screen.
         refute home =~ "MobDeliver.resolve("
@@ -3049,7 +3049,9 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, tmp: tmp}
     end
 
+    # deps.get + a cold compile of every dep outruns ExUnit's 60s default.
     @tag :integration
+    @tag timeout: :timer.minutes(15)
     test "generated --python project compiles cleanly", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("py_e2e", tmp, python: true, local: true)
 
@@ -3127,6 +3129,7 @@ defmodule MobNew.ProjectGeneratorTest do
     end
 
     @tag :integration
+    @tag timeout: :timer.minutes(15)
     test "generated home_screen_test.exs compiles against the real Mob.ScreenCase",
          %{tmp: tmp} do
       case mob_dir_with_screen_case() do
@@ -3196,6 +3199,7 @@ defmodule MobNew.ProjectGeneratorTest do
     @describetag :tmp_dir
 
     @tag :integration
+    @tag timeout: :timer.minutes(15)
     test "generated --deliver project compiles and publishes mobile/", %{tmp_dir: tmp} do
       siblings =
         Map.new(

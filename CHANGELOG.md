@@ -32,17 +32,16 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `push_screen`: mob_deliver's router hook fetches it before navigating, so the
   screen no longer blocks in `MobDeliver.resolve/1` for the whole fetch. The
   comment there and the `mobile/` moduledoc explain naming `mobile/` modules
-  only as atoms from `lib/` (a function call on one warns at compile time).
+  only as atoms from `lib/`; for bundled code that must call one directly, the
+  moduledoc shows `@compile {:no_warn_undefined, Mod}` plus resolving it first.
 - **`--deliver`** config: `req_options` now carries CA certificates (the build
   machine's trust store, read at build time), so HTTPS to the endpoint works
   on Android, whose BEAM has no readable trust store. The endpoint placeholder
   is `https://change-me.invalid/deliver`, and `store_url: nil` is flagged as
-  "set this before release" (without it the update screen has no button).
+  "set this before release" (without it the update screen has no Update
+  button).
 
 ### Fixed
-- A root screen that fails to start is now logged: every generated `app.ex`
-  (native and LiveView) handles `Mob.Screen.start_root/1`'s result instead of
-  ignoring it, which left a blank window and no error.
 - The printed next steps run `cd <app>` before `mix deps.get`, and the printed
   "creating" list names the Android package directory the files are actually
   written to (`com/example/<app>`, or `MOB_BUNDLE_PREFIX`), without the

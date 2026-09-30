@@ -37,8 +37,8 @@ config :mob_deliver,
   # binary's own version (Info.plist / build.gradle), read at runtime by
   # Mob.Device.app_version/0. Setting `app_version:` here overrides it.
   # SET THIS BEFORE RELEASE: your App Store / Play Store page. While it is
-  # nil, the "please update" screen has no Update button, so users past a
-  # forced-update deadline have no way forward from inside the app.
+  # nil, the "please update" screen has no Update button and can only tell
+  # users past a forced-update deadline to find the app in the store.
   store_url: nil<% end %>
 <%= unless blank do %>
 # `mob_mishka` supplies the `<Mishka…>` composite tags. The ~MOB sigil in

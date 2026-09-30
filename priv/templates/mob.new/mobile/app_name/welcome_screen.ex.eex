@@ -12,10 +12,19 @@ defmodule <%= module_name %>.WelcomeScreen do
 
   Code in `lib/` reaches a `mobile/` screen by name only, e.g.
   `Mob.Socket.push_screen(socket, <%= module_name %>.WelcomeScreen)`: mob_deliver's
-  router hook fetches the module before the navigation happens. Don't call
-  functions on `mobile/` modules from `lib/`: `mix compile` never sees
-  `mobile/`, so the call warns as an undefined module (and fails under
-  `--warnings-as-errors`).
+  router hook fetches the module before the navigation happens.
+
+  Calling a function on a `mobile/` module from `lib/` warns as an undefined
+  module, because `mix compile` never sees `mobile/` (and fails under
+  `--warnings-as-errors`). When bundled code has to call one directly, silence
+  the warning for that module in the calling module:
+
+      @compile {:no_warn_undefined, <%= module_name %>.Greeting}
+
+  and make sure it is loaded before the call, or it raises
+  `UndefinedFunctionError`: `MobDeliver.resolve(<%= module_name %>.Greeting)` returns
+  `:ok` once it is, fetching it if needed. It blocks for the whole fetch, so
+  run it off the screen process (see `MobDeliver.resolve/1`).
 
   Edit this file and publish again, and installed apps pick up the new version
   without a store release.

@@ -3,8 +3,6 @@ defmodule <%= module_name %>.App do
 
   use Mob.App
 
-  require Logger
-
   @impl Mob.App
   def navigation(_platform) do
     stack(:main, root: <%= module_name %>.HomeScreen)
@@ -43,15 +41,7 @@ defmodule <%= module_name %>.App do
 <%= if deliver do %>    # mob_deliver's plugin on_start has already loaded any delivered update;
     # root_screen/1 boots into its "please update" screen instead once this
     # app version is past a published forced-update deadline.
-    root = MobDeliver.root_screen(<%= module_name %>.HomeScreen)
-<% else %>    root = <%= module_name %>.HomeScreen
-<% end %>
-    # A root screen that fails to mount leaves a blank window; say why.
-    case Mob.Screen.start_root(root) do
-      {:ok, _pid} -> :ok
-      other -> Logger.error("root screen #{inspect(root)} failed to start: #{inspect(other)}")
-    end
-
+    Mob.Screen.start_root(MobDeliver.root_screen(<%= module_name %>.HomeScreen))<% else %>    Mob.Screen.start_root(<%= module_name %>.HomeScreen)<% end %>
     Mob.Dist.ensure_started(node: :"<%= app_name %>_android@127.0.0.1", cookie: :mob_secret)
   end
 <%= if python do %>
@@ -84,6 +74,7 @@ defmodule <%= module_name %>.App do
         Pythonx.init(dl, home, dl, sys_paths: [Path.join([home, "lib", "python3.13"])])
 
       {:partial, missing} ->
+        require Logger
         Logger.error("Python bundle incomplete; missing: #{inspect(missing)}")
     end
   end

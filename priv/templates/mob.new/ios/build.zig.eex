@@ -279,10 +279,11 @@ pub fn build(b: *std.Build) void {
         var c_it = std.mem.splitScalar(u8, project_c_nifs, ',');
         while (c_it.next()) |nif_name| {
             if (nif_name.len == 0) continue;
-            const flags = b.allocator.alloc([]const u8, c_flags.len + 2) catch unreachable;
+            // LIBNAME alone: erl_nif.h defines STATIC_ERLANG_NIF from it, so
+            // passing -DSTATIC_ERLANG_NIF too trips -Wmacro-redefined (MOB-284).
+            const flags = b.allocator.alloc([]const u8, c_flags.len + 1) catch unreachable;
             @memcpy(flags[0..c_flags.len], c_flags);
-            flags[c_flags.len] = "-DSTATIC_ERLANG_NIF";
-            flags[c_flags.len + 1] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{nif_name});
+            flags[c_flags.len] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{nif_name});
 
             installAndCollect(b, objects_step, &objs, addCObject(b, .{
                 .name = nif_name,
@@ -322,14 +323,12 @@ pub fn build(b: *std.Build) void {
                 // ("umbrella header for module 'Accelerate.vecLib' does not include
                 // 'lapack.h'", UIKit missing 'UIUtilities/UIDefines.h'). This is
                 // exactly why core's own mob_nif.m goes through addObjcObject. The
-                // STATIC_ERLANG_NIF defines ride along as extra_flags.
+                // STATIC_ERLANG_NIF_LIBNAME define rides along as extra_flags
+                // (erl_nif.h derives STATIC_ERLANG_NIF from it).
                 installAndCollect(b, objects_step, &objs, addObjcObject(b, .{
                     .name = name,
                     .source = path,
-                    .extra_flags = &.{
-                        "-DSTATIC_ERLANG_NIF",
-                        b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name}),
-                    },
+                    .extra_flags = &.{b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name})},
                     .mob_dir = mob_dir,
                     .otp_root = otp_root,
                     .erts_vsn = erts_vsn,
@@ -338,10 +337,9 @@ pub fn build(b: *std.Build) void {
                 continue;
             }
 
-            const flags = b.allocator.alloc([]const u8, c_flags.len + 2) catch unreachable;
+            const flags = b.allocator.alloc([]const u8, c_flags.len + 1) catch unreachable;
             @memcpy(flags[0..c_flags.len], c_flags);
-            flags[c_flags.len] = "-DSTATIC_ERLANG_NIF";
-            flags[c_flags.len + 1] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name});
+            flags[c_flags.len] = b.fmt("-DSTATIC_ERLANG_NIF_LIBNAME={s}", .{name});
 
             installAndCollect(b, objects_step, &objs, addCObject(b, .{
                 .name = name,

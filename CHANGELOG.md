@@ -8,6 +8,29 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **NIF compiles no longer warn `'STATIC_ERLANG_NIF' macro redefined`**
+  (MOB-284). The generated iOS `ios/build.zig` / `ios/build_device.zig` and
+  Android `jni/build.zig` / `jni/CMakeLists.txt` gave project C NIFs and plugin
+  C/ObjC NIFs `STATIC_ERLANG_NIF` alongside `STATIC_ERLANG_NIF_LIBNAME=<name>`;
+  `erl_nif.h` already defines the former from the latter, so every such
+  compile warned and zig listed it under `failed command:` on an otherwise
+  successful build. NIF compiles now get only the LIBNAME define (matching
+  mob_dev's own sqlite3_nif compile). Core objects without a LIBNAME
+  (`mob_nif.m`/`mob_nif.c`, `beam_jni.c`, `mob_beam.c`, driver tab,
+  `enif_keepalive.c`) keep the bare define: Android `build.zig` builds per-NIF
+  flags from a `nif_c_flags` snapshot taken before the define is appended, and
+  `CMakeLists.txt` sets it per source instead of target-wide. Existing apps:
+  apply the same edit to those files.
+
+### Changed
+- The Android manifest template's QR-scanner comment now says mob_scanner
+  0.1.3+ contributes `MobScannerActivity` itself via
+  `android.manifest_application_snippets`, spliced by `mix mob.deploy --native`
+  (MOB-279); no host action needed.
+
 ## [0.6.0] - 2026-09-17
 
 ### Changed

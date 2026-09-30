@@ -83,11 +83,20 @@ else()
         ${PROJECT_NIF_C_SRCS}
     )
 
-    # Per-NIF -DSTATIC_ERLANG_NIF_LIBNAME=<name>. The base STATIC_ERLANG_NIF
-    # define is added below as a target-level compile definition; this
-    # adds the per-source libname so ERL_NIF_INIT emits `<name>_nif_init`
-    # (matching the driver_tab declaration) rather than mangling the BEAM
-    # module name (e.g. `Elixir.App.Nifs.Foo`) into a C identifier.
+    # STATIC_ERLANG_NIF is set per source, never target-wide: erl_nif.h
+    # defines it from STATIC_ERLANG_NIF_LIBNAME, so giving a NIF source both
+    # trips -Wmacro-redefined (MOB-284). Core sources (no LIBNAME) get the
+    # bare define; each project NIF gets only its LIBNAME, so ERL_NIF_INIT
+    # emits `<name>_nif_init` (matching the driver_tab declaration) rather
+    # than mangling the BEAM module name (e.g. `Elixir.App.Nifs.Foo`) into
+    # a C identifier.
+    set_property(
+        SOURCE beam_jni.c
+               ${MOB_DIR}/android/jni/mob_nif.c
+               ${MOB_DIR}/android/jni/mob_beam.c
+               ${DRIVER_TAB_ANDROID}
+        APPEND PROPERTY COMPILE_DEFINITIONS STATIC_ERLANG_NIF
+    )
     foreach(_nif_src IN LISTS PROJECT_NIF_C_SRCS)
         get_filename_component(_nif_name "${_nif_src}" NAME_WE)
         set_property(
@@ -112,14 +121,14 @@ if(NOT EXISTS "${ZIG_LIB_SO}")
     # No-op when absent (vanilla projects without dynamic NIFs).
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/enif_keepalive.c")
         target_sources(<%= app_name %> PRIVATE enif_keepalive.c)
+        set_property(SOURCE enif_keepalive.c
+            APPEND PROPERTY COMPILE_DEFINITIONS STATIC_ERLANG_NIF)
     endif()
 
     target_include_directories(<%= app_name %> PRIVATE
         ${MOB_DIR}/android/jni
         ${OTP_DIR}/${ERTS_VSN}/include
     )
-
-    target_compile_definitions(<%= app_name %> PRIVATE STATIC_ERLANG_NIF)
 
     # -Os + per-function/data sections — same flags build.zig uses, so the
     # CMake fallback path produces equivalent code.

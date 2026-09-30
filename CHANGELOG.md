@@ -22,6 +22,15 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   button that fetches it. Off by default: projects generated without the flag
   are byte-identical to before. Rejected together with `--liveview`.
 
+- **Generated iOS apps receive mob_wake silent pushes** (MOB-271).
+  `ios/Info.plist` adds `remote-notification` to `UIBackgroundModes`, and
+  `ios/AppDelegate.m` implements
+  `application:didReceiveRemoteNotification:fetchCompletionHandler:`: a
+  payload carrying `mob_wake_id` is handed to mob_wake's `MobWakeDispatcher`
+  (looked up by reflection, so apps without mob_wake compile and report
+  `NoData`). Existing apps that want `Mob.Wake` silent-push handlers need the
+  same two edits.
+
 ### Fixed
 - **NIF compiles no longer warn `'STATIC_ERLANG_NIF' macro redefined`**
   (MOB-284). The generated iOS `ios/build.zig` / `ios/build_device.zig` and
@@ -37,12 +46,6 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `CMakeLists.txt` sets it per source instead of target-wide. Existing apps:
   apply the same edit to those files.
 
-### Changed
-- The Android manifest template's QR-scanner comment now says mob_scanner
-  0.1.3+ contributes `MobScannerActivity` itself via
-  `android.manifest_application_snippets`, spliced by `mix mob.deploy --native`
-  (MOB-279); no host action needed.
-### Fixed
 - **Generated projects commit `mob.exs`** (MOB-286). The generated
   `.gitignore` (native and `--liveview`) ignored `mob.exs`, but it holds project
   config — `config :mob, :plugins`, `:trusted_plugins`, `:styles`. A fresh
@@ -72,6 +75,12 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
      ```elixir
      if File.exists?(Path.join(__DIR__, "mob.local.exs")), do: import_config("mob.local.exs")
      ```
+
+### Changed
+- The Android manifest template's QR-scanner comment now says mob_scanner
+  0.1.3+ contributes `MobScannerActivity` itself via
+  `android.manifest_application_snippets`, spliced by `mix mob.deploy --native`
+  (MOB-279); no host action needed.
 
 ## [0.6.0] - 2026-09-17
 

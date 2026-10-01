@@ -53,6 +53,28 @@ Existing apps: copy `MobTextSync.kt` (and optionally its JVM test
 `MobTextField` composable and its two `TextFieldValue` / `TextRange`
 imports in `MobBridge.kt`.
 
+### Changed
+- **Android hands every notification to mob as its envelope, and reports
+  arrivals** (MOB-316). The generated `NotificationReceiver` builds mob's
+  notification envelope with `JSONObject` (a quote in a title used to break the
+  hand-built JSON, and the tap arrived with no data), marks the tap
+  `presentation: "tap"`, and, while `MainActivity` is between `onResume` and
+  `onPause`, delivers the arrival as `presentation: "foreground"`, the moment
+  iOS's delegate hears of one. `MainActivity` sends cold and warm taps through
+  `MobBridge.nativeDeliverNotification(MobNotifyHub.notifyPid, json)`, and
+  skips `onCreate` when the activity is re-created from saved state or
+  relaunched from Recents, which replay the launching intent. Removed the
+  now-unused `MobBridge.setLaunchNotification`, `nativeSetLaunchNotification`
+  and its `beam_jni.c` thunk. Needs the mob release with `Mob.Notification`.
+  Existing apps: port at least the `onCreate` guard; with that mob, a
+  re-created activity otherwise repeats the tap.
+- **iOS: the cold-launch notification tap needs no template change**
+  (MOB-178). mob's `mob_init_ui()`, already called from
+  `didFinishLaunching`, installs the notification delegate before launch
+  finishes; the template now says so, and a generator test pins that the shell
+  does not also forward the scene's `notificationResponse`, which would deliver
+  the tap twice.
+
 ## [0.6.2] - 2026-09-30
 
 ### Added

@@ -73,6 +73,9 @@ static void mob_boot_runtime(void) {
 
 // This method runs on every launch, including ones that never connect a window
 // scene, so it is the only place that can guarantee the runtime starts at all.
+// It is also where mob_init_ui() installs mob's notification-center delegate:
+// iOS hands the tap that launched the app only to a delegate set before this
+// method returns, and mob delivers it to the root screen once it has mounted.
 - (BOOL)application:(UIApplication*)app
     didFinishLaunchingWithOptions:(NSDictionary*)opts {
     mob_boot_runtime();

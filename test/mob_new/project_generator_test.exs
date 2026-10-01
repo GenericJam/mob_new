@@ -543,6 +543,64 @@ defmodule MobNew.ProjectGeneratorTest do
              "tap intent must carry the payload under the key MainActivity.onNewIntent reads"
     end
 
+    test "NotificationReceiver sends mob's notification envelope, built as JSON (MOB-316)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      [_, receiver] = String.split(kt, "class NotificationReceiver", parts: 2)
+
+      # String interpolation broke the payload on the first quote in a title, and
+      # the tap reached the screen with no data.
+      refute receiver =~ ~s("title":"$title"),
+             "the envelope must be built with JSONObject, not string interpolation"
+
+      assert receiver =~ ~s[put("presentation", presentation)]
+      assert receiver =~ ~s[envelope(id, title, body, dataStr, "tap")]
+
+      # An arrival is reported only while the app is in the foreground, as on
+      # iOS, where the delegate hears of one only then.
+      assert receiver =~
+               ~r/if \(MainActivity\.foreground\) \{\s*MobBridge\.nativeDeliverNotification\(/,
+             "an arrival must be delivered only while MainActivity is in the foreground"
+
+      assert receiver =~ ~s[envelope(id, title, body, dataStr, "foreground")]
+    end
+
+    test "MainActivity hands every notification tap to mob with the registered pid (MOB-316)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(
+          Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt")
+        )
+
+      # One path for cold and warm taps: mob delivers to the running BEAM or
+      # keeps the envelope until the router starts. The old onCreate path stored
+      # it for "the next boot", which never came while the BEAM outlived the
+      # Activity.
+      assert kt =~
+               "MobBridge.nativeDeliverNotification(io.mob.plugin.MobNotifyHub.notifyPid, json)"
+
+      refute kt =~ "setLaunchNotification"
+
+      [_, on_new_intent] = String.split(kt, "override fun onNewIntent", parts: 2)
+      assert on_new_intent =~ ~r/\A[^}]*deliverNotificationTap\(intent\)/
+
+      # Re-creation from saved state and a relaunch from Recents replay the
+      # launching intent; delivering from those would repeat the tap.
+      [_, on_create] = String.split(kt, "override fun onCreate", parts: 2)
+
+      assert on_create =~
+               ~r/if \(savedInstanceState == null &&\s*\(intent\.flags and android\.content\.Intent\.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY\) == 0\s*\) \{\s*deliverNotificationTap\(intent\)/
+
+      assert kt =~ ~r/override fun onResume\(\) \{[^}]*foreground = true/
+      assert kt =~ ~r/override fun onPause\(\) \{[^}]*foreground = false/
+    end
+
     test "generates ios/beam_main.m", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "ios/beam_main.m"))
@@ -1313,7 +1371,9 @@ defmodule MobNew.ProjectGeneratorTest do
       # 2. Both entry points reach it. didFinishLaunching is the one that runs on
       #    every launch, including those with no UIWindowScene.
       assert did_finish =~ "mob_boot_runtime();",
-             "application:didFinishLaunchingWithOptions: must boot the runtime"
+             "application:didFinishLaunchingWithOptions: must boot the runtime — " <>
+               "its mob_init_ui() also installs the notification delegate iOS " <>
+               "needs before launch finishes to hand over a cold-launch tap (MOB-178)"
 
       # Unconditionally. An earlier attempt gated this on
       # applicationState == UIApplicationStateBackground to avoid booting before
@@ -1350,6 +1410,23 @@ defmodule MobNew.ProjectGeneratorTest do
 
       refute will_connect =~ "dispatch_once",
              "the guard belongs in the shared function, not in one entry point"
+    end
+
+    test "the iOS shell leaves the cold-launch notification tap to mob's delegate (MOB-178)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      code =
+        Path.join(dir, "ios/AppDelegate.m")
+        |> File.read!()
+        |> then(&Regex.replace(~r{/\*.*?\*/}s, &1, ""))
+        |> then(&Regex.replace(~r{(?m)(^|\s)//[^\n]*}, &1, "\\1"))
+
+      # mob's delegate receives the launching tap in didReceiveNotificationResponse.
+      # The scene's connectionOptions carry the same response; forwarding it as
+      # well would deliver the tap twice.
+      refute code =~ "notificationResponse"
+      refute code =~ "mob_set_launch_notification_json"
     end
 
     test "Info.plist wires UISceneConfigurations to SceneDelegate (Xcode 27 requirement)",

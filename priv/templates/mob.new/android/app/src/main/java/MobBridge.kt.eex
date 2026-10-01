@@ -1705,7 +1705,6 @@ object MobBridge {
     @JvmStatic external fun nativeDeliverFileResult(pid: Long, event: String, sub: String, json: String?)
     @JvmStatic external fun nativeDeliverPushToken(pid: Long, token: String)
     @JvmStatic external fun nativeDeliverNotification(pid: Long, json: String)
-    @JvmStatic external fun nativeSetLaunchNotification(json: String?)
     @JvmStatic external fun nativeDeliverWebViewMessage(pid: Long, json: String)
     @JvmStatic external fun nativeDeliverWebViewBlocked(pid: Long, url: String)
     @JvmStatic external fun nativeDeliverAlertAction(action: String)
@@ -2512,11 +2511,6 @@ object MobBridge {
     // lives in the generated io.mob.plugin.MobNotifyHub. The channel id +
     // delivery thunks/receiver stay host-side (delivery is core/host-owned).
     private const val PERM_REQUEST_CODE = 9001
-
-    @JvmStatic
-    fun setLaunchNotification(json: String?) {
-        nativeSetLaunchNotification(json)
-    }
 
     /**
      * Called from nif_safe_area via JNI — returns [top, right, bottom, left] in dp.
@@ -6432,8 +6426,9 @@ private fun boolProp(props: Map<String, Any?>, key: String): Boolean? =
     }
 
 // ── Notification broadcast receiver ─────────────────────────────────────────
-// Receives alarms from AlarmManager and posts the notification to the system tray.
-// Also delivers the event to the running BEAM screen process if one is registered.
+// Receives alarms from AlarmManager and posts the notification to the system
+// tray. If the app is in the foreground it also tells the BEAM the notification
+// arrived, as iOS does; the tap reaches it through MainActivity.
 class NotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: android.content.Context, intent: android.content.Intent) {
         val title   = intent.getStringExtra("title") ?: ""
@@ -6441,16 +6436,18 @@ class NotificationReceiver : BroadcastReceiver() {
         val id      = intent.getStringExtra("id")    ?: "mob"
         val dataStr = intent.getStringExtra("data")  ?: "{}"
 
-        // Payload MainActivity.onCreate / onNewIntent expect under this key; they
-        // forward it to the BEAM (delivered now if running, else on next boot).
-        val json = """{"id":"$id","title":"$title","body":"$body","source":"local","data":$dataStr}"""
+        if (MainActivity.foreground) {
+            MobBridge.nativeDeliverNotification(
+                io.mob.plugin.MobNotifyHub.notifyPid,
+                envelope(id, title, body, dataStr, "foreground"))
+        }
 
         // Tap action: bring MainActivity (singleTop) to the foreground carrying
         // the payload. Without a content intent the tap is a no-op.
         val tapIntent = android.content.Intent(context, MainActivity::class.java).apply {
             flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
                 android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("mob_notification_json", json)
+            putExtra("mob_notification_json", envelope(id, title, body, dataStr, "tap"))
         }
         val contentPi = PendingIntent.getActivity(
             context, id.hashCode(), tapIntent,
@@ -6467,4 +6464,24 @@ class NotificationReceiver : BroadcastReceiver() {
         nm.notify(id.hashCode(), notif)
     }
 
+    // Mob.Notification's JSON envelope (see mob's guides/push_notifications.md).
+    // Built with JSONObject, not string interpolation: a quote in a title once
+    // made the payload unparseable and the tap arrived with no data.
+    private fun envelope(id: String, title: String, body: String, dataStr: String,
+                         presentation: String): String {
+        val data = try {
+            JSONObject(dataStr)
+        } catch (e: org.json.JSONException) {
+            JSONObject()
+        }
+        return JSONObject().apply {
+            put("id", id)
+            put("title", title)
+            put("body", body)
+            put("source", "local")
+            put("presentation", presentation)
+            if (presentation == "tap") put("action", "default")
+            put("data", data)
+        }.toString()
+    }
 }

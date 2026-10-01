@@ -190,6 +190,12 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -4453,12 +4459,18 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
         "url"     -> KeyboardType.Uri
         else      -> KeyboardType.Text
     }
+    // `lines: n` (n > 1) makes the field multi-line and n rows tall. Return
+    // then inserts a newline, as on iOS, unless the screen asked for a
+    // specific return key; on_submit is only meaningful single-line.
+    val lines = intProp(node.props, "lines") ?: 1
+    val multiline = lines > 1
     val imeAction = when (node.props["return_key"] as? String) {
         "next"   -> ImeAction.Next
         "go"     -> ImeAction.Go
         "search" -> ImeAction.Search
         "send"   -> ImeAction.Send
-        else     -> ImeAction.Done
+        "done"   -> ImeAction.Done
+        else     -> if (multiline) ImeAction.Default else ImeAction.Done
     }
 
     // Elixir owns this value; the local copy exists only so typing feels instant.
@@ -4514,11 +4526,102 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
     val fillWidth = boolProp(node.props, "fill_width") ?: false
     val tfModifier = if (fillWidth) modifier.fillMaxWidth() else modifier
 
+    // Withholding on_change only stopped the BEAM hearing about edits: the
+    // field stayed focusable and editable, looked live and went nowhere. The
+    // Mishka number, OTP and mask inputs say `enabled: false`; `disabled: true`
+    // is the spelling every other mob node uses. Either one disables it.
+    val enabled = boolProp(node.props, "enabled") != false &&
+        boolProp(node.props, "disabled") != true
+
+    // The web's `maxlength`, enforced in the field. A screen that truncates in
+    // Elixir instead produces a value equal to the previous one, an unchanged
+    // tree, and no repaint, so the field goes on showing what the BEAM threw
+    // away (a 99/99/9999 mask accepting 999999999). Counted in UTF-16 units,
+    // as the web and iOS count it.
+    val maxLength = intProp(node.props, "max_length") ?: 0
+
+    // `caret: "end"` pins the insertion point to the end of the text however
+    // the field is tapped. A segmented code input draws its slots from the
+    // value, so a tap on slot 1 that put the caret at index 0 sent the next
+    // digits to the FRONT: typing 23 into "1" gave "231".
+    val caretAtEnd = (node.props["caret"] as? String) == "end"
+
+    // Material's indicator line under the text. `underline: false` removes it
+    // for a field sitting inside someone else's box (the number field between
+    // its steppers); a field that draws its own border loses it by default,
+    // since the line would land inside the outline as a second border. iOS
+    // never draws one.
+    val drawsOwnBorder = longColorProp(node.props, "border_color") != null &&
+        (floatProp(node.props, "border_width") ?: 0f) > 0f
+    val underline = boolProp(node.props, "underline") ?: !drawsOwnBorder
+    val indicator = if (underline) Color.Unspecified else Color.Transparent
+
+    // Style props were serialised and ignored: no colors, shape or textStyle
+    // were passed, so the theme's text_color, placeholder_color and
+    // background never reached the field (MOB-197, MOB-237). An unset prop is
+    // Color.Unspecified, which `copy` reads as "keep Material's default".
+    val textColor = colorProp(node.props, "text_color")
+    val placeholderColor = colorProp(node.props, "placeholder_color")
+    val background = colorProp(node.props, "background")
+    // The caret follows the text unless told otherwise, so a field with
+    // transparent text (the OTP overlay) does not blink a cursor over the
+    // slots drawn behind it.
+    val caretColor = colorProp(node.props, "caret_color").takeOrElse { textColor }
+    // A pinned caret also hides the selection handle: dragging it could not
+    // move the caret anyway. Passed through the colors, not a
+    // CompositionLocalProvider: M3's TextField re-provides
+    // LocalTextSelectionColors from its colors, which would override ours.
+    val selectionColors = if (caretAtEnd) {
+        TextSelectionColors(handleColor = Color.Transparent, backgroundColor = Color.Transparent)
+    } else {
+        LocalTextSelectionColors.current
+    }
+    val fieldColors = TextFieldDefaults.colors(selectionColors = selectionColors).copy(
+        focusedTextColor = textColor,
+        unfocusedTextColor = textColor,
+        disabledTextColor = if (textColor.isSpecified) textColor.copy(alpha = textColor.alpha * 0.38f) else textColor,
+        focusedContainerColor = background,
+        unfocusedContainerColor = background,
+        disabledContainerColor = background,
+        cursorColor = caretColor,
+        focusedIndicatorColor = indicator,
+        unfocusedIndicatorColor = indicator,
+        disabledIndicatorColor = indicator,
+        focusedPlaceholderColor = placeholderColor,
+        unfocusedPlaceholderColor = placeholderColor,
+        disabledPlaceholderColor = placeholderColor,
+    )
+
+    // The same type props `:text` reads (MOB-237).
+    val baseStyle = LocalTextStyle.current
+    val fontSize = sizeProp(node.props, "text_size")
+    val letterSpacing = floatProp(node.props, "letter_spacing")
+    val fieldStyle = baseStyle.copy(
+        textAlign = textAlignProp(node.props) ?: baseStyle.textAlign,
+        fontSize = if (fontSize != TextUnit.Unspecified) fontSize else baseStyle.fontSize,
+        fontWeight = fontWeightProp(node.props) ?: baseStyle.fontWeight,
+        fontStyle = if (boolProp(node.props, "italic") == true) FontStyle.Italic else baseStyle.fontStyle,
+        fontFamily = fontFamilyProp(node.props, LocalContext.current) ?: baseStyle.fontFamily,
+        letterSpacing = letterSpacing?.sp ?: baseStyle.letterSpacing,
+    )
+
+    // M3's filled field rounds its top corners only; a node with its own
+    // radius gets that radius on all four, matching the background
+    // nodeModifier already painted behind it.
+    val shape = floatProp(node.props, "corner_radius")?.let { RoundedCornerShape(it.dp) }
+        ?: TextFieldDefaults.shape
+
     TextField(
         value         = field,
-        onValueChange = { new ->
+        onValueChange = onValueChange@{ new ->
+            // Rejected outright, as a web input with maxlength does. Only a
+            // lengthening edit: a value the BEAM set past the limit must
+            // still be deletable.
+            if (maxLength > 0 && new.text.length > maxLength && new.text.length > field.text.length) {
+                return@onValueChange
+            }
             val textChanged = new.text != field.text
-            field = new
+            field = if (caretAtEnd) new.copy(selection = TextRange(new.text.length)) else new
             // A caret move or an IME composition update is not an edit.
             if (textChanged) {
                 changeHandle?.let {
@@ -4527,13 +4630,32 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
                 }
             }
         },
-        placeholder   = { Text(placeholder) },
+        // In the field's own type and alignment, as iOS draws its prompt;
+        // the colour comes from fieldColors' placeholder entries. Widened
+        // only when aligned: the field sizes itself to its widest slot, so
+        // a full-width placeholder would stretch every wrap-content field.
+        placeholder   = {
+            Text(
+                placeholder,
+                modifier = if (textAlignProp(node.props) != null) Modifier.fillMaxWidth() else Modifier,
+                style = fieldStyle,
+            )
+        },
         modifier      = tfModifier
             .onFocusChanged { state ->
-                if (state.isFocused) focusHandle?.let { MobBridge.nativeSendFocus(it) }
-                else                 blurHandle?.let  { MobBridge.nativeSendBlur(it)  }
+                if (state.isFocused) {
+                    // The tap that focused the field placed the caret too.
+                    if (caretAtEnd) field = field.copy(selection = TextRange(field.text.length))
+                    focusHandle?.let { MobBridge.nativeSendFocus(it) }
+                } else {
+                    blurHandle?.let { MobBridge.nativeSendBlur(it) }
+                }
             },
-        singleLine      = true,
+        enabled         = enabled,
+        textStyle       = fieldStyle,
+        singleLine      = !multiline,
+        minLines        = if (multiline) lines else 1,
+        maxLines        = if (multiline) lines else 1,
         visualTransformation =
             if (isSecure) PasswordVisualTransformation() else VisualTransformation.None,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
@@ -4542,6 +4664,8 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
             // dismiss for terminal actions; Next intentionally keeps keyboard open
             if (imeAction != ImeAction.Next) keyboardController?.hide()
         }),
+        shape           = shape,
+        colors          = fieldColors,
     )
 }
 

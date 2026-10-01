@@ -24,6 +24,17 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 - **Android: a `text_field` with no `value` prop was wiped on every
   re-render** (MOB-309). It is now uncontrolled, as on iOS: renders leave its
   text alone, and a navigation resets it.
+- **Android: `text_field` ignored `enabled`/`disabled`, `underline`,
+  `text_align`, `max_length`, `lines`, `caret` and its style props**
+  (MOB-197). A disabled Mishka mask/number/OTP input stayed editable. These
+  props are now read: `enabled: false` or `disabled: true` disables the field;
+  `max_length` rejects over-long edits (UTF-16 units); `lines: n` makes the
+  field multi-line, with return inserting a newline; `caret: "end"` pins the
+  caret; and `underline: false` (or a border of the field's own) removes
+  Material's indicator line. The field also now applies `text_color`,
+  `placeholder_color`, `background` (container), `caret_color` (default: the
+  text colour), `corner_radius`, and the type props `text_size`,
+  `font_weight`, `italic`, `font` and `letter_spacing`.
 
 Existing apps: copy `MobTextSync.kt` (and optionally its JVM test
 `MobTextSyncTest.kt`) from a freshly generated project, and the

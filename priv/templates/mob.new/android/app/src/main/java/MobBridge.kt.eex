@@ -194,7 +194,6 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -4568,7 +4567,16 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
     // transparent text (the OTP overlay) does not blink a cursor over the
     // slots drawn behind it.
     val caretColor = colorProp(node.props, "caret_color").takeOrElse { textColor }
-    val fieldColors = TextFieldDefaults.colors().copy(
+    // A pinned caret also hides the selection handle: dragging it could not
+    // move the caret anyway. Passed through the colors, not a
+    // CompositionLocalProvider: M3's TextField re-provides
+    // LocalTextSelectionColors from its colors, which would override ours.
+    val selectionColors = if (caretAtEnd) {
+        TextSelectionColors(handleColor = Color.Transparent, backgroundColor = Color.Transparent)
+    } else {
+        LocalTextSelectionColors.current
+    }
+    val fieldColors = TextFieldDefaults.colors(selectionColors = selectionColors).copy(
         focusedTextColor = textColor,
         unfocusedTextColor = textColor,
         disabledTextColor = if (textColor.isSpecified) textColor.copy(alpha = textColor.alpha * 0.38f) else textColor,
@@ -4603,68 +4611,62 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
     val shape = floatProp(node.props, "corner_radius")?.let { RoundedCornerShape(it.dp) }
         ?: TextFieldDefaults.shape
 
-    // A pinned caret also hides the selection handle: dragging it could not
-    // move the caret anyway.
-    val selectionColors = if (caretAtEnd) {
-        TextSelectionColors(handleColor = Color.Transparent, backgroundColor = Color.Transparent)
-    } else {
-        LocalTextSelectionColors.current
-    }
-
-    CompositionLocalProvider(LocalTextSelectionColors provides selectionColors) {
-        TextField(
-            value         = field,
-            onValueChange = onValueChange@{ new ->
-                // Rejected outright, as a web input with maxlength does.
-                if (maxLength > 0 && new.text.length > maxLength) return@onValueChange
-                val textChanged = new.text != field.text
-                field = if (caretAtEnd) new.copy(selection = TextRange(new.text.length)) else new
-                // A caret move or an IME composition update is not an edit.
-                if (textChanged) {
-                    changeHandle?.let {
-                        sync.sent(new.text)
-                        MobBridge.nativeSendChangeStr(it, new.text)
-                    }
+    TextField(
+        value         = field,
+        onValueChange = onValueChange@{ new ->
+            // Rejected outright, as a web input with maxlength does. Only a
+            // lengthening edit: a value the BEAM set past the limit must
+            // still be deletable.
+            if (maxLength > 0 && new.text.length > maxLength && new.text.length > field.text.length) {
+                return@onValueChange
+            }
+            val textChanged = new.text != field.text
+            field = if (caretAtEnd) new.copy(selection = TextRange(new.text.length)) else new
+            // A caret move or an IME composition update is not an edit.
+            if (textChanged) {
+                changeHandle?.let {
+                    sync.sent(new.text)
+                    MobBridge.nativeSendChangeStr(it, new.text)
+                }
+            }
+        },
+        // In the field's own type and alignment, as iOS draws its prompt;
+        // the colour comes from fieldColors' placeholder entries. Widened
+        // only when aligned: the field sizes itself to its widest slot, so
+        // a full-width placeholder would stretch every wrap-content field.
+        placeholder   = {
+            Text(
+                placeholder,
+                modifier = if (textAlignProp(node.props) != null) Modifier.fillMaxWidth() else Modifier,
+                style = fieldStyle,
+            )
+        },
+        modifier      = tfModifier
+            .onFocusChanged { state ->
+                if (state.isFocused) {
+                    // The tap that focused the field placed the caret too.
+                    if (caretAtEnd) field = field.copy(selection = TextRange(field.text.length))
+                    focusHandle?.let { MobBridge.nativeSendFocus(it) }
+                } else {
+                    blurHandle?.let { MobBridge.nativeSendBlur(it) }
                 }
             },
-            // In the field's own type and alignment, as iOS draws its prompt;
-            // the colour comes from fieldColors' placeholder entries. Widened
-            // only when aligned: the field sizes itself to its widest slot, so
-            // a full-width placeholder would stretch every wrap-content field.
-            placeholder   = {
-                Text(
-                    placeholder,
-                    modifier = if (textAlignProp(node.props) != null) Modifier.fillMaxWidth() else Modifier,
-                    style = fieldStyle,
-                )
-            },
-            modifier      = tfModifier
-                .onFocusChanged { state ->
-                    if (state.isFocused) {
-                        // The tap that focused the field placed the caret too.
-                        if (caretAtEnd) field = field.copy(selection = TextRange(field.text.length))
-                        focusHandle?.let { MobBridge.nativeSendFocus(it) }
-                    } else {
-                        blurHandle?.let { MobBridge.nativeSendBlur(it) }
-                    }
-                },
-            enabled         = enabled,
-            textStyle       = fieldStyle,
-            singleLine      = !multiline,
-            minLines        = if (multiline) lines else 1,
-            maxLines        = if (multiline) lines else 1,
-            visualTransformation =
-                if (isSecure) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
-            keyboardActions = KeyboardActions(onAny = {
-                submitHandle?.let { MobBridge.nativeSendSubmit(it) }
-                // dismiss for terminal actions; Next intentionally keeps keyboard open
-                if (imeAction != ImeAction.Next) keyboardController?.hide()
-            }),
-            shape           = shape,
-            colors          = fieldColors,
-        )
-    }
+        enabled         = enabled,
+        textStyle       = fieldStyle,
+        singleLine      = !multiline,
+        minLines        = if (multiline) lines else 1,
+        maxLines        = if (multiline) lines else 1,
+        visualTransformation =
+            if (isSecure) PasswordVisualTransformation() else VisualTransformation.None,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
+        keyboardActions = KeyboardActions(onAny = {
+            submitHandle?.let { MobBridge.nativeSendSubmit(it) }
+            // dismiss for terminal actions; Next intentionally keeps keyboard open
+            if (imeAction != ImeAction.Next) keyboardController?.hide()
+        }),
+        shape           = shape,
+        colors          = fieldColors,
+    )
 }
 
 @Composable

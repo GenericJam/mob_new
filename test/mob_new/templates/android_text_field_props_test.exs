@@ -33,8 +33,10 @@ defmodule MobNew.Templates.AndroidTextFieldPropsTest do
   test "max_length rejects an over-long edit before it is shown or sent", %{field: field} do
     assert field =~ ~s|val maxLength = intProp(node.props, "max_length") ?: 0|
 
+    # Only a lengthening edit is refused, so a value set past the limit can
+    # still be shortened.
     assert field =~
-             "onValueChange = onValueChange@{ new -> if (maxLength > 0 && new.text.length > maxLength) return@onValueChange val textChanged"
+             "onValueChange = onValueChange@{ new -> if (maxLength > 0 && new.text.length > maxLength && new.text.length > field.text.length) { return@onValueChange }"
   end
 
   test "lines makes the field multi-line with return inserting a newline", %{field: field} do
@@ -52,6 +54,11 @@ defmodule MobNew.Templates.AndroidTextFieldPropsTest do
 
     assert field =~
              "if (caretAtEnd) field = field.copy(selection = TextRange(field.text.length))"
+
+    # Through the colors: M3's TextField re-provides LocalTextSelectionColors
+    # from them, so an outer CompositionLocalProvider is overridden.
+    assert field =~ "TextFieldDefaults.colors(selectionColors = selectionColors).copy("
+    refute field =~ "CompositionLocalProvider(LocalTextSelectionColors"
   end
 
   test "underline: false, or a border of the field's own, removes the indicator",
@@ -66,7 +73,9 @@ defmodule MobNew.Templates.AndroidTextFieldPropsTest do
 
   test "theme colours reach the field; the caret follows the text by default",
        %{field: field} do
-    assert field =~ "val fieldColors = TextFieldDefaults.colors().copy("
+    assert field =~
+             "val fieldColors = TextFieldDefaults.colors(selectionColors = selectionColors).copy("
+
     assert field =~ "focusedTextColor = textColor,"
     assert field =~ "unfocusedPlaceholderColor = placeholderColor,"
     assert field =~ "unfocusedContainerColor = background,"

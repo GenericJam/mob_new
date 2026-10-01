@@ -22,6 +22,16 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   mob_dev accepts (v2 envelope). `--local` with a
   mob_mishka checkout adds it to `:acknowledge_unsafe_plugins`, since the
   checkout is unsigned. `--blank` still leaves it out.
+- **An ejected Mishka composite is what the app renders** (MOB-331). With
+  `config :mob_mishka, :override_namespace` set, the plugin's on_start
+  registered the ejected copy, but the app's own `Showcase.register_all/0`
+  then re-registered the plugin's original for every catalog tag
+  (`MishkaDrawer`, `MishkaTabs`, …), undoing the override. It now delegates
+  composite registration to `MobMishka.register_all/0`, which honours the
+  override. The generated showcase test also no longer reports an ejected
+  copy in `lib/<app>/components/` as missing from the catalog. Existing apps:
+  in `lib/<app>/showcase.ex`, replace the `Enum.each(composites(), …)` loop in
+  `register_all/0` with `MobMishka.register_all()`.
 - **A freshly generated app builds natively without `mix mob.install`**
   (MOB-106). The Android manifest names `@mipmap/ic_launcher`, but the
   generator shipped no mipmap resources, so the first

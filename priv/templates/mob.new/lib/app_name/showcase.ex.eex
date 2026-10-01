@@ -303,7 +303,10 @@ defmodule <%= module_name %>.Showcase do
   @spec modules() :: [module()]
   def modules, do: Enum.map(@catalog, &elem(&1, 0))
 
-  @doc "Every `{tag, module}` composite pairing, for `Mob.Composite.register/2`."
+  @doc """
+  Every `{tag, plugin module}` composite pairing the gallery documents. The
+  tags are registered by `MobMishka.register_all/0`, not from this list.
+  """
   @spec composites() :: [{atom(), module()}]
   def composites, do: Enum.flat_map(@catalog, &entry_composites/1)
 
@@ -313,13 +316,18 @@ defmodule <%= module_name %>.Showcase do
   @doc """
   Register every composite tag and gallery entry. Called from
   `<%= module_name %>.App.on_start/0` at boot and from the tests.
+
+  The composite tags are the `:mob_mishka` plugin's, so this delegates them to
+  `MobMishka.register_all/0`, which registers a composite ejected with
+  `mix mob_mishka.gen` (and activated through `config :mob_mishka,
+  :override_namespace`) in place of the plugin's original. Registering
+  `composites/0` here instead would overwrite the override the plugin's
+  on_start had just registered. Calling it again at boot is harmless (same
+  result), and it registers the tags in tests, where no plugin lifecycle runs.
   """
   @spec register_all() :: :ok
   def register_all do
-    Enum.each(composites(), fn {tag, module} ->
-      Mob.Composite.register(tag, {module, :expand})
-    end)
-
+    MobMishka.register_all()
     Enum.each(modules(), &register/1)
   end
 

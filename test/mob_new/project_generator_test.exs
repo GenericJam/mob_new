@@ -3450,6 +3450,86 @@ defmodule MobNew.ProjectGeneratorTest do
     end
   end
 
+  # ── Ejected mob_mishka composite end-to-end ──────────────────────────────────
+  #
+  # A composite ejected with `mix mob_mishka.gen` and activated through
+  # `config :mob_mishka, :override_namespace` must be what the app renders.
+  # Boot runs the plugin's on_start (MobMishka.register_all/0, which picks the
+  # override) and then the app's own on_start (Showcase.register_all/0), and
+  # Mob.Composite.register/2 overwrites — so the app must not re-register the
+  # plugin's originals over the override. Also runs the generated showcase
+  # test, whose catalog checks scan lib/<app>/components/ where the ejected
+  # copy lands. Skips with a warning when a checkout is missing.
+  describe "ejected mob_mishka composite end-to-end" do
+    @describetag :tmp_dir
+
+    @tag :integration
+    @tag timeout: :timer.minutes(15)
+    test "the app's boot registration keeps an ejected override", %{tmp_dir: tmp} do
+      siblings =
+        Map.new(
+          [{"MOB_DIR", "mob"}, {"MOB_DEV_DIR", "mob_dev"}],
+          fn {var, repo} -> {var, System.get_env(var) || Path.expand("../#{repo}")} end
+        )
+
+      case Enum.reject(siblings, fn {_, path} -> File.dir?(path) end) do
+        [] ->
+          env = Map.put(siblings, "MOB_NEW_DIR", File.cwd!())
+
+          {:ok, dir} =
+            with_env(env, fn -> ProjectGenerator.generate("eject_e2e", tmp, local: true) end)
+
+          mix = System.find_executable("mix") || flunk("mix not on PATH")
+
+          run = fn args, env ->
+            System.cmd(mix, args, cd: dir, env: env, stderr_to_stdout: true)
+          end
+
+          {out, code} = run.(["deps.get"], [])
+          assert code == 0, "deps.get failed:\n#{out}"
+
+          {out, code} = run.(["mob_mishka.gen", "drawer"], [{"MIX_ENV", "dev"}])
+          assert code == 0, "mob_mishka.gen failed:\n#{out}"
+
+          File.write!(
+            Path.join(dir, "config/config.exs"),
+            "\nconfig :mob_mishka, :override_namespace, EjectE2e.Components\n",
+            [:append]
+          )
+
+          File.write!(Path.join(dir, "test/eject_registration_test.exs"), """
+          defmodule EjectE2e.EjectRegistrationTest do
+            use ExUnit.Case, async: false
+
+            test "boot order leaves the ejected drawer registered" do
+              Mob.Composite.reset()
+              # The plugin's on_start, then EjectE2e.App.on_start's call.
+              MobMishka.register_all()
+              EjectE2e.Showcase.register_all()
+
+              expanders = Mob.Composite.expanders()
+              assert expanders[:mishka_drawer] == {EjectE2e.Components.MishkaDrawer, :expand}
+              assert expanders[:mishka_tabs] == {MobMishka.Components.MishkaTabs, :expand}
+            end
+          end
+          """)
+
+          {out, code} =
+            run.(
+              ["test", "test/eject_registration_test.exs", "test/eject_e2e/showcase_test.exs"],
+              [{"MIX_ENV", "test"}]
+            )
+
+          assert code == 0, "generated app with an ejected composite failed its tests:\n#{out}"
+
+        missing ->
+          IO.warn(
+            "skipping ejected-composite end-to-end: missing checkouts #{inspect(Map.new(missing))}"
+          )
+      end
+    end
+  end
+
   # `--local` was originally documented as "use path: deps for mob/mob_dev"
   # only, but the mental model from users is "use everything local" —
   # including templates. local_mob_new_priv/1 opts into local templates

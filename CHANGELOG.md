@@ -8,7 +8,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.6.2] - 2026-09-30
 
 ### Added
 - **Android `MainActivity` reports app lifecycle to `Mob.Device`** (`:app`

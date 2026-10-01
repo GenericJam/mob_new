@@ -330,15 +330,6 @@ Java_<%= jni_package %>_MobBridge_nativeDeliverNotification(JNIEnv* env, jclass 
 }
 
 JNIEXPORT void JNICALL
-Java_<%= jni_package %>_MobBridge_nativeSetLaunchNotification(JNIEnv* env, jclass cls,
-    jstring json) {
-    if (!json) { mob_set_launch_notification(NULL); return; }
-    const char* cj = (*env)->GetStringUTFChars(env, json, NULL);
-    mob_set_launch_notification(cj);
-    (*env)->ReleaseStringUTFChars(env, json, cj);
-}
-
-JNIEXPORT void JNICALL
 Java_<%= jni_package %>_MobBridge_nativeDeliverWebViewMessage(JNIEnv* env, jclass cls,
     jlong pid, jstring json) {
     const char* cj = (*env)->GetStringUTFChars(env, json, NULL);

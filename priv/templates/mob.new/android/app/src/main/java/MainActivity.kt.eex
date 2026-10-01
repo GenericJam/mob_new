@@ -54,6 +54,10 @@ class MainActivity : ComponentActivity() {
         /** onPause was a configuration change; the new instance's onResume is silent. */
         private var recreating = false
 
+        /** Between onResume and onPause. NotificationReceiver reports an arrival
+         *  to the BEAM only then, as iOS does for one arriving in the foreground. */
+        @Volatile var foreground = false
+
         init { System.loadLibrary("<%= app_name %>") }
     }
 
@@ -90,10 +94,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        foreground = true
         if (recreating) recreating = false else notifyAppLifecycle("did_become_active")
     }
 
     override fun onPause() {
+        foreground = false
         if (isChangingConfigurations) recreating = true else notifyAppLifecycle("will_resign_active")
         super.onPause()
     }
@@ -225,9 +231,14 @@ class MainActivity : ComponentActivity() {
             Log.i(TAG, "onCreate: MOB_DIST_PORT=$port")
         }
 
-        // Check if launched from a notification tap
-        intent?.extras?.getString("mob_notification_json")?.let { json ->
-            MobBridge.setLaunchNotification(json)
+        // A notification tap that launched this activity. Not when it is
+        // re-created from saved state or relaunched from Recents: both replay
+        // the original intent, which would deliver the same tap again now that
+        // mob delivers to a running BEAM instead of holding it for the next boot.
+        if (savedInstanceState == null &&
+            (intent.flags and android.content.Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0
+        ) {
+            deliverNotificationTap(intent)
         }
 
         // The BEAM outlives the Activity, and so do MobBridge's registries of
@@ -386,19 +397,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Called when a notification is tapped and the activity already exists at
-    // the top of the stack (singleTop launch mode). If BEAM is running, deliver
-    // the notification directly; otherwise store it for delivery on boot.
+    // A notification tapped while this (singleTop) activity already exists.
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.extras?.getString("mob_notification_json")?.let { json ->
-            val pid = io.mob.plugin.MobNotifyHub.notifyPid
-            if (pid != 0L) {
-                MobBridge.nativeDeliverNotification(pid, json)
-            } else {
-                MobBridge.setLaunchNotification(json)
-            }
+        deliverNotificationTap(intent)
+    }
+
+    // Hands NotificationReceiver's tap payload to mob, which delivers it as
+    // {:notification, %{presentation: :tap}} to the process registered through
+    // mob_notify, else to the screen showing. Before the BEAM is up (a cold
+    // launch) mob keeps it until the root screen has mounted.
+    private fun deliverNotificationTap(intent: android.content.Intent?) {
+        intent?.extras?.getString("mob_notification_json")?.let { json ->
+            MobBridge.nativeDeliverNotification(io.mob.plugin.MobNotifyHub.notifyPid, json)
         }
     }
 

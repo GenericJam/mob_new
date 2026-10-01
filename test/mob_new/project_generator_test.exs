@@ -334,7 +334,7 @@ defmodule MobNew.ProjectGeneratorTest do
       # cookie, which needs mob_dev 0.7.7 to deliver it (MOB-49).
       assert content =~ ~s({:mob,     "~> 0.9.8"})
       assert content =~ ~s({:mob_dev, "~> 0.7.7", only: :dev, runtime: false})
-      assert content =~ ~s({:mob_mishka, "~> 0.1.2"})
+      assert content =~ ~s({:mob_mishka, "~> 0.1.3"})
     end
 
     test "mix.exs contains correct app name", %{tmp: tmp} do

@@ -18,7 +18,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `config :mob_mishka, :override_namespace` (the ejection override the
   generated comments advertise) did nothing. `mob.exs` now activates
   `:mob_mishka` and pre-trusts it with the first-party fingerprint, and the
-  dep is pinned to `~> 0.1.2`, its first signed release. `--local` with a
+  dep is pinned to `~> 0.1.3`, its first release with a signature current
+  mob_dev accepts (v2 envelope). `--local` with a
   mob_mishka checkout adds it to `:acknowledge_unsafe_plugins`, since the
   checkout is unsigned. `--blank` still leaves it out.
 - **A freshly generated app builds natively without `mix mob.install`**

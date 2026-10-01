@@ -1,0 +1,55 @@
+package <%= java_package %>
+
+/**
+ * Decides whether a controlled text field adopts the value a render carries.
+ *
+ * Every keystroke is sent to the BEAM, and every render it triggers comes back
+ * with the value as of THAT keystroke. During a burst of typing the field is
+ * already ahead of it, so adopting each one rewinds the field to a stale prefix,
+ * and the keystrokes typed in between are lost or land behind the caret's old
+ * position: `adb shell input text` of `QA headline reply` came out as
+ * `gQeadinepl ...` (MOB-309).
+ *
+ * The values this field sent and has not yet seen come back are kept in order.
+ * A render carrying one of them is an echo: the BEAM has processed the edits up
+ * to it, and the field keeps what it shows. Anything else is the BEAM saying
+ * something the field did not type: a clamp, a transform, a reset after
+ * submit. The field adopts it and forgets the queue, because the edits still in
+ * flight were made against text the BEAM has just replaced.
+ *
+ * Plain class with no Compose or Android dependency, so the JVM unit test can
+ * drive it.
+ */
+internal class MobTextSync {
+    private val sent = ArrayDeque<String>()
+
+    /** The field reported [text] to the BEAM as an on_change. */
+    fun sent(text: String) {
+        // Bounded so a screen that never renders the value back (a handler
+        // that only logs) cannot grow this for the life of the field. Dropping
+        // the oldest entry costs at most one stale adoption, and only if the
+        // BEAM is MAX_IN_FLIGHT keystrokes behind.
+        if (sent.size == MAX_IN_FLIGHT) sent.removeFirst()
+        sent.addLast(text)
+    }
+
+    /**
+     * A render arrived carrying [incoming] while the field shows [shown].
+     * Returns the text to show instead, or null to keep [shown].
+     */
+    fun rendered(incoming: String, shown: String): String? {
+        val echo = sent.indexOf(incoming)
+        if (echo >= 0) {
+            // The BEAM handles change events in the order they were sent, so
+            // every edit before this one has been processed too.
+            repeat(echo + 1) { sent.removeFirst() }
+            return null
+        }
+        sent.clear()
+        return if (incoming != shown) incoming else null
+    }
+
+    private companion object {
+        const val MAX_IN_FLIGHT = 256
+    }
+}

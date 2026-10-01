@@ -8,6 +8,27 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Android: a controlled `text_field` dropped and reordered characters
+  during fast typing** (MOB-309). Every render pushed the value as of the
+  keystroke that caused it, and the field adopted it whenever it disagreed,
+  rewinding past the keystrokes typed since. A 46-character
+  `adb shell input text` burst arrived as
+  `abcdefgijklmnopqrstuwxyz…ABCDEFGHIJvh`. The new `MobTextSync.kt` ignores
+  renders that echo a value the field itself sent; a value the screen
+  changed (a clamp, a transform, a reset) is still adopted, with the caret
+  at the end.
+- **Android: a `text_field` with no `value` prop was wiped on every
+  re-render** (MOB-309). It is now uncontrolled, as on iOS, and only a
+  navigation resets it.
+
+Existing apps: copy `MobTextSync.kt` (and optionally its JVM test
+`MobTextSyncTest.kt`) from a freshly generated project, and the
+`MobTextField` composable and its two `TextFieldValue` / `TextRange`
+imports in `MobBridge.kt`.
+
 ## [0.6.2] - 2026-09-30
 
 ### Added

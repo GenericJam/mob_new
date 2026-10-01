@@ -46,7 +46,7 @@ defmodule Mix.Tasks.Mob.New do
                          and `repo.ex`. Skips the demo/sample screens (text,
                          dice, audio, webview, storage, list) and the showcase
                          plugins (`mob_camera`/`mob_location`/`mob_biometric`/
-                         `mob_themes`), leaving `config :mob, :plugins, []`. The
+                         `mob_mishka`/`mob_themes`), leaving `config :mob, :plugins, []`. The
                          home screen still auto-lists any plugins you add later.
                          Ignored in `--liveview` mode (which has no native demo
                          screens to begin with).

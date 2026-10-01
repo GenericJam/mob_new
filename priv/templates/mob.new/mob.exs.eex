@@ -40,13 +40,14 @@ config :mob, :trusted_plugins, %{
   mob_screencast: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
   mob_photos: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
   mob_notify: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
+  mob_mishka: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg=",
   mob_ash: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg="<%= if deliver do %>,
   mob_deliver: "ed25519:nc56w+1Kx0gIt/4EkHxnMZCKHMzp4+S5kS/HoSzEZkg="<% end %>
-}<%= if deliver_local do %>
+}<%= if unsafe_plugins != [] do %>
 
-# --local: the mob_deliver checkout is unsigned (release CI signs the Hex
-# package), so the trust gate needs this acknowledgement to build.
-config :mob, :acknowledge_unsafe_plugins, [:mob_deliver]<% end %>
+# --local: these plugin checkouts are unsigned (release CI signs the Hex
+# packages), so the trust gate needs this acknowledgement to build.
+config :mob, :acknowledge_unsafe_plugins, <%= inspect(unsafe_plugins) %><% end %>
 
 <%= unless blank do %># Style packages (theming). :default_style selects the theme applied at boot.
 config :mob, :styles, [:mob_themes]

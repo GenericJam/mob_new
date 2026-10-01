@@ -334,7 +334,7 @@ defmodule MobNew.ProjectGeneratorTest do
       # needs mob_dev 0.7.4 to build that config into the app.
       assert content =~ ~s({:mob,     "~> 0.9.6"})
       assert content =~ ~s({:mob_dev, "~> 0.7.4", only: :dev, runtime: false})
-      assert content =~ ~s({:mob_mishka, "~> 0.1"})
+      assert content =~ ~s({:mob_mishka, "~> 0.1.2"})
     end
 
     test "mix.exs contains correct app name", %{tmp: tmp} do
@@ -1488,7 +1488,7 @@ defmodule MobNew.ProjectGeneratorTest do
 
       config = Config.Reader.read!(mob_exs)
       assert config[:mob_dev][:mob_dir] == "/elsewhere/mob"
-      assert config[:mob][:plugins] == [:mob_camera, :mob_location, :mob_biometric]
+      assert config[:mob][:plugins] == [:mob_camera, :mob_location, :mob_biometric, :mob_mishka]
     end
 
     test "--local writes the mob checkout path to mob.local.exs, not mob.exs", %{tmp: tmp} do
@@ -1834,6 +1834,41 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "mix.exs"))
       assert content =~ ~s({:mob_mishka,)
+    end
+
+    # Only activated plugins' lifecycles run, so without the :plugins entry
+    # MobMishka.register_all/0 (the manifest's on_start) never fires. An
+    # activated plugin must also verify against a trusted fingerprint.
+    test "mob.exs activates :mob_mishka and trusts the first-party key", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      mob = Config.Reader.read!(Path.join(dir, "mob.exs"))[:mob]
+
+      assert :mob_mishka in mob[:plugins]
+      assert mob[:trusted_plugins][:mob_mishka] == mob[:trusted_plugins][:mob_camera]
+      refute Keyword.has_key?(mob, :acknowledge_unsafe_plugins)
+
+      {:ok, blank} = ProjectGenerator.generate("blank_app", tmp, blank: true)
+      refute :mob_mishka in Config.Reader.read!(Path.join(blank, "mob.exs"))[:mob][:plugins]
+    end
+
+    test "--local acknowledges an unsigned mob_mishka checkout", %{tmp: tmp} do
+      mishka_dir = Path.join(tmp, "checkouts/mob_mishka")
+
+      {:ok, dir} =
+        with_env(
+          %{
+            "MOB_DIR" => Path.join(tmp, "checkouts/mob"),
+            "MOB_DEV_DIR" => Path.join(tmp, "checkouts/mob_dev"),
+            "MOB_MISHKA_DIR" => mishka_dir,
+            "MOB_NEW_DIR" => File.cwd!()
+          },
+          fn -> ProjectGenerator.generate("local_app", tmp, local: true) end
+        )
+
+      assert File.read!(Path.join(dir, "mix.exs")) =~ ~s({:mob_mishka, path: "#{mishka_dir}"})
+      mob = Config.Reader.read!(Path.join(dir, "mob.exs"))[:mob]
+      assert :mob_mishka in mob[:plugins]
+      assert mob[:acknowledge_unsafe_plugins] == [:mob_mishka]
     end
 
     test "config.exs keeps an extra_tags bridge + documents the override key", %{tmp: tmp} do
@@ -3105,6 +3140,7 @@ defmodule MobNew.ProjectGeneratorTest do
         "MOB_DEV_DIR" => Path.join(tmp, "mob_dev"),
         "MOB_DELIVER_DIR" => Path.join(tmp, "mob_deliver"),
         "MOB_DELIVER_SERVER_DIR" => Path.join(tmp, "mob_deliver_server"),
+        "MOB_MISHKA_DIR" => Path.join(tmp, "mob_mishka"),
         "MOB_NEW_DIR" => File.cwd!()
       }
 
@@ -3122,9 +3158,9 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~
                ~s({:mob_deliver_server, path: "#{env["MOB_DELIVER_SERVER_DIR"]}", only: :dev, runtime: false})
 
-      # The local checkout is unsigned, so the plugin trust gate needs the ack.
+      # The local checkouts are unsigned, so the plugin trust gate needs the ack.
       mob = Config.Reader.read!(Path.join(dir, "mob.exs"))[:mob]
-      assert mob[:acknowledge_unsafe_plugins] == [:mob_deliver]
+      assert mob[:acknowledge_unsafe_plugins] == [:mob_mishka, :mob_deliver]
     end
   end
 

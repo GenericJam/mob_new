@@ -18,6 +18,29 @@ defmodule MobNew.ProjectGeneratorTest do
     end)
   end
 
+  # Legacy launcher-icon pixel size per density bucket (48dp at each scale).
+  @android_launcher_buckets %{
+    "mipmap-mdpi" => 48,
+    "mipmap-hdpi" => 72,
+    "mipmap-xhdpi" => 96,
+    "mipmap-xxhdpi" => 144,
+    "mipmap-xxxhdpi" => 192
+  }
+
+  # {width, height} from a PNG's IHDR chunk, which the format pins at byte 16.
+  defp png_size(path) do
+    <<0x89, "PNG", 0x0D, 0x0A, 0x1A, 0x0A, _len::32, "IHDR", w::32, h::32, _::binary>> =
+      File.read!(path)
+
+    {w, h}
+  end
+
+  # "60" or "83.5" from an asset-catalog size/scale field.
+  defp points(str) do
+    {n, ""} = Float.parse(str)
+    n
+  end
+
   test "packaged Zig version stays in lockstep with .tool-versions" do
     packaged_version =
       Application.app_dir(:mob_new, "priv/zig-version")
@@ -1427,6 +1450,61 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       {:ok, %{mode: mode}} = File.stat(Path.join(dir, "android/gradlew"))
       assert Bitwise.band(mode, 0o100) != 0
+    end
+
+    # MOB-106: the manifest names `@mipmap/ic_launcher`, and AAPT fails the
+    # first `mix mob.deploy --native` ("resource mipmap/ic_launcher not found")
+    # unless the generated project ships that resource. Reads the references out
+    # of the generated manifest so a future `android:roundIcon` is held to the
+    # same rule.
+    test "every @mipmap the AndroidManifest references ships in res/", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      res = Path.join(dir, "android/app/src/main/res")
+
+      refs =
+        ~r{@mipmap/(\w+)}
+        |> Regex.scan(File.read!(Path.join(dir, "android/app/src/main/AndroidManifest.xml")))
+        |> Enum.map(fn [_, name] -> name end)
+        |> Enum.uniq()
+
+      assert "ic_launcher" in refs
+
+      for name <- refs, {bucket, px} <- @android_launcher_buckets do
+        png = Path.join([res, bucket, name <> ".png"])
+        assert File.exists?(png), "manifest references @mipmap/#{name}; #{png} is missing"
+        assert png_size(png) == {px, px}, "#{png} should be #{px}x#{px}"
+      end
+    end
+
+    test "the AppIcon set Info.plist names ships with every image it lists", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      [_, icon_name] =
+        Regex.run(
+          ~r{<key>CFBundleIconName</key>\s*<string>([^<]+)</string>},
+          File.read!(Path.join(dir, "ios/Info.plist"))
+        )
+
+      set = Path.join([dir, "ios/Assets.xcassets", icon_name <> ".appiconset"])
+      images = Jason.decode!(File.read!(Path.join(set, "Contents.json")))["images"]
+
+      assert images != [], "#{set}/Contents.json lists no images"
+
+      for image <- images do
+        file = image["filename"]
+        assert is_binary(file), "Contents.json has an image slot with no file: #{inspect(image)}"
+        png = Path.join(set, file)
+        assert File.exists?(png), "Contents.json lists #{file}; #{png} is missing"
+
+        # actool rejects a mis-sized image, and mob_dev swallows actool
+        # failures, so the symptom would be a silently icon-less app. Sizes
+        # are points and may be fractional ("83.5x83.5" at 2x is 167 px).
+        [w, h] = image["size"] |> String.split("x") |> Enum.map(&points/1)
+        scale = image |> Map.get("scale", "1x") |> String.trim_trailing("x") |> points()
+
+        assert png_size(png) == {round(w * scale), round(h * scale)},
+               "#{png} should be #{image["size"]}@#{scale}x"
+      end
     end
 
     test "generates android/gradle/wrapper/gradle-wrapper.jar", %{tmp: tmp} do

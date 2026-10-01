@@ -127,7 +127,11 @@ defmodule Mix.Tasks.Mob.New do
   After generation, run:
 
       cd APP_NAME
-      mix mob.install    # icon generation + any first-run setup
+      mix mob.install    # first-run setup: local paths, OTP runtime
+
+  The generated project ships the Mob logo as its launcher icon on both
+  platforms. To replace it, add `{:image, "~> 0.54"}` to the deps and run
+  `mix mob.icon --source logo.png`.
 
   """
 
@@ -388,7 +392,7 @@ defmodule Mix.Tasks.Mob.New do
     Your Mob app #{app_name} is ready!
 
         cd #{app_name}#{install_hint}
-        mix mob.install                # generates app icon + first-run setup
+        mix mob.install                # first-run setup: local paths, OTP runtime
     #{provision_hint}
     Machine-specific overrides (e.g. a custom mob_dir) go in mob.local.exs
     (gitignored), not mob.exs, which is project config to commit.#{paths_hint}
@@ -482,7 +486,7 @@ defmodule Mix.Tasks.Mob.New do
     3. Run first-time setup:
 
         cd #{app_name}#{install_hint}
-        mix mob.install                # icon generation + first-run setup
+        mix mob.install                # first-run setup: local paths, OTP runtime
 
     4. Configure your database in config/dev.exs and run:
 

@@ -71,8 +71,19 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 Existing apps: copy `MobTextSync.kt` (and optionally its JVM test
 `MobTextSyncTest.kt`) from a freshly generated project, and the
-`MobTextField` composable and its two `TextFieldValue` / `TextRange`
-imports in `MobBridge.kt`.
+`MobTextField` composable in `MobBridge.kt` together with the imports it
+needs:
+
+```kotlin
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.graphics.takeOrElse
+```
 
 ### Changed
 - Generated apps require **mob `~> 0.9.8`** and **mob_dev `~> 0.7.7`**. mob

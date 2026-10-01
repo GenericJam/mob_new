@@ -64,6 +64,11 @@ Existing apps: copy `MobTextSync.kt` (and optionally its JVM test
 imports in `MobBridge.kt`.
 
 ### Changed
+- Generated apps require **mob `~> 0.9.8`** and **mob_dev `~> 0.7.7`**. mob
+  0.9.8 decodes the notification envelope the new Android templates send
+  (below) and accepts only the private per-app distribution cookie, which
+  mob_dev 0.7.7 delivers (MOB-49); with mob_dev 0.7.6 or older,
+  `mix mob.connect` can't reach the app.
 - **Android hands every notification to mob as its envelope, and reports
   arrivals** (MOB-316). The generated `NotificationReceiver` builds mob's
   notification envelope with `JSONObject` (a quote in a title used to break the
@@ -75,9 +80,11 @@ imports in `MobBridge.kt`.
   skips `onCreate` when the activity is re-created from saved state or
   relaunched from Recents, which replay the launching intent. Removed the
   now-unused `MobBridge.setLaunchNotification`, `nativeSetLaunchNotification`
-  and its `beam_jni.c` thunk. Needs the mob release with `Mob.Notification`.
-  Existing apps: port at least the `onCreate` guard; with that mob, a
-  re-created activity otherwise repeats the tap.
+  and its `beam_jni.c` thunk. Needs mob 0.9.8. Existing apps keep working on
+  mob 0.9.8 without changes: their `setLaunchNotification` calls still only
+  store a cold-launch tap. Port the new `MainActivity` and
+  `NotificationReceiver` to also get foreground arrivals and warm taps when
+  nothing registered through mob_notify.
 - **iOS: the cold-launch notification tap needs no template change**
   (MOB-178). mob's `mob_init_ui()`, already called from
   `didFinishLaunching`, installs the notification delegate before launch

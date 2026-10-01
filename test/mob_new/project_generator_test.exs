@@ -329,11 +329,11 @@ defmodule MobNew.ProjectGeneratorTest do
     test "mix.exs floors mob at the release the generated app relies on", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "mix.exs"))
-      # 0.9.0 unions plugin-manifest :tags into the ~MOB whitelist (MOB-247);
-      # 0.9.6 starts plugin OTP apps and loads app config on the device, which
-      # needs mob_dev 0.7.4 to build that config into the app.
-      assert content =~ ~s({:mob,     "~> 0.9.6"})
-      assert content =~ ~s({:mob_dev, "~> 0.7.4", only: :dev, runtime: false})
+      # 0.9.8 decodes the notification envelope the generated MainActivity
+      # sends for every tap (MOB-316) and accepts only the private dist
+      # cookie, which needs mob_dev 0.7.7 to deliver it (MOB-49).
+      assert content =~ ~s({:mob,     "~> 0.9.8"})
+      assert content =~ ~s({:mob_dev, "~> 0.7.7", only: :dev, runtime: false})
       assert content =~ ~s({:mob_mishka, "~> 0.1.2"})
     end
 

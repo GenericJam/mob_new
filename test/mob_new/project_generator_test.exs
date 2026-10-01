@@ -2858,8 +2858,8 @@ defmodule MobNew.ProjectGeneratorTest do
       {:ok, dir} = ProjectGenerator.generate("deliver_app", tmp, deliver: true)
       content = File.read!(Path.join(dir, "mix.exs"))
 
-      assert content =~ ~s({:mob_deliver, "~> 0.1"})
-      assert content =~ ~s({:mob_deliver_server, "~> 0.1", only: :dev, runtime: false})
+      assert content =~ ~s({:mob_deliver, "~> 0.2"})
+      assert content =~ ~s({:mob_deliver_server, "~> 0.2", only: :dev, runtime: false})
       assert {:ok, _} = Code.string_to_quoted(content)
     end
 

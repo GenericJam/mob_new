@@ -28,6 +28,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `config/*.exs` on the device, which mob_dev 0.7.4 builds into the app. Before
   that, a `--deliver` app had no mob_deliver config or supervision tree on the
   device.
+- **`--deliver`** apps depend on **mob_deliver `~> 0.2`** and
+  **mob_deliver_server `~> 0.2`** (0.1 doesn't run on mob 0.9.6).
 - **`--deliver`** home screen opens the delivered `WelcomeScreen` with a plain
   `push_screen`: mob_deliver's router hook fetches it before navigating, so the
   screen no longer blocks in `MobDeliver.resolve/1` for the whole fetch. The

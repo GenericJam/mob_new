@@ -1325,8 +1325,8 @@ defmodule MobNew.ProjectGenerator do
          ~s({:mob_deliver_server, path: "#{server_dir}", only: :dev, runtime: false})}
 
       true ->
-        {~s({:mob_deliver, "~> 0.1"}),
-         ~s({:mob_deliver_server, "~> 0.1", only: :dev, runtime: false})}
+        {~s({:mob_deliver, "~> 0.2"}),
+         ~s({:mob_deliver_server, "~> 0.2", only: :dev, runtime: false})}
     end
   end
 

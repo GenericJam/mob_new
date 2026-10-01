@@ -334,7 +334,7 @@ defmodule MobNew.ProjectGeneratorTest do
       # needs mob_dev 0.7.4 to build that config into the app.
       assert content =~ ~s({:mob,     "~> 0.9.6"})
       assert content =~ ~s({:mob_dev, "~> 0.7.4", only: :dev, runtime: false})
-      assert content =~ ~s({:mob_mishka, "~> 0.1.2"})
+      assert content =~ ~s({:mob_mishka, "~> 0.1.3"})
     end
 
     test "mix.exs contains correct app name", %{tmp: tmp} do

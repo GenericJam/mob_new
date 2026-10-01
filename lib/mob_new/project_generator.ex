@@ -153,8 +153,8 @@ defmodule MobNew.ProjectGenerator do
       python: Keyword.get(opts, :python, false),
       blank: blank,
       mob_plugins: mob_plugins(blank, deliver),
+      unsafe_plugins: unsafe_plugins(blank, mob_mishka_dep, deliver and opts[:local] == true),
       deliver: deliver,
-      deliver_local: deliver and Keyword.get(opts, :local, false),
       deliver_public_key: nil,
       deliver_publish_dir: @deliver_publish_dir,
       deliver_key_file: @deliver_key_file,
@@ -163,12 +163,28 @@ defmodule MobNew.ProjectGenerator do
     }
   end
 
-  # Plugins `mob.exs` activates: the showcase trio unless `--blank`, plus
-  # mob_deliver under `--deliver`.
+  # Plugins `mob.exs` activates: the showcase trio and mob_mishka unless
+  # `--blank`, plus mob_deliver under `--deliver`. mob_mishka must be
+  # activated, not just a dep: its manifest's on_start
+  # (`MobMishka.register_all/0`) registers the `<Mishka…>` composites and
+  # applies `config :mob_mishka, :override_namespace`, and only activated
+  # plugins' lifecycles run.
   defp mob_plugins(blank, deliver) do
-    showcase = if blank, do: [], else: [:mob_camera, :mob_location, :mob_biometric]
+    showcase =
+      if blank, do: [], else: [:mob_camera, :mob_location, :mob_biometric, :mob_mishka]
+
     if deliver, do: showcase ++ [:mob_deliver], else: showcase
   end
+
+  # Activated plugins that resolve to an unsigned path checkout under
+  # `--local` (release CI signs only the Hex packages), so mob.exs must
+  # acknowledge them for the trust gate to let the build through.
+  defp unsafe_plugins(blank, mob_mishka_dep, deliver_local) do
+    mishka = if not blank and path_dep?(mob_mishka_dep), do: [:mob_mishka], else: []
+    if deliver_local, do: mishka ++ [:mob_deliver], else: mishka
+  end
+
+  defp path_dep?(dep), do: dep =~ ~r/\bpath:/
 
   @doc """
   Generates a new project at `dest_dir/<app_name>` from the bundled templates.
@@ -1263,10 +1279,9 @@ defmodule MobNew.ProjectGenerator do
       mob_dep = ~s({:mob,     path: "#{mob_dir}", override: true})
       mob_dev_dep = ~s({:mob_dev, path: "#{mob_dev_dir}", only: :dev, runtime: false})
 
-      # mob_mishka is a sibling repo during the extraction spike (MOB-246);
-      # once it publishes to Hex, `--local` can fall back to the Hex dep.
-      # The optional MOB_MISHKA_DIR env var supports a mob_mishka checkout
-      # in a non-standard location.
+      # A local mob_mishka checkout (MOB_MISHKA_DIR, or a sibling
+      # mob_mishka/) wins, so composite edits show up without a release;
+      # otherwise the signed Hex release.
       mob_mishka_dep = resolve_mob_mishka_dep_local()
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
@@ -1303,7 +1318,9 @@ defmodule MobNew.ProjectGenerator do
       # mob_dev 0.7.4 builds config/*.exs into `mob_app_config`, which mob
       # 0.9.6 loads on the device; older mob_dev ships no app config at all.
       mob_dev_dep = ~s({:mob_dev, "~> 0.7.4", only: :dev, runtime: false})
-      mob_mishka_dep = ~s({:mob_mishka, "~> 0.1"})
+      # 0.1.2 is the first release signed with the first-party key; mob.exs
+      # activates the plugin, and the trust gate refuses an unsigned one.
+      mob_mishka_dep = ~s({:mob_mishka, "~> 0.1.2"})
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, nil}
     end
@@ -1331,8 +1348,7 @@ defmodule MobNew.ProjectGenerator do
   end
 
   # Prefer a local mob_mishka checkout when one is around, else fall back to
-  # the Hex dep. During the extraction spike (MOB-246) mob_mishka is a
-  # private repo and not on Hex; once it publishes, this simplifies.
+  # the signed Hex release.
   defp resolve_mob_mishka_dep_local do
     cond do
       path = System.get_env("MOB_MISHKA_DIR") ->
@@ -1345,7 +1361,7 @@ defmodule MobNew.ProjectGenerator do
         ~s({:mob_mishka, path: "#{sibling}"})
 
       true ->
-        ~s({:mob_mishka, "~> 0.0"})
+        ~s({:mob_mishka, "~> 0.1.2"})
     end
   end
 

@@ -11,6 +11,16 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Fixed
+- **Generated apps activate `mob_mishka`** (MOB-331). The app depended on
+  `mob_mishka` but never listed it in `config :mob, :plugins`, so its
+  manifest's on_start (`MobMishka.register_all/0`) never ran: `<Mishka…>`
+  tags outside the showcase catalog had no composite registered, and
+  `config :mob_mishka, :override_namespace` (the ejection override the
+  generated comments advertise) did nothing. `mob.exs` now activates
+  `:mob_mishka` and pre-trusts it with the first-party fingerprint, and the
+  dep is pinned to `~> 0.1.2`, its first signed release. `--local` with a
+  mob_mishka checkout adds it to `:acknowledge_unsafe_plugins`, since the
+  checkout is unsigned. `--blank` still leaves it out.
 - **A freshly generated app builds natively without `mix mob.install`**
   (MOB-106). The Android manifest names `@mipmap/ic_launcher`, but the
   generator shipped no mipmap resources, so the first

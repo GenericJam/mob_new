@@ -1,0 +1,128 @@
+package <%= java_package %>
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+/**
+ * Replays what a controlled field sees during typing: what it sends, and the
+ * renders that come back, interleaved the way a slow round trip interleaves
+ * them. `type` is the field's own onValueChange; `render` is a push from the
+ * BEAM and returns what the field shows afterwards.
+ */
+class MobTextSyncTest {
+
+    private class Field {
+        val sync = MobTextSync()
+        var shown = ""
+
+        fun type(text: String) {
+            shown = text
+            sync.sent(text)
+        }
+
+        fun render(incoming: String): String {
+            sync.rendered(incoming, shown)?.let { shown = it }
+            return shown
+        }
+    }
+
+    @Test
+    fun aBurstSurvivesEchoesThatLagBehindIt() {
+        val f = Field()
+        val word = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ"
+        // Every keystroke lands before any render: the worst case for a slow
+        // BEAM, and the shape `adb shell input text` produces.
+        for (i in 1..word.length) f.type(word.take(i))
+        for (i in 1..word.length) assertEquals(word, f.render(word.take(i)))
+    }
+
+    @Test
+    fun keystrokesInterleavedWithLateEchoesAllArrive() {
+        val f = Field()
+        f.type("h")
+        f.type("hu")
+        assertEquals("hu", f.render("h"))
+        f.type("hun")
+        assertEquals("hun", f.render("hu"))
+        f.type("hunt")
+        assertEquals("hunt", f.render("hun"))
+        assertEquals("hunt", f.render("hunt"))
+    }
+
+    @Test
+    fun coalescedRendersAreStillEchoes() {
+        val f = Field()
+        f.type("a")
+        f.type("ab")
+        f.type("abc")
+        // The sender dropped the frames for "a" and "ab".
+        assertEquals("abc", f.render("abc"))
+        f.type("abcd")
+        assertEquals("abcd", f.render("abcd"))
+    }
+
+    @Test
+    fun aValueTheBeamChangedIsAdopted() {
+        val f = Field()
+        f.type("12345")
+        assertEquals("12345", f.render("12345"))
+        f.type("123456")
+        // Clamped to five characters: not something this field sent.
+        assertEquals("12345", f.render("12345"))
+    }
+
+    @Test
+    fun aTransformedValueIsAdopted() {
+        val f = Field()
+        f.type("a")
+        assertEquals("A", f.render("A"))
+    }
+
+    @Test
+    fun aResetAfterSubmitIsAdopted() {
+        val f = Field()
+        f.type("hi")
+        assertEquals("hi", f.render("hi"))
+        assertEquals("", f.render(""))
+    }
+
+    @Test
+    fun aBackspaceIsNotUndoneByTheEchoOfTheTextItDeleted() {
+        val f = Field()
+        f.type("a")
+        f.type("ab")
+        f.type("a")
+        assertEquals("a", f.render("a"))
+        assertEquals("a", f.render("ab"))
+        assertEquals("a", f.render("a"))
+    }
+
+    @Test
+    fun anAdoptionForgetsTheEditsMadeAgainstTheReplacedText() {
+        val f = Field()
+        f.type("a")
+        f.type("ab")
+        // The BEAM rejected everything and reset the field. The echo of "ab"
+        // can no longer arrive, and if a later render happens to carry "ab"
+        // it is the BEAM's own value, so it must be adopted, not ignored.
+        assertEquals("", f.render(""))
+        f.type("x")
+        assertEquals("ab", f.render("ab"))
+    }
+
+    @Test
+    fun aRenderThatAgreesWithTheFieldChangesNothing() {
+        val sync = MobTextSync()
+        assertNull(sync.rendered("same", "same"))
+    }
+
+    @Test
+    fun overflowForgetsTheOldestEditsNotTheNewest() {
+        val f = Field()
+        val long = "x".repeat(300)
+        for (i in 1..long.length) f.type(long.take(i))
+        // 300 edits against a bound of 256: the recent ones are still echoes.
+        assertEquals(long, f.render(long.take(290)))
+    }
+}

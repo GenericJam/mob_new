@@ -127,7 +127,9 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -4470,21 +4472,39 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
     // Adopting `incoming` on every recomposition is not the fix either: a
     // recomposition caused by local typing still carries the PREVIOUS tree's
     // props, so that would erase the keystroke that triggered it. The render
-    // epoch advances exactly once per push from the BEAM, which is precisely
-    // when its value became newer than ours. A navigation is a push too, so
-    // the MOB-146 case — two screens whose field is empty, and the typed text
-    // carried across — is covered by the same comparison.
+    // epoch advances exactly once per push from the BEAM, which is when its
+    // value can be newer than ours.
+    //
+    // Can be, not is. Adopting every pushed value that disagreed with the field
+    // rewound it during fast typing: each push carries the value as of the
+    // keystroke that caused it, and the field is already further on. MobTextSync
+    // tells those echoes apart from a value the BEAM actually changed (MOB-309).
+    //
+    // A field with no `value` prop is uncontrolled, and a render has nothing to
+    // say about its text. Resyncing it to "" on every push erased each
+    // character as soon as the screen re-rendered for any reason. iOS leaves
+    // such a field alone too.
+    //
+    // State is keyed on the navigation epoch: the mount point survives
+    // navigation (MOB-146), and without the key an uncontrolled field on the
+    // next screen would inherit the text typed on this one.
+    val controlled = node.props.containsKey("value")
     val incoming = node.props["value"] as? String ?: ""
     val epoch = LocalRenderEpoch.current
-    var localValue by remember { mutableStateOf(incoming) }
-    var seenEpoch by remember { mutableStateOf(-1) }
+    val slotEpoch = MobBridge.LocalSlotEpoch.current
+    val sync = remember(slotEpoch) { MobTextSync() }
+    var field by remember(slotEpoch) {
+        mutableStateOf(TextFieldValue(incoming, TextRange(incoming.length)))
+    }
+    var seenEpoch by remember(slotEpoch) { mutableStateOf(epoch) }
 
     if (epoch != seenEpoch) {
         seenEpoch = epoch
-        // Only when it disagrees with what is on screen: an echo of our own
-        // text must not reset the field, or editing mid-string would be
-        // impossible.
-        if (incoming != localValue) localValue = incoming
+        if (controlled) {
+            sync.rendered(incoming, field.text)?.let { adopted ->
+                field = TextFieldValue(adopted, TextRange(adopted.length))
+            }
+        }
     }
 
     // Only fill width when explicitly asked. The unconditional fillMaxWidth
@@ -4495,10 +4515,17 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
     val tfModifier = if (fillWidth) modifier.fillMaxWidth() else modifier
 
     TextField(
-        value         = localValue,
+        value         = field,
         onValueChange = { new ->
-            localValue = new
-            changeHandle?.let { MobBridge.nativeSendChangeStr(it, new) }
+            val textChanged = new.text != field.text
+            field = new
+            // A caret move or an IME composition update is not an edit.
+            if (textChanged) {
+                changeHandle?.let {
+                    sync.sent(new.text)
+                    MobBridge.nativeSendChangeStr(it, new.text)
+                }
+            }
         },
         placeholder   = { Text(placeholder) },
         modifier      = tfModifier

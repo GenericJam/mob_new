@@ -193,7 +193,9 @@ Two rules that outrank the list:
   (`MobTextField`, `MobSlider`) resync on `LocalRenderEpoch`, not on
   `remember(node.props["value"])`: an equal value after a rejected keystroke
   never re-keys a `remember`. `navKey` stays the navigation-only signal
-  (`LocalSlotEpoch`); do not fold the two together.
+  (`LocalSlotEpoch`); do not fold the two together. A text field adopts a
+  pushed value only through `MobTextSync`, which ignores echoes of what the
+  field itself sent (MOB-309); one with no `value` prop ignores renders.
 
 ## The default app is the Mishka Chelekom showcase (via the mob_mishka plugin)
 

@@ -102,6 +102,7 @@ defmodule Mix.Tasks.Mob.New do
               java/com/example/APP_NAME/MobBridge.kt
               java/com/example/APP_NAME/MobJson.kt
               java/com/example/APP_NAME/MobNode.kt
+              java/com/example/APP_NAME/MobTextSync.kt
           gradle.properties
         ios/
           beam_main.m
@@ -362,6 +363,7 @@ defmodule Mix.Tasks.Mob.New do
           "#{java_dir}/MobBridge.kt",
           "#{java_dir}/MobJson.kt",
           "#{java_dir}/MobNode.kt",
+          "#{java_dir}/MobTextSync.kt",
           "android/gradle.properties"
         ]
 

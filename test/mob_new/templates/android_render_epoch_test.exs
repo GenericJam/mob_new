@@ -38,7 +38,8 @@ defmodule MobNew.Templates.AndroidRenderEpochTest do
              "CompositionLocalProvider(LocalRenderEpoch provides state.epoch) { MaterialTheme(colorScheme = colorScheme) { MobNavHost(state) } }"
   end
 
-  test "the text field resyncs on a new epoch only when the value disagrees", %{bridge: bridge} do
+  test "the text field resyncs on a new epoch through MobTextSync, controlled fields only",
+       %{bridge: bridge} do
     code =
       bridge
       |> region("private fun MobTextField", "private fun MobToggle")
@@ -46,13 +47,26 @@ defmodule MobNew.Templates.AndroidRenderEpochTest do
       |> squish()
 
     # Not re-keyed on the value: an equal value after a rejected keystroke
-    # must still be adopted, and the slot epoch is subsumed by the render epoch.
+    # must still be adopted.
     refute code =~ ~s|remember(node.props["value"]|
     assert code =~ "val epoch = LocalRenderEpoch.current"
-    assert code =~ "var seenEpoch by remember { mutableStateOf(-1) }"
+
+    # MOB-309: a pushed value is weighed against what this field sent, not
+    # adopted whenever it disagrees, and only for a field that has a value.
+    refute code =~ "if (incoming != localValue) localValue = incoming"
+    assert code =~ ~s|val controlled = node.props.containsKey("value")|
 
     assert code =~
-             "if (epoch != seenEpoch) { seenEpoch = epoch if (incoming != localValue) localValue = incoming }"
+             "if (epoch != seenEpoch) { seenEpoch = epoch if (controlled) { sync.rendered(incoming, field.text)?.let { adopted ->"
+
+    # Every reported edit is recorded, or its echo would read as a BEAM change.
+    assert code =~
+             "if (textChanged) { changeHandle?.let { sync.sent(new.text) MobBridge.nativeSendChangeStr(it, new.text) } }"
+
+    # Navigation resets the field's state (MOB-146): the mount point survives it.
+    assert code =~ "val sync = remember(slotEpoch) { MobTextSync() }"
+    assert code =~ "var field by remember(slotEpoch) {"
+    assert code =~ "var seenEpoch by remember(slotEpoch) { mutableStateOf(epoch) }"
   end
 
   test "the slider follows the finger during a drag and the BEAM otherwise", %{bridge: bridge} do

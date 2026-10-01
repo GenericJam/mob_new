@@ -49,7 +49,7 @@ entry in the queue is indistinguishable from an echo of it. Three cases follow:
   until the next render that is not an echo. A rejection that leaves the
   tree unchanged was already invisible before this change, because an
   unchanged tree is not repainted at all. A hard limit belongs in
-  `max_length`, which rejects the keystroke in the field.
+  `max_length` (MOB-197), which rejects the keystroke in the field.
 - Duplicates: after `a`, `ab`, `a` with only the last `a` pushed, `ab` stays
   queued, so a later `ab` the BEAM sets on its own is taken for an echo once.
   `lastIndexOf` would trade that for undoing a backspace in the common,

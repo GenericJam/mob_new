@@ -17,12 +17,13 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   rewinding past the keystrokes typed since. A 46-character
   `adb shell input text` burst arrived as
   `abcdefgijklmnopqrstuwxyz…ABCDEFGHIJvh`. The new `MobTextSync.kt` ignores
-  renders that echo a value the field itself sent; a value the screen
+  renders that echo a value the field itself sent. A value the screen
   changed (a clamp, a transform, a reset) is still adopted, with the caret
-  at the end.
+  at the end, unless it equals an edit still in flight; see
+  `decisions/2026-09-30-android-text-field-echo-filter.md`.
 - **Android: a `text_field` with no `value` prop was wiped on every
-  re-render** (MOB-309). It is now uncontrolled, as on iOS, and only a
-  navigation resets it.
+  re-render** (MOB-309). It is now uncontrolled, as on iOS: renders leave its
+  text alone, and a navigation resets it.
 
 Existing apps: copy `MobTextSync.kt` (and optionally its JVM test
 `MobTextSyncTest.kt`) from a freshly generated project, and the

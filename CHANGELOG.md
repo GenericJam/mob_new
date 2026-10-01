@@ -11,6 +11,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Fixed
+- **A freshly generated app builds natively without `mix mob.install`**
+  (MOB-106). The Android manifest names `@mipmap/ic_launcher`, but the
+  generator shipped no mipmap resources, so the first
+  `mix mob.deploy --native` failed in AAPT with "resource mipmap/ic_launcher
+  not found". Generated projects now include the Mob logo as their launcher
+  icon: legacy `res/mipmap-*/ic_launcher.png` on Android and a single-size
+  1024 `ios/Assets.xcassets/AppIcon.appiconset` on iOS (which previously
+  built with a blank icon). `mix mob.icon` (after adding the `image` dep)
+  replaces both. The default is deliberately not an adaptive icon, so
+  `mix mob.icon` without `--adaptive` still changes what Android 8+ launchers
+  show. Existing apps are unaffected; `mix mob.install` still writes the
+  placeholder where icons are missing.
 - **Android: a controlled `text_field` dropped and reordered characters
   during fast typing** (MOB-309). Every render pushed the value as of the
   keystroke that caused it, and the field adopted it whenever it disagreed,

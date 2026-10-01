@@ -17,8 +17,14 @@ mix archive.install hex mob_new
 ```bash
 mix mob.new my_app
 cd my_app
-mix mob.install    # first-run setup: download OTP runtime, generate icons
+mix mob.install    # first-run setup: local paths, download OTP runtime
 ```
+
+The generated project ships the Mob logo as its launcher icon (Android
+`res/mipmap-*/ic_launcher.png`, iOS `ios/Assets.xcassets/AppIcon.appiconset`),
+so the first native build needs no extra step. To replace it, add
+`{:image, "~> 0.54"}` to your deps and run `mix mob.icon --source my_logo.png`
+(add `--adaptive` for an Android adaptive icon).
 
 `mob.exs` is project configuration — activated plugins, plugin trust, styles —
 and is meant to be committed. A clone without it activates no plugins, so the
@@ -110,7 +116,7 @@ This generates `mix.exs` with `path:` deps:
 
 It also writes your local `mob_dir` to `mob.local.exs` (gitignored) so
 `mix mob.install` skips the path configuration prompts and proceeds straight to
-OTP download and icon generation.
+OTP download.
 
 **Path resolution** (in order):
 

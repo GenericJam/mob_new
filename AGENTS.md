@@ -197,6 +197,16 @@ Two rules that outrank the list:
   pushed value only through `MobTextSync`, which ignores echoes of what the
   field itself sent (MOB-309); one with no `value` prop ignores renders.
 
+- **Every resource the manifest / Info.plist names must ship in
+  `priv/static/`.** `android:icon="@mipmap/ic_launcher"` with no
+  `res/mipmap-*/ic_launcher.png` fails AAPT on the first native build
+  (MOB-106). The default icon is legacy PNGs only — no
+  `mipmap-anydpi-v26/` adaptive XML, because on API 26+ that XML wins over
+  the PNGs and a plain `mix mob.icon` (which rewrites only the PNGs) would no
+  longer change the visible icon. iOS ships a single-size 1024 `AppIcon`;
+  `mix mob.icon` rewrites the whole set. See
+  `decisions/2026-09-30-default-launcher-icon-in-template.md`.
+
 ## The default app is the Mishka Chelekom showcase (via the mob_mishka plugin)
 
 The Mishka composites are no longer vendored into the template

@@ -10,6 +10,17 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **`mob.exs` declares `multi_window: false` (MOB-245).** Set it to `true`
+  and iPad users can open several windows of the app, each with its own
+  navigation, in one BEAM (`Mob.Scene` in mob). mob_dev stamps it into the
+  built app's `Info.plist` as `UIApplicationSupportsMultipleScenes`; the
+  template's own plist keeps `false`. Needs the mob and mob_dev releases
+  after 0.9.9 / 0.7.8; older ones ignore the key. Native projects only:
+  `--liveview` apps render through one WebView and don't get the key.
+  Existing apps add the line to `config :mob_dev`. Nothing in the generated
+  SceneDelegate changes: mob's hosting controller finds its own window.
+
 ### Fixed
 - **Generated `.gitignore` covers everything a native build leaves behind
   (MOB-215).** `.cxx/` and `.zig-cache/` were already ignored; added the

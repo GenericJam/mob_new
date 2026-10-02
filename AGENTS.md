@@ -148,8 +148,10 @@ end-to-end output. Worth running locally before publishing a new version.
 From a git worktree (anything not sitting beside `../mob`), the two `--local`
 tests need `MOB_DIR=~/code/mob MOB_DEV_DIR=~/code/mob_dev mix test`; the
 generator resolves local deps relative to the project's parent otherwise, and
-the worktree path breaks that assumption. Two tests
-(`project_generator_test.exs:1226` and `:1537`) demonstrate this pattern.
+the worktree path breaks that assumption. The tests "--local writes the mob
+checkout path to mob.local.exs, not mob.exs" and "--local resolves both deps
+from MOB_DELIVER_DIR / MOB_DELIVER_SERVER_DIR" in
+`test/mob_new/project_generator_test.exs` demonstrate this pattern.
 
 To compile a generated Android app without touching an attached phone
 (another session may own it), put a stub `adb` first on `PATH` that prints an

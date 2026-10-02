@@ -259,7 +259,17 @@ defmodule MobNew.LiveViewPatcher do
       mob_dir: Path.join(File.cwd!(), "deps/mob"),
 
       # Path to your Elixir lib dir (e.g. ~/.local/share/mise/installs/elixir/1.18.4-otp-28/lib).
-      elixir_lib: System.get_env("MOB_ELIXIR_LIB", :code.lib_dir(:elixir) |> to_string() |> Path.dirname())
+      elixir_lib: System.get_env("MOB_ELIXIR_LIB", :code.lib_dir(:elixir) |> to_string() |> Path.dirname()),
+
+      # iOS devices and orientations, stamped into the built app's Info.plist
+      # (they override ios/Info.plist). ios_target_devices: [:iphone, :ipad] runs
+      # full-screen on iPad, resizes and joins Split View; [:iphone] runs iPad in
+      # iPhone compatibility mode. An App Store app that has shipped iPad support
+      # can't drop it in an update. ios_orientations (:all, :portrait or
+      # :landscape) applies to iPhone; iPad always declares all four, since
+      # iPadOS 26 rotates resizable apps freely.
+      ios_target_devices: [:iphone, :ipad],
+      ios_orientations: :all
 
     # The on-device LiveView endpoint port. Defaults to a deterministic
     # value derived from the app name (4200..4999) so multiple Mob LV apps

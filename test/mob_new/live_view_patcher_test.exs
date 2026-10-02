@@ -416,6 +416,17 @@ defmodule MobNew.LiveViewPatcherTest do
       assert config[:mob][:liveview_port] == nil
     end
 
+    # MOB-206: LiveView apps get the same universal ios/Info.plist, so they need
+    # the same mob.exs lines to opt out of iPad or lock orientation.
+    test "declares the iOS device and orientation defaults", %{tmp_dir: dir} do
+      path = Path.join(dir, "mob.exs")
+      File.write!(path, LiveViewPatcher.mob_exs_content())
+      mob_dev = Config.Reader.read!(path)[:mob_dev]
+
+      assert mob_dev[:ios_target_devices] == [:iphone, :ipad]
+      assert mob_dev[:ios_orientations] == :all
+    end
+
     test "imports mob.local.exs only when present (MOB-286)", %{tmp_dir: dir} do
       path = Path.join(dir, "mob.exs")
       File.write!(path, LiveViewPatcher.mob_exs_content())

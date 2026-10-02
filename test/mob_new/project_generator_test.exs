@@ -624,6 +624,38 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "TestApp"
     end
 
+    # MOB-206 / MOB-165: without UIDeviceFamily 2 an iPad runs the app
+    # letterboxed in iPhone compatibility mode (320x480 on a 13" iPad Pro), and
+    # Split View needs UIRequiresFullScreen false plus all four orientations.
+    test "Info.plist targets iPhone and iPad, rotates and joins Split View", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/Info.plist"))
+
+      all = ~w(UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
+               UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight)
+
+      array = fn key ->
+        [_, body] =
+          Regex.run(~r{<key>#{Regex.escape(key)}</key>\s*<array>(.*?)</array>}s, content)
+
+        Regex.scan(~r{<(?:integer|string)>([^<]+)<}, body, capture: :all_but_first)
+        |> List.flatten()
+      end
+
+      assert array.("UIDeviceFamily") == ["1", "2"]
+      assert array.("UISupportedInterfaceOrientations") == all
+      assert array.("UISupportedInterfaceOrientations~ipad") == all
+      assert content =~ ~r{<key>UIRequiresFullScreen</key>\s*<false/>}
+    end
+
+    test "mob.exs declares the iOS device and orientation defaults", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      mob_dev = Config.Reader.read!(Path.join(dir, "mob.exs"))[:mob_dev]
+
+      assert mob_dev[:ios_target_devices] == [:iphone, :ipad]
+      assert mob_dev[:ios_orientations] == :all
+    end
+
     test "generates android/local.properties", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "android/local.properties"))

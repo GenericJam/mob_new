@@ -10,6 +10,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Fixed
+- **Generated `.gitignore` covers everything a native build leaves behind
+  (MOB-215).** `.cxx/` and `.zig-cache/` were already ignored; added the
+  Swift module side outputs `mix mob.release` drops in the project root
+  (`*.swiftmodule`, `*.swiftdoc`, `*.swiftsourceinfo`, `*.abi.json`), the
+  scripts/projects `mix mob.release` / `mix mob.provision` regenerate
+  (`ios/release_device.sh`, `ios/Provision.xcodeproj/`,
+  `ios/MobProvision.swift`) and `xcuserdata/`. LiveView projects' patched
+  `.gitignore` now also gets `android/.gradle/`, `android/app/build/` and
+  `android/local.properties`. Existing apps: copy these lines into your
+  `.gitignore`.
+
 ### Changed
 - **Generated iOS apps run on iPad, rotate and join Split View (MOB-206,
   MOB-165).** `ios/Info.plist` declares `UIDeviceFamily` `[1, 2]`,

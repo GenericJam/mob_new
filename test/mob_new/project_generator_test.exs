@@ -429,28 +429,38 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "TestApp.HomeScreen"
     end
 
-    test ".gitignore excludes native build artifacts and signing secrets", %{tmp: tmp} do
+    test ".gitignore ignores what a native build leaves in the tree, not the sources",
+         %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
-      gi = File.read!(Path.join(dir, ".gitignore"))
 
-      # Regression: a fresh project's `git add -A` after a native build must
-      # not commit build junk or secrets. The template previously only
-      # ignored _build/deps/app-build, so .cxx/, .zig-cache/, the bundled
-      # OTP zip (~19MB), and keystores all leaked into version control.
-      for pattern <- [
-            "*.o",
-            "*.so",
-            "*.a",
-            "android/app/.cxx/",
-            "**/.zig-cache/",
+      # Regression (MOB-215): `git add -A` after a native build committed
+      # 800-line CMake caches and zig caches. Paths below are the ones the
+      # Android/iOS builds, mob.release and mob.provision actually write.
+      for rel <- [
+            "android/app/.cxx/Debug/4x1y/arm64-v8a/.cmake/api/v1/reply/cache-v2-1.json",
+            "android/app/build/outputs/apk/debug/app-debug.apk",
+            "android/.gradle/8.7/checksums/checksums.lock",
+            "android/local.properties",
+            "android/app/src/main/jniLibs/arm64-v8a/libtest_app.so",
             "android/app/src/main/assets/otp.zip",
             "android/keystore.properties",
-            "android/*.keystore",
+            "android/release.keystore",
+            ".zig-cache/h/timestamp",
+            "ios/.zig-cache/o/abc/mob_nif.o",
+            "ios/zig-out/lib/libmob.a",
+            "_build/mob_release/TestApp.app/TestApp",
+            "TestApp.swiftmodule",
+            "TestApp.abi.json",
+            "ios/release_device.sh",
+            "ios/Provision.xcodeproj/project.pbxproj",
+            "ios/MobProvision.swift",
             "erl_crash.dump"
           ] do
-        assert gi =~ pattern,
-               ".gitignore must exclude #{pattern} — else fresh projects commit " <>
-                 "build artifacts / secrets on `git add -A`"
+        assert git_ignored?(dir, rel), "#{rel} would be committed by `git add -A`"
+      end
+
+      for rel <- ["mob.exs", "mix.exs", "lib/test_app/app.ex", "android/app/build.gradle"] do
+        refute git_ignored?(dir, rel), "#{rel} is source and must stay tracked"
       end
     end
 

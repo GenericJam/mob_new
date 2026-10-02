@@ -635,8 +635,11 @@ defmodule MobNew.ProjectGeneratorTest do
                UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight)
 
       array = fn key ->
-        [_, body] = Regex.run(~r{<key>#{Regex.escape(key)}</key>\s*<array>(.*?)</array>}s, content)
-        Regex.scan(~r{<(?:integer|string)>([^<]+)<}, body, capture: :all_but_first) |> List.flatten()
+        [_, body] =
+          Regex.run(~r{<key>#{Regex.escape(key)}</key>\s*<array>(.*?)</array>}s, content)
+
+        Regex.scan(~r{<(?:integer|string)>([^<]+)<}, body, capture: :all_but_first)
+        |> List.flatten()
       end
 
       assert array.("UIDeviceFamily") == ["1", "2"]

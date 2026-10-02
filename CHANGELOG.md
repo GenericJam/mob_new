@@ -16,12 +16,14 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `UIRequiresFullScreen` `false` and all four orientations for iPhone and
   (new) `UISupportedInterfaceOrientations~ipad`. Before, an app ran on iPad
   in iPhone compatibility mode (320x480 on a 13-inch iPad Pro) and never
-  resized. `mob.exs` sets `ios_target_devices: [:iphone, :ipad]` and
-  `ios_orientations: :all`; set `[:iphone]` or `:portrait` to opt out. The
-  keys take effect with the mob_dev release after 0.7.8, which stamps them
-  into the built app; with older mob_dev the plist defaults apply. Existing
-  apps: `mix mob.doctor` (same mob_dev) warns and prints the fix. See
-  `decisions/2026-10-01-universal-ios-template.md`.
+  resized. `mob.exs` (native and `--liveview`) sets
+  `ios_target_devices: [:iphone, :ipad]` and `ios_orientations: :all`; set
+  `[:iphone]` or `:portrait` to opt out. The keys take effect with the
+  mob_dev release after 0.7.8, which stamps them into the built app; with
+  older mob_dev the plist defaults apply and the opt-out does nothing, so the
+  release that ships this should raise the generated mob_dev floor to it.
+  Existing apps: `mix mob.doctor` (same mob_dev) warns and prints the fix.
+  See `decisions/2026-10-01-universal-ios-template.md`.
 
 ## [0.6.3] - 2026-10-01
 

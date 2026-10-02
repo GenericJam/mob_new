@@ -59,6 +59,8 @@
     <dict/>
     <key>UIApplicationSceneManifest</key>
     <dict>
+        <!-- mob.exs `multi_window: true` sets this in the built app, so iPad
+             users can open several windows of the app (Mob.Scene). -->
         <key>UIApplicationSupportsMultipleScenes</key>
         <false/>
         <key>UISceneConfigurations</key>

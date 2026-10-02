@@ -24,7 +24,13 @@ config :mob_dev,
   # :landscape) applies to iPhone; iPad always declares all four, since
   # iPadOS 26 rotates resizable apps freely.
   ios_target_devices: [:iphone, :ipad],
-  ios_orientations: :all
+  ios_orientations: :all,
+
+  # Several windows of the app on iPad (Split View, Stage Manager, the app
+  # switcher), each with its own navigation, in one BEAM: see Mob.Scene.
+  # Stamped into the built app's Info.plist as
+  # UIApplicationSupportsMultipleScenes. iOS only; Android ignores it.
+  multi_window: false
 
 # Activated capability plugins (the packages added in mix.exs). Each contributes
 # its native code, permissions, and any demo screens at build time. Drop a name

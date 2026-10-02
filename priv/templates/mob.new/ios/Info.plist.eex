@@ -23,7 +23,25 @@
     <array>
         <string>arm64</string>
     </array>
+    <!-- Universal: iPhone (1) and iPad (2), the only families the iOS 27.0 SDK
+         defines. mob.exs `ios_target_devices` and `ios_orientations` override
+         UIDeviceFamily and both orientation keys in the built app. -->
+    <key>UIDeviceFamily</key>
+    <array>
+        <integer>1</integer>
+        <integer>2</integer>
+    </array>
+    <!-- false lets the app resize and join iPad Split View / Slide Over. -->
+    <key>UIRequiresFullScreen</key>
+    <false/>
     <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
         <string>UIInterfaceOrientationPortraitUpsideDown</string>

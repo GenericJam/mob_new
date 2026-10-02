@@ -656,14 +656,20 @@ defmodule MobNew.ProjectGeneratorTest do
       assert array.("UISupportedInterfaceOrientations") == all
       assert array.("UISupportedInterfaceOrientations~ipad") == all
       assert content =~ ~r{<key>UIRequiresFullScreen</key>\s*<false/>}
+
+      # mob.exs multi_window: true (MOB-245) stamps into this manifest; mob_dev
+      # refuses a plist without UISceneConfigurations.
+      assert content =~
+               ~r{<key>UIApplicationSupportsMultipleScenes</key>\s*<false/>\s*<key>UISceneConfigurations</key>}
     end
 
-    test "mob.exs declares the iOS device and orientation defaults", %{tmp: tmp} do
+    test "mob.exs declares the iOS device, orientation and multi-window defaults", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       mob_dev = Config.Reader.read!(Path.join(dir, "mob.exs"))[:mob_dev]
 
       assert mob_dev[:ios_target_devices] == [:iphone, :ipad]
       assert mob_dev[:ios_orientations] == :all
+      assert mob_dev[:multi_window] == false
     end
 
     test "generates android/local.properties", %{tmp: tmp} do

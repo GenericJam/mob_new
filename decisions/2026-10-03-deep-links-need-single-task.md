@@ -30,8 +30,16 @@ use deep links.
   `url_schemes` when the launcher activity is neither `singleTask` nor
   `singleInstance`, and both the manifest and the mob.exs `url_schemes`
   comment say so.
-- `deliverLink` stays in every MainActivity: with no intent-filter for a
-  custom scheme it does nothing, and it saves deep-link apps from porting code.
+- `deliverLink` stays in every MainActivity, so deep-link apps have no code
+  to port. It is not inert without an intent-filter: MainActivity is exported,
+  and an intent addressed to it explicitly (another app, or
+  `adb shell am start -n <pkg>/.MainActivity -a android.intent.action.VIEW -d x://y`)
+  skips filter matching, so any app can still hand it a `{:link, ...}`. A
+  screen with its own `handle_info/2` clauses and no catch-all crashes on one
+  and is restarted by the router, as with any unexpected message. That
+  exposure is the same as an exported activity's for any other extra; gating
+  the forward on `queryIntentActivities` was rejected as more code than the
+  risk warrants.
 
 ## Consequences
 
@@ -39,5 +47,6 @@ use deep links.
 - A deep-link app accepts the clear-top on a launcher return and when a link
   reaches the running instance. That trade-off is the app's choice, made
   where it sets `url_schemes`.
-- The rule lives in two places (the manifest comment and mob_dev's check);
-  the mob_dev check is the one that can't be missed.
+- The rule is stated in the generated manifest's comment, in both mob.exs
+  `url_schemes` comments (native and LiveView), and in mob_dev's check; the
+  check is the one that can't be missed.

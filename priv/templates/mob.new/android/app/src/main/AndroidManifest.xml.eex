@@ -66,7 +66,16 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/AppTheme">
 
-        <!-- Main activity -->
+        <!-- Main activity. Deep links (url_schemes in mob.exs) need
+             android:launchMode="singleTask": under singleTop a VIEW intent from
+             another app's task (a QR scanner, a browser that doesn't add
+             FLAG_ACTIVITY_NEW_TASK) starts a second MainActivity in that task,
+             and two activities compose against the one MobBridge and BEAM.
+             singleTask isn't the default because it also finishes whatever is
+             stacked above MainActivity (a file picker, a scanner) every time
+             the app is reopened from its launcher icon. mob_dev refuses to
+             build url_schemes without it, and injects the deep-link
+             intent-filter itself, so none is declared here. -->
         <activity android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"

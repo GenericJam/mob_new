@@ -1705,6 +1705,7 @@ object MobBridge {
     @JvmStatic external fun nativeDeliverFileResult(pid: Long, event: String, sub: String, json: String?)
     @JvmStatic external fun nativeDeliverPushToken(pid: Long, token: String)
     @JvmStatic external fun nativeDeliverNotification(pid: Long, json: String)
+    @JvmStatic external fun nativeDeliverLink(url: String)
     @JvmStatic external fun nativeDeliverWebViewMessage(pid: Long, json: String)
     @JvmStatic external fun nativeDeliverWebViewBlocked(pid: Long, url: String)
     @JvmStatic external fun nativeDeliverAlertAction(action: String)

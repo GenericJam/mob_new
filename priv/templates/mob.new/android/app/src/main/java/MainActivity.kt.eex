@@ -231,14 +231,16 @@ class MainActivity : ComponentActivity() {
             Log.i(TAG, "onCreate: MOB_DIST_PORT=$port")
         }
 
-        // A notification tap that launched this activity. Not when it is
-        // re-created from saved state or relaunched from Recents: both replay
-        // the original intent, which would deliver the same tap again now that
-        // mob delivers to a running BEAM instead of holding it for the next boot.
+        // A notification tap or deep link that launched this activity. Not when
+        // it is re-created from saved state or relaunched from Recents: both
+        // replay the original intent, which would deliver the same tap or link
+        // again now that mob delivers to a running BEAM instead of holding it
+        // for the next boot.
         if (savedInstanceState == null &&
             (intent.flags and android.content.Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0
         ) {
             deliverNotificationTap(intent)
+            deliverLink(intent)
         }
 
         // The BEAM outlives the Activity, and so do MobBridge's registries of
@@ -397,11 +399,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // A notification tapped while this (singleTop) activity already exists.
+    // A notification tapped, or a link opened, while this (singleTop, or
+    // singleTask for deep links) activity already exists.
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         deliverNotificationTap(intent)
+        deliverLink(intent)
     }
 
     // Hands NotificationReceiver's tap payload to mob, which delivers it as
@@ -412,6 +416,26 @@ class MainActivity : ComponentActivity() {
         intent?.extras?.getString("mob_notification_json")?.let { json ->
             MobBridge.nativeDeliverNotification(io.mob.plugin.MobNotifyHub.notifyPid, json)
         }
+    }
+
+    // Hands a deep link (a VIEW intent for one of mob.exs's url_schemes) to mob,
+    // which delivers it as {:link, %{url: url, source: ...}} once: on a cold
+    // launch it holds the URL until the root screen has mounted. content: and
+    // file: URIs are documents shared into the app, Mob.Files'
+    // take_opened_document territory, not links. Any app can send a VIEW
+    // intent, so the URL is untrusted input for whatever handles {:link, ...}.
+    private fun deliverLink(intent: android.content.Intent?) {
+        if (intent?.action != android.content.Intent.ACTION_VIEW) return
+        val uri = intent.data ?: return
+        // Schemes are case-insensitive, and an intent addressed straight to this
+        // exported activity skips the intent-filter's matching.
+        val scheme = uri.scheme
+        if ("content".equals(scheme, ignoreCase = true) ||
+            "file".equals(scheme, ignoreCase = true)
+        ) {
+            return
+        }
+        MobBridge.nativeDeliverLink(uri.toString())
     }
 
     // Manifest declares `android:configChanges` including `uiMode`, so a

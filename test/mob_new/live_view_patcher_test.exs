@@ -427,6 +427,20 @@ defmodule MobNew.LiveViewPatcherTest do
       assert mob_dev[:ios_orientations] == :all
     end
 
+    test "offers url_schemes commented out, valid once uncommented (MOB-379)",
+         %{tmp_dir: dir} do
+      path = Path.join(dir, "mob.exs")
+      content = LiveViewPatcher.mob_exs_content()
+      File.write!(path, content)
+
+      assert Config.Reader.read!(path)[:mob_dev][:url_schemes] == nil
+
+      assert content =~ ~s(  # url_schemes: ["my-app"],\n)
+      assert content =~ ~s(  # Also set android:launchMode="singleTask" on MainActivity)
+      File.write!(path, String.replace(content, "# url_schemes:", "url_schemes:"))
+      assert Config.Reader.read!(path)[:mob_dev][:url_schemes] == ["my-app"]
+    end
+
     test "imports mob.local.exs only when present (MOB-286)", %{tmp_dir: dir} do
       path = Path.join(dir, "mob.exs")
       File.write!(path, LiveViewPatcher.mob_exs_content())

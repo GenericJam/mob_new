@@ -557,6 +557,27 @@ git config core.hooksPath .githooks
   `mix mob.icon` rewrites the whole set. See
   `decisions/2026-09-30-default-launcher-icon-in-template.md`.
 
+- **MainActivity stays `singleTop`; deep links opt into `singleTask`
+  (MOB-379).** Under `singleTop` a VIEW intent from another app's task (a QR
+  scanner, a browser that doesn't add `FLAG_ACTIVITY_NEW_TASK`) starts a
+  second MainActivity in that task, composing against the one MobBridge/BEAM,
+  so an app with `url_schemes` needs `singleTask` (mob_dev refuses to build
+  without it). It isn't the template default: a launcher-icon start that
+  reuses the task clears everything above a `singleTask` activity, so every
+  return through the icon would close an open picker, share target or
+  scanner, in every app. See
+  `decisions/2026-10-03-deep-links-need-single-task.md`.
+
+- **Deep links go through `deliverLink`, inside the no-replay guard
+  (MOB-379).** MainActivity forwards a VIEW intent's URI (not `content:` /
+  `file:`, which are documents) to `MobBridge.nativeDeliverLink` →
+  `mob_deliver_link` from `onCreate`'s `savedInstanceState == null` /
+  not-from-Recents guard and from `onNewIntent`, exactly like notification
+  taps; outside the guard a re-created activity replays the link. iOS does the
+  same from the SceneDelegate (`connectionOptions.URLContexts` and
+  `scene:openURLContexts:`). The template declares no intent-filter or
+  `CFBundleURLTypes`: mob_dev injects them from `url_schemes` in mob.exs.
+
 ## The default app is the Mishka Chelekom showcase (via the mob_mishka plugin)
 
 The Mishka composites are no longer vendored into the template

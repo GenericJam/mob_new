@@ -317,6 +317,38 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
     assert has?(src, ~s|onDragCancel = { emit(curX, curY, "ended") }|)
   end
 
+  # ── Press in / out (MOB-380) ──────────────────────────────────────────────
+
+  test "press in/out reach native through begin/end, with JNI stubs", %{bridge: src, jni: jni} do
+    assert has?(src, ~s|intProp(node.props, "on_press_in")|)
+    assert has?(src, ~s|intProp(node.props, "on_press_out")|)
+
+    for name <- ~w(nativePressBegin nativePressEnd) do
+      assert Regex.match?(~r/@JvmStatic\s+external fun #{name}\(/, src), "#{name} not declared"
+    end
+
+    assert has?(jni, "return (jint)mob_press_begin((int)in_handle, (int)out_handle);")
+    assert has?(jni, "mob_press_end((int)token);")
+  end
+
+  test "the press observer never consumes, and always ends what it began", %{bridge: src} do
+    [_, block] = String.split(src, "val pressModifier =", parts: 2)
+    [block, _] = String.split(block, "val base = pressModifier", parts: 2)
+
+    # Consuming here would take the touch from on_tap, long press and scroll.
+    refute block =~ "consume()"
+
+    assert has?(
+             block,
+             "awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)"
+           )
+
+    # The finally pairs the press_out with every press_in, including when the
+    # detector is torn down mid-press.
+    assert has?(block, "} finally { if (token >= 0) MobBridge.nativePressEnd(token) }")
+    assert has?(src, "val base = pressModifier.then(nodeModifier(node.props))")
+  end
+
   # ── helpers ───────────────────────────────────────────────────────────────
 
   # The two press arms of the tapModifier `when`, split on their leading

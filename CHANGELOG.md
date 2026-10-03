@@ -42,6 +42,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `ios/AppDelegate.m`; to use deep links, add `url_schemes` to
   `config :mob_dev` and set `singleTask` in the manifest.
 
+- **Press in / out and a held press in the generated Android bridge
+  (MOB-380).** `MobBridge.kt` observes `on_press_in` / `on_press_out` on every
+  node without consuming the touch, and pairs them through
+  `nativePressBegin` / `nativePressEnd` (new `beam_jni.c` stubs into mob's
+  `mob_press_begin` / `mob_press_end`), so a press_out survives the re-render
+  a press causes. New `pressDownXy` / `pressMoveXy` / `pressUpXy` back
+  `Mob.Test.press_down_xy/4` and friends: a real finger held on the app's
+  window across calls, auto-cancelled after `maxHoldMs`; the other synthetic
+  gestures refuse while it is down. Needs mob 0.9.12. Existing apps copy the
+  `MobPressInOutHandles` / `pressModifier` block, the held-press section and
+  the two externals into their `MobBridge.kt`, and the two stubs into
+  `beam_jni.c`.
 - **`mob.exs` declares `multi_window: false` (MOB-245).** Set it to `true`
   and iPad users can open several windows of the app, each with its own
   navigation, in one BEAM (`Mob.Scene` in mob). mob_dev stamps it into the

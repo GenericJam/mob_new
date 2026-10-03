@@ -51,6 +51,9 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import kotlin.math.abs
@@ -1075,7 +1078,7 @@ object MobBridge {
     fun tapXy(x: Float, y: Float): Boolean =
         onMain { activity ->
             val root = activity.window?.decorView
-            if (root == null) {
+            if (root == null || heldPress != null) {
                 false
             } else {
                 val cx = px(activity, x)
@@ -1095,7 +1098,7 @@ object MobBridge {
     fun longPressXy(x: Float, y: Float, durationMs: Long): Boolean =
         onMain(durationMs + 3000) { activity ->
             val root = activity.window?.decorView
-            if (root == null) {
+            if (root == null || heldPress != null) {
                 false
             } else {
                 val cx = px(activity, x)
@@ -1122,7 +1125,7 @@ object MobBridge {
     fun swipeXy(x1: Float, y1: Float, x2: Float, y2: Float): Boolean =
         onMain(5000) { activity ->
             val root = activity.window?.decorView
-            if (root == null) {
+            if (root == null || heldPress != null) {
                 false
             } else {
                 val sx = px(activity, x1)
@@ -1152,6 +1155,153 @@ object MobBridge {
                     }
                     motion(root, MotionEvent.ACTION_UP, ex, ey, down, SystemClock.uptimeMillis()) ||
                         handled
+                }
+            }
+        }
+
+    // ── Held press (MOB-380) ─────────────────────────────────────────────────
+    //
+    // A press that stays down across NIF calls, so a test can hold a finger on
+    // a node, look at the app, and only then lift it: press_down_xy,
+    // press_move_xy and press_up_xy in Mob.Test. long_press_xy cannot do that,
+    // since it holds and releases inside one call.
+    //
+    // State lives here, touched only on the main thread (every access is
+    // inside onMainCode or a mainScope coroutine). The other synthetic
+    // gestures refuse while a press is held: their DOWN would restart the view
+    // tree's gesture stream under the held finger, and both gestures would be
+    // garbage while both reported ok.
+    private class HeldPress(val root: View, val down: Long, var x: Float, var y: Float, val token: Long)
+
+    private var heldPress: HeldPress? = null
+    private var heldPressToken = 0L
+
+    // Result codes, decoded by mob_nif.zig (pressResult). Keep in sync.
+    private const val PRESS_OK = 0
+    private const val PRESS_DISPATCH_FAILED = 1
+    private const val PRESS_ALREADY_DOWN = 2
+    private const val PRESS_NO_WINDOW = 3
+    private const val PRESS_NOT_DOWN = 4
+    private const val PRESS_WINDOW_GONE = 5
+    private const val PRESS_TIMEOUT = 6
+
+    // onMain for calls that need to say more than yes/no. Same threading
+    // contract and the same gesture mutex, so a held press can never start in
+    // the middle of another gesture's MOVE stream. A false from onMain with an
+    // activity present means the UI thread didn't answer in time (another
+    // gesture holding the mutex, a busy looper) or the body threw: that is
+    // not "no window", and reporting it as one sends a test looking for the
+    // wrong problem.
+    private fun onMainCode(timeoutMs: Long = 2000, body: suspend (Activity) -> Int): Int {
+        if (activityRef?.get() == null) return PRESS_NO_WINDOW
+        var code = PRESS_TIMEOUT
+        val ran = onMain(timeoutMs) { activity ->
+            code = body(activity)
+            true
+        }
+        return if (ran) code else PRESS_TIMEOUT
+    }
+
+    /**
+     * Puts a finger down at (x, y) dp and leaves it there. A genuine held
+     * pointer: Compose's detectTapGestures sees onPress and is still waiting
+     * in tryAwaitRelease, on_press_in fires, and a long-press timeout runs
+     * on the looper as it would for a real finger.
+     *
+     * `maxHoldMs` bounds the hold. A test that dies between down and up would
+     * otherwise leave the app believing a finger is on the glass for the rest
+     * of the session; on expiry the press is CANCELLED (not released), so the
+     * app sees an aborted gesture rather than a tap or a long press.
+     */
+    @JvmStatic
+    fun pressDownXy(x: Float, y: Float, maxHoldMs: Long): Int =
+        onMainCode { activity ->
+            val root = activity.window?.decorView
+            when {
+                heldPress != null -> PRESS_ALREADY_DOWN
+                root == null -> PRESS_NO_WINDOW
+                else -> {
+                    val cx = px(activity, x)
+                    val cy = px(activity, y)
+                    val down = SystemClock.uptimeMillis()
+                    if (!motion(root, MotionEvent.ACTION_DOWN, cx, cy, down, down)) {
+                        // Nothing took the DOWN, so nothing is tracking this
+                        // pointer; close the stream rather than hold a finger
+                        // that no view will ever see lift.
+                        motion(root, MotionEvent.ACTION_CANCEL, cx, cy, down, SystemClock.uptimeMillis())
+                        PRESS_DISPATCH_FAILED
+                    } else {
+                        val token = ++heldPressToken
+                        heldPress = HeldPress(root, down, cx, cy, token)
+                        mainScope.launch {
+                            delay(maxHoldMs)
+                            val held = heldPress
+                            if (held != null && held.token == token) {
+                                Log.w("MobBridge", "held press exceeded ${maxHoldMs}ms; cancelling it")
+                                heldPress = null
+                                motion(held.root, MotionEvent.ACTION_CANCEL, held.x, held.y, held.down,
+                                    SystemClock.uptimeMillis())
+                            }
+                        }
+                        PRESS_OK
+                    }
+                }
+            }
+        }
+
+    /** Moves the held finger to (x, y) dp, in steps over real frames so slop can be crossed. */
+    @JvmStatic
+    fun pressMoveXy(x: Float, y: Float): Int =
+        onMainCode(5000) { activity ->
+            val held = heldPress
+            when {
+                held == null -> PRESS_NOT_DOWN
+                !held.root.isAttachedToWindow -> {
+                    heldPress = null
+                    PRESS_WINDOW_GONE
+                }
+                else -> {
+                    val ex = px(activity, x)
+                    val ey = px(activity, y)
+                    val sx = held.x
+                    val sy = held.y
+                    val steps = 8
+                    for (step in 1..steps) {
+                        delay(16)
+                        // The max-hold timer runs on this dispatcher too, and
+                        // may have cancelled the press between steps.
+                        if (heldPress !== held) return@onMainCode PRESS_NOT_DOWN
+                        val f = step.toFloat() / steps
+                        held.x = sx + (ex - sx) * f
+                        held.y = sy + (ey - sy) * f
+                        motion(held.root, MotionEvent.ACTION_MOVE, held.x, held.y, held.down,
+                            SystemClock.uptimeMillis())
+                    }
+                    PRESS_OK
+                }
+            }
+        }
+
+    /** Lifts the held finger at (x, y) dp, moving it there first if it is elsewhere. */
+    @JvmStatic
+    fun pressUpXy(x: Float, y: Float): Int =
+        onMainCode { activity ->
+            val held = heldPress
+            when {
+                held == null -> PRESS_NOT_DOWN
+                !held.root.isAttachedToWindow -> {
+                    heldPress = null
+                    PRESS_WINDOW_GONE
+                }
+                else -> {
+                    heldPress = null
+                    val ux = px(activity, x)
+                    val uy = px(activity, y)
+                    if (ux != held.x || uy != held.y) {
+                        motion(held.root, MotionEvent.ACTION_MOVE, ux, uy, held.down, SystemClock.uptimeMillis())
+                    }
+                    motion(held.root, MotionEvent.ACTION_UP, ux, uy, held.down, SystemClock.uptimeMillis())
+                    PRESS_OK
                 }
             }
         }
@@ -1602,6 +1752,22 @@ object MobBridge {
 
     @JvmStatic
     external fun nativeSendDoubleTap(handle: Int)
+
+    /**
+     * `on_press_in` / `on_press_out` (MOB-380). Begin resolves both handles
+     * at touch-down (pass -1 for one the node doesn't declare), snapshots the
+     * press_out routing and then sends `{:press_in, tag}`; when both are
+     * declared and either can't be resolved, neither is sent. It returns a
+     * token for End, or -1 when there is no press_out to deliver. End sends
+     * `{:press_out, tag}` from the snapshot, once, so a re-render between the
+     * two (the press itself usually causes one) can't strand the press_out on
+     * a stale handle.
+     */
+    @JvmStatic
+    external fun nativePressBegin(pressInHandle: Int, pressOutHandle: Int): Int
+
+    @JvmStatic
+    external fun nativePressEnd(token: Int)
 
     /**
      * Swipe. `nativeSendSwipe` carries the direction so a single handler can
@@ -3368,6 +3534,9 @@ private fun ApplyThrottleConfig(props: Map<String, Any?>, handle: Int?, configKe
 /** Long-press / double-tap handles for one node, re-read each composition. */
 private data class MobPressHandles(val long: Int?, val double: Int?)
 
+/** on_press_in / on_press_out handles for one node, re-read each composition. */
+private data class MobPressInOutHandles(val pressIn: Int?, val pressOut: Int?)
+
 /** Swipe handles for one node, re-read each composition. See MobScrollHandlers. */
 private data class MobSwipeHandlers(
     val any: Int?,
@@ -3796,7 +3965,41 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         }
     }
 
-    val base = gestureModifier.then(nodeModifier(node.props))
+    // ── Press in / out (MOB-380) ────────────────────────────────────────────
+    // Observes the finger without consuming anything, on every node type
+    // (button included): on_tap, long press, swipe and an ancestor's scroll
+    // all still see the same events. The Initial pass runs before the node's
+    // own detectors consume, though consumption would not hide the events
+    // from us anyway; it only marks them.
+    //
+    // Every press_in is paired with exactly one press_out: when the last
+    // pointer lifts, when the gesture is cancelled (Compose reports a cancel
+    // as every pointer going up), or when the detector itself is torn down
+    // mid-press (the finally). The handles are read live at touch-down, and
+    // press_out's routing is snapshotted natively then (nativePressBegin):
+    // the screen typically re-renders between the two (a "listening" label),
+    // and a handle from the earlier render would be dropped as stale.
+    val pressIn = intProp(node.props, "on_press_in")
+    val pressOut = intProp(node.props, "on_press_out")
+    val livePress by rememberUpdatedState(MobPressInOutHandles(pressIn, pressOut))
+    val pressModifier =
+        if (pressIn == null && pressOut == null) gestureModifier
+        else gestureModifier.pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val handles = livePress
+                val token = MobBridge.nativePressBegin(handles.pressIn ?: -1, handles.pressOut ?: -1)
+                try {
+                    do {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                    } while (event.changes.any { it.pressed })
+                } finally {
+                    if (token >= 0) MobBridge.nativePressEnd(token)
+                }
+            }
+        }
+
+    val base = pressModifier.then(nodeModifier(node.props))
     // Track on-screen frame + set a testTag for any node carrying an :id, so the
     // agent can read positions (Mob.Test.element_frames) without a screenshot.
     val trackId = node.props["id"] as? String

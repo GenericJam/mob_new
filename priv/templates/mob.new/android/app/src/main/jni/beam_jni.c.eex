@@ -91,6 +91,20 @@ Java_<%= jni_package %>_MobBridge_nativeSendDoubleTap(JNIEnv* env, jclass cls, j
     mob_send_double_tap((int)handle);
 }
 
+// on_press_in / on_press_out (MOB-380). Begin snapshots press_out's routing at
+// touch-down and sends {:press_in, tag}; it returns the token End delivers
+// {:press_out, tag} from, or -1 when there is no press_out to deliver.
+JNIEXPORT jint JNICALL
+Java_<%= jni_package %>_MobBridge_nativePressBegin(JNIEnv* env, jclass cls, jint in_handle,
+                                                   jint out_handle) {
+    return (jint)mob_press_begin((int)in_handle, (int)out_handle);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativePressEnd(JNIEnv* env, jclass cls, jint token) {
+    mob_press_end((int)token);
+}
+
 // Swipe. nativeSendSwipe carries the direction string through to
 // mob_send_swipe_with_direction, which emits {:swipe, tag, direction_atom};
 // the four fixed senders emit {:swipe_left, tag} and friends. A node can

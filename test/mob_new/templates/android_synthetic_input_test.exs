@@ -25,7 +25,11 @@ defmodule MobNew.Templates.AndroidSyntheticInputTest do
     "longPressXy" => "(FFJ)Z",
     "swipeXy" => "(FFFF)Z",
     "typeText" => "(Ljava/lang/String;)Z",
-    "deleteBackward" => "()Z"
+    "deleteBackward" => "()Z",
+    # MOB-380 held press: an int code, not a boolean (see PRESS_* in the bridge).
+    "pressDownXy" => "(FFJ)I",
+    "pressMoveXy" => "(FF)I",
+    "pressUpXy" => "(FF)I"
   }
 
   @descriptor_types %{
@@ -43,18 +47,22 @@ defmodule MobNew.Templates.AndroidSyntheticInputTest do
 
   test "each Kotlin signature matches the JNI descriptor it is cached with", %{bridge: src} do
     for {name, descriptor} <- @methods do
-      [_, params] = Regex.run(~r/fun #{name}\(([^)]*)\)/, src)
+      [_, params, return] = Regex.run(~r/fun #{name}\(([^)]*)\): (\w+)/, src)
 
       actual =
         params
         |> String.split(",", trim: true)
         |> Enum.map(fn param -> param |> String.split(":") |> List.last() |> String.trim() end)
 
+      [_, args, ret] = Regex.run(~r/^\((.*)\)([ZI])$/, descriptor)
+
       expected =
-        descriptor
-        |> String.replace(~r/^\(|\)Z$/, "")
-        |> then(&Regex.scan(~r/Ljava\/lang\/String;|[FJIZ]/, &1))
+        ~r/Ljava\/lang\/String;|[FJIZ]/
+        |> Regex.scan(args)
         |> Enum.map(fn [token] -> Map.fetch!(@descriptor_types, token) end)
+
+      assert return == Map.fetch!(%{"Z" => "Boolean", "I" => "Int"}, ret),
+             "#{name} returns #{return} but mob_nif.zig caches it as #{descriptor}"
 
       assert actual == expected,
              """

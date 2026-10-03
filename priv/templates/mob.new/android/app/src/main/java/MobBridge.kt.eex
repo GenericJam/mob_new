@@ -6443,7 +6443,7 @@ class NotificationReceiver : BroadcastReceiver() {
                 envelope(id, title, body, dataStr, "foreground"))
         }
 
-        // Tap action: bring MainActivity (singleTask) to the foreground carrying
+        // Tap action: bring MainActivity (singleTop) to the foreground carrying
         // the payload. Without a content intent the tap is a no-op.
         val tapIntent = android.content.Intent(context, MainActivity::class.java).apply {
             flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or

@@ -436,6 +436,7 @@ defmodule MobNew.LiveViewPatcherTest do
       assert Config.Reader.read!(path)[:mob_dev][:url_schemes] == nil
 
       assert content =~ ~s(  # url_schemes: ["my-app"],\n)
+      assert content =~ ~s(  # Also set android:launchMode="singleTask" on MainActivity)
       File.write!(path, String.replace(content, "# url_schemes:", "url_schemes:"))
       assert Config.Reader.read!(path)[:mob_dev][:url_schemes] == ["my-app"]
     end

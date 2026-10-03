@@ -264,6 +264,8 @@ defmodule MobNew.LiveViewPatcher do
       # Open the app from <scheme>://... links: each arrives in Elixir as
       # {:link, %{url: url, source: :launch | :running}} (see Mob.Link). Takes a
       # native rebuild (mix mob.deploy --native). Schemes can't contain "_".
+      # Also set android:launchMode="singleTask" on MainActivity in
+      # android/app/src/main/AndroidManifest.xml (mob_dev refuses to build without it).
       # url_schemes: ["my-app"],
 
       # iOS devices and orientations, stamped into the built app's Info.plist

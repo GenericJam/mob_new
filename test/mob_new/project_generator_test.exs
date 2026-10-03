@@ -663,15 +663,16 @@ defmodule MobNew.ProjectGeneratorTest do
                ~r/Java_com_example_test_1app_MobBridge_nativeDeliverLink\(JNIEnv\* env, jclass cls, jstring url\) \{[^}]*GetStringUTFChars\(env, url, NULL\);\s*mob_deliver_link\(cu\);\s*\(\*env\)->ReleaseStringUTFChars\(env, url, cu\);/
     end
 
-    test "AndroidManifest routes every intent to the one MainActivity (singleTask)",
+    test "AndroidManifest keeps MainActivity singleTop; deep links opt into singleTask",
          %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       manifest = File.read!(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
 
-      # singleTop lets a VIEW intent from another app's task create a second
-      # MainActivity there, composing against the same MobBridge and BEAM.
+      # singleTask would clear whatever is stacked above MainActivity (a
+      # picker, a scanner) on every launcher-icon return, in every app. Only
+      # apps with url_schemes need it, and mob_dev enforces that there.
       assert manifest =~
-               ~r/<activity android:name="\.MainActivity"[^>]*android:launchMode="singleTask"/
+               ~r/<activity android:name="\.MainActivity"[^>]*android:launchMode="singleTop"/
     end
 
     test "generates ios/beam_main.m", %{tmp: tmp} do
@@ -747,6 +748,10 @@ defmodule MobNew.ProjectGeneratorTest do
       # Uncommenting the example must leave a valid keyword list, with a scheme
       # that is legal ("_" isn't allowed in a URI scheme).
       assert content =~ ~s(  # url_schemes: ["test-app"],\n)
+
+      # mob_dev refuses url_schemes on a singleTop MainActivity; the comment
+      # must say so before the user hits that error.
+      assert content =~ ~s(  # Also set android:launchMode="singleTask" on MainActivity)
       File.write!(path, String.replace(content, "# url_schemes:", "url_schemes:"))
       assert Config.Reader.read!(path)[:mob_dev][:url_schemes] == ["test-app"]
     end

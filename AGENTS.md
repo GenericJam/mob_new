@@ -557,14 +557,16 @@ git config core.hooksPath .githooks
   `mix mob.icon` rewrites the whole set. See
   `decisions/2026-09-30-default-launcher-icon-in-template.md`.
 
-- **MainActivity is `singleTask`, not `singleTop` (MOB-379).** A VIEW intent
-  from another app's task (a QR scanner, a browser that doesn't add
-  `FLAG_ACTIVITY_NEW_TASK`) created a second MainActivity in that task under
-  `singleTop`, and two activities composed against one MobBridge/BEAM.
-  `singleTask` routes it to the one instance's `onNewIntent`; the cost is that
-  such an intent finishes activities stacked above MainActivity in its task.
-  Don't revert it to make some other flow keep its stack. See
-  `decisions/2026-10-03-main-activity-single-task.md`.
+- **MainActivity stays `singleTop`; deep links opt into `singleTask`
+  (MOB-379).** Under `singleTop` a VIEW intent from another app's task (a QR
+  scanner, a browser that doesn't add `FLAG_ACTIVITY_NEW_TASK`) starts a
+  second MainActivity in that task, composing against the one MobBridge/BEAM,
+  so an app with `url_schemes` needs `singleTask` (mob_dev refuses to build
+  without it). It isn't the template default: a launcher-icon start that
+  reuses the task clears everything above a `singleTask` activity, so every
+  return through the icon would close an open picker, share target or
+  scanner, in every app. See
+  `decisions/2026-10-03-deep-links-need-single-task.md`.
 
 - **Deep links go through `deliverLink`, inside the no-replay guard
   (MOB-379).** MainActivity forwards a VIEW intent's URI (not `content:` /

@@ -399,8 +399,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // A notification tapped, or a link opened, while this activity already
-    // exists. singleTask routes every such intent here, whichever task sent it.
+    // A notification tapped, or a link opened, while this (singleTop, or
+    // singleTask for deep links) activity already exists.
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

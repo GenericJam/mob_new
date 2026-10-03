@@ -21,16 +21,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   (non-file URLs). `mob.exs` carries a commented-out
   `url_schemes: ["<app-name>"]` example (`_` becomes `-`: URI schemes don't
   allow `_`); mob_dev 0.7.12 turns it into the native URL registration.
-  MainActivity's `launchMode` is now `singleTask`, so a link opened from
-  another app's task reaches the one running instance instead of creating a
-  second one; such an intent finishes activities stacked above MainActivity
-  in its task. Floors rise to mob `~> 0.9.11` (beam_jni.c links
+  Apps that set `url_schemes` must also set
+  `android:launchMode="singleTask"` on MainActivity (mob_dev refuses to build
+  without it), or a link opened from another app's task starts a second
+  MainActivity there. The template keeps `singleTop`, because `singleTask`
+  also finishes activities above MainActivity whenever the app is reopened
+  from its launcher icon. Floors rise to mob `~> 0.9.11` (beam_jni.c links
   `mob_deliver_link`) and mob_dev `~> 0.7.12`. Existing apps: bump both deps,
   then port `deliverLink` and its two call sites into `MainActivity.kt`, the
   `nativeDeliverLink` external into `MobBridge.kt`, its stub into
   `beam_jni.c`, `deliver_links` and `scene:openURLContexts:` into
-  `ios/AppDelegate.m`, set `android:launchMode="singleTask"` in the manifest,
-  and add `url_schemes` to `config :mob_dev`.
+  `ios/AppDelegate.m`; to use deep links, add `url_schemes` to
+  `config :mob_dev` and set `singleTask` in the manifest.
 
 - **`mob.exs` declares `multi_window: false` (MOB-245).** Set it to `true`
   and iPad users can open several windows of the app, each with its own

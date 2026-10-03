@@ -134,6 +134,18 @@ static void mob_boot_runtime(void) {
 
 @end
 
+// File URLs are documents shared into the app, not links. mob_deliver_link
+// copies the string before returning, so the UTF8String pointer, which lives
+// only as long as the NSString, is never kept.
+static void deliver_links(NSSet<UIOpenURLContext*>* contexts) {
+    for (UIOpenURLContext* ctx in contexts) {
+        if (ctx.URL.isFileURL) {
+            continue;
+        }
+        mob_deliver_link(ctx.URL.absoluteString.UTF8String);
+    }
+}
+
 // SceneDelegate — Xcode 27 requires scene-based app startup, so window creation
 // lives here rather than in AppDelegate.didFinishLaunchingWithOptions:. The
 // BEAM boot happens here too on an ordinary launch, after the window exists;
@@ -169,6 +181,16 @@ static void mob_boot_runtime(void) {
     // every time while the boot below is a no-op after the first call,
     // whichever entry point made it.
     mob_boot_runtime();
+
+    // The deep link that launched or connected this scene. mob holds it until
+    // the root screen has mounted, so it is safe before the BEAM is up.
+    deliver_links(connectionOptions.URLContexts);
+}
+
+// A deep link opened while the scene is connected. Scene-based apps never get
+// the AppDelegate's application:openURL:options:, so it isn't implemented.
+- (void)scene:(UIScene*)scene openURLContexts:(NSSet<UIOpenURLContext*>*)URLContexts {
+    deliver_links(URLContexts);
 }
 
 @end

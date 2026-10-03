@@ -1308,10 +1308,13 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
     else
-      # Floor at 0.9.8, not "~> 0.9". Generated code depends on a specific
+      # Floor at 0.9.11, not "~> 0.9". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
+      #   * beam_jni.c's `nativeDeliverLink` stub and the iOS SceneDelegate
+      #     call `mob_deliver_link`, new in 0.9.11 (MOB-379). On an older mob
+      #     the native build fails to link.
       #   * MainActivity hands every notification tap, cold and warm, to
       #     `nativeDeliverNotification`, and NotificationReceiver builds the
       #     JSON envelope mob 0.9.8's router decodes (MOB-316, MOB-178). On
@@ -1342,12 +1345,14 @@ defmodule MobNew.ProjectGenerator do
       #     Box accessibility props are validated and encoded from 0.7.32.
       #
       # `~>` still allows the whole 0.9.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.9.8"})
-      # mob 0.9.8 accepts only the private per-app distribution cookie that
-      # mob_dev 0.7.7 hands over (MOB-49); with an older mob_dev the app can't
-      # be connected, pushed or hot-deployed. 0.7.4 is also where mob_dev
-      # builds config/*.exs into `mob_app_config`, which mob loads on device.
-      mob_dev_dep = ~s({:mob_dev, "~> 0.7.7", only: :dev, runtime: false})
+      mob_dep = ~s({:mob,     "~> 0.9.11"})
+      # mob_dev 0.7.12 turns mob.exs's `url_schemes` into the Android
+      # intent-filter and iOS CFBundleURLTypes (MOB-379); an older one ignores
+      # the key and no link opens the app. mob 0.9.8 also accepts only the
+      # private per-app distribution cookie that mob_dev 0.7.7 hands over
+      # (MOB-49), and 0.7.4 is where mob_dev builds config/*.exs into
+      # `mob_app_config`, which mob loads on device.
+      mob_dev_dep = ~s({:mob_dev, "~> 0.7.12", only: :dev, runtime: false})
       # 0.1.3 is the first release signed with a v2 envelope (0.1.2's v1
       # signature is refused by current mob_dev); mob.exs activates the
       # plugin, and the trust gate refuses an unsigned or v1-signed one.

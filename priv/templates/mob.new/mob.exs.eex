@@ -26,6 +26,11 @@ config :mob_dev,
   ios_target_devices: [:iphone, :ipad],
   ios_orientations: :all,
 
+  # Open the app from <scheme>://... links: each arrives in Elixir as
+  # {:link, %{url: url, source: :launch | :running}} (see Mob.Link). Takes a
+  # native rebuild (mix mob.deploy --native). Schemes can't contain "_".
+  # url_schemes: ["<%= String.replace(app_name, "_", "-") %>"],
+
   # Several windows of the app on iPad (Split View, Stage Manager, the app
   # switcher), each with its own navigation, in one BEAM: see Mob.Scene.
   # Stamped into the built app's Info.plist as

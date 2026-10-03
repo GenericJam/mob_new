@@ -66,10 +66,19 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/AppTheme">
 
-        <!-- Main activity -->
+        <!-- Main activity. singleTask, not singleTop: a VIEW intent from
+             another app's task (a QR scanner, a browser that doesn't add
+             FLAG_ACTIVITY_NEW_TASK) would otherwise create a second
+             MainActivity in that task, and two activities would compose
+             against the one MobBridge and BEAM. singleTask routes it to this
+             instance's onNewIntent instead. The cost: an intent that reaches
+             the existing instance finishes any activities stacked above it
+             in its task (an in-app picker or scanner left open).
+             No deep-link intent-filter here: mix mob.deploy (mob_dev 0.7.12+)
+             injects one for `config :mob_dev, url_schemes: [...]` in mob.exs. -->
         <activity android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|fontScale|density">
             <intent-filter>

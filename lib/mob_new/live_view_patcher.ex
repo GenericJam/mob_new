@@ -261,6 +261,11 @@ defmodule MobNew.LiveViewPatcher do
       # Path to your Elixir lib dir (e.g. ~/.local/share/mise/installs/elixir/1.18.4-otp-28/lib).
       elixir_lib: System.get_env("MOB_ELIXIR_LIB", :code.lib_dir(:elixir) |> to_string() |> Path.dirname()),
 
+      # Open the app from <scheme>://... links: each arrives in Elixir as
+      # {:link, %{url: url, source: :launch | :running}} (see Mob.Link). Takes a
+      # native rebuild (mix mob.deploy --native). Schemes can't contain "_".
+      # url_schemes: ["my-app"],
+
       # iOS devices and orientations, stamped into the built app's Info.plist
       # (they override ios/Info.plist). ios_target_devices: [:iphone, :ipad] runs
       # full-screen on iPad, resizes and joins Split View; [:iphone] runs iPad in

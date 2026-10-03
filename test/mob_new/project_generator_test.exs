@@ -329,11 +329,12 @@ defmodule MobNew.ProjectGeneratorTest do
     test "mix.exs floors mob at the release the generated app relies on", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "mix.exs"))
-      # 0.9.8 decodes the notification envelope the generated MainActivity
-      # sends for every tap (MOB-316) and accepts only the private dist
-      # cookie, which needs mob_dev 0.7.7 to deliver it (MOB-49).
-      assert content =~ ~s({:mob,     "~> 0.9.8"})
-      assert content =~ ~s({:mob_dev, "~> 0.7.7", only: :dev, runtime: false})
+      # 0.9.11 exports mob_deliver_link, which beam_jni.c and the SceneDelegate
+      # call (MOB-379); mob_dev 0.7.12 turns mob.exs's url_schemes into the
+      # native URL registrations. 0.9.8 already required the notification
+      # envelope (MOB-316) and the private dist cookie (MOB-49).
+      assert content =~ ~s({:mob,     "~> 0.9.11"})
+      assert content =~ ~s({:mob_dev, "~> 0.7.12", only: :dev, runtime: false})
       assert content =~ ~s({:mob_mishka, "~> 0.1.3"})
     end
 
@@ -611,6 +612,66 @@ defmodule MobNew.ProjectGeneratorTest do
       assert kt =~ ~r/override fun onPause\(\) \{[^}]*foreground = false/
     end
 
+    test "MainActivity hands deep links to mob, once, from launch and onNewIntent (MOB-379)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(
+          Path.join(dir, "android/app/src/main/java/com/example/test_app/MainActivity.kt")
+        )
+
+      # Re-creation and a Recents relaunch replay the launching VIEW intent;
+      # outside the guard the same link would reach the app again.
+      [_, on_create] = String.split(kt, "override fun onCreate", parts: 2)
+
+      assert on_create =~
+               ~r/if \(savedInstanceState == null &&\s*\(intent\.flags and android\.content\.Intent\.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY\) == 0\s*\) \{[^}]*deliverLink\(intent\)[^}]*\}/
+
+      # Exactly the guarded call and the onNewIntent one: an unguarded second
+      # call in onCreate would replay the link.
+      assert [_, _] = Regex.scan(~r/^\s*deliverLink\(intent\)$/m, kt)
+
+      [_, on_new_intent] = String.split(kt, "override fun onNewIntent", parts: 2)
+      assert on_new_intent =~ ~r/\A[^}]*deliverLink\(intent\)/
+
+      [_, deliver] = String.split(kt, "private fun deliverLink", parts: 2)
+      [deliver | _] = String.split(deliver, "\n    }\n", parts: 2)
+
+      # Only VIEW intents with data are links; content:/file: VIEW intents are
+      # documents shared into the app, handled by Mob.Files.
+      assert deliver =~ "intent?.action != android.content.Intent.ACTION_VIEW) return"
+      assert deliver =~ "val uri = intent.data ?: return"
+      assert deliver =~ ~s[uri.scheme == "content" || uri.scheme == "file") return]
+      assert deliver =~ "MobBridge.nativeDeliverLink(uri.toString())"
+    end
+
+    test "MobBridge.nativeDeliverLink has a beam_jni.c stub that calls mob_deliver_link",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      c = File.read!(Path.join(dir, "android/app/src/main/jni/beam_jni.c"))
+
+      assert kt =~ "@JvmStatic external fun nativeDeliverLink(url: String)"
+
+      assert c =~
+               ~r/Java_com_example_test_1app_MobBridge_nativeDeliverLink\(JNIEnv\* env, jclass cls, jstring url\) \{[^}]*GetStringUTFChars\(env, url, NULL\);\s*mob_deliver_link\(cu\);\s*\(\*env\)->ReleaseStringUTFChars\(env, url, cu\);/
+    end
+
+    test "AndroidManifest routes every intent to the one MainActivity (singleTask)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      manifest = File.read!(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
+
+      # singleTop lets a VIEW intent from another app's task create a second
+      # MainActivity there, composing against the same MobBridge and BEAM.
+      assert manifest =~
+               ~r/<activity android:name="\.MainActivity"[^>]*android:launchMode="singleTask"/
+    end
+
     test "generates ios/beam_main.m", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "ios/beam_main.m"))
@@ -670,6 +731,22 @@ defmodule MobNew.ProjectGeneratorTest do
       assert mob_dev[:ios_target_devices] == [:iphone, :ipad]
       assert mob_dev[:ios_orientations] == :all
       assert mob_dev[:multi_window] == false
+    end
+
+    test "mob.exs offers url_schemes commented out, valid once uncommented (MOB-379)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      path = Path.join(dir, "mob.exs")
+      content = File.read!(path)
+
+      # Unset by default: no app claims a scheme it didn't ask for.
+      assert Config.Reader.read!(path)[:mob_dev][:url_schemes] == nil
+
+      # Uncommenting the example must leave a valid keyword list, with a scheme
+      # that is legal ("_" isn't allowed in a URI scheme).
+      assert content =~ ~s(  # url_schemes: ["test-app"],\n)
+      File.write!(path, String.replace(content, "# url_schemes:", "url_schemes:"))
+      assert Config.Reader.read!(path)[:mob_dev][:url_schemes] == ["test-app"]
     end
 
     test "generates android/local.properties", %{tmp: tmp} do
@@ -1396,6 +1473,25 @@ defmodule MobNew.ProjectGeneratorTest do
       |> elem(1)
       |> Enum.reverse()
       |> Enum.join()
+    end
+
+    test "SceneDelegate forwards non-file URL contexts to mob_deliver_link (MOB-379)",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "ios/AppDelegate.m"))
+
+      # A launching link arrives only in connectionOptions; one opened while
+      # running only through scene:openURLContexts:. Scene-based apps never get
+      # application:openURL:options:.
+      assert body_after(content, "willConnectToSession:") =~
+               "deliver_links(connectionOptions.URLContexts);"
+
+      assert body_after(content, "scene:(UIScene*)scene openURLContexts:") =~
+               "deliver_links(URLContexts);"
+
+      deliver = body_after(content, "static void deliver_links(")
+      assert deliver =~ ~r/if \(ctx\.URL\.isFileURL\) \{\s*continue;\s*\}/
+      assert deliver =~ "mob_deliver_link(ctx.URL.absoluteString.UTF8String);"
     end
 
     test "the BEAM boots on a launch that never connects a window scene (MOB-166)",

@@ -639,11 +639,13 @@ defmodule MobNew.ProjectGeneratorTest do
       [deliver | _] = String.split(deliver, "\n    }\n", parts: 2)
 
       # Only VIEW intents with data are links; content:/file: VIEW intents are
-      # documents shared into the app, handled by Mob.Files.
+      # documents shared into the app, handled by Mob.Files. Schemes compare
+      # case-insensitively: CONTENT:// is still a document.
       assert deliver =~ "intent?.action != android.content.Intent.ACTION_VIEW) return"
       assert deliver =~ "val uri = intent.data ?: return"
-      assert deliver =~ ~s[uri.scheme == "content" || uri.scheme == "file") return]
-      assert deliver =~ "MobBridge.nativeDeliverLink(uri.toString())"
+
+      assert deliver =~
+               ~r/if \("content"\.equals\(scheme, ignoreCase = true\) \|\|\s*"file"\.equals\(scheme, ignoreCase = true\)\s*\) \{\s*return\s*\}\s*MobBridge\.nativeDeliverLink\(uri\.toString\(\)\)/
     end
 
     test "MobBridge.nativeDeliverLink has a beam_jni.c stub that calls mob_deliver_link",

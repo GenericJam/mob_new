@@ -34,9 +34,10 @@ config :mob_dev,
   # url_schemes: ["<%= String.replace(app_name, "_", "-") %>"],
 
   # Several windows of the app on iPad (Split View, Stage Manager, the app
-  # switcher), each with its own navigation, in one BEAM: see Mob.Scene.
-  # Stamped into the built app's Info.plist as
-  # UIApplicationSupportsMultipleScenes. iOS only; Android ignores it.
+  # switcher), each with its own navigation, in one BEAM. Stamped into the
+  # built app's Info.plist as UIApplicationSupportsMultipleScenes. iOS only;
+  # Android ignores it. The per-window navigation needs a mob release with
+  # Mob.Scene (not released yet, mob#184): keep false until then.
   multi_window: false
 
 # Activated capability plugins (the packages added in mix.exs). Each contributes

@@ -10,6 +10,13 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Upgrading
+- New projects depend on **mob `~> 0.9.11`** and **mob_dev `~> 0.7.12`**
+  (deep links, below). Existing apps that want deep links bump both and port
+  the native changes listed under Added; apps that don't need no change.
+  The iPad keys (`ios_target_devices`, `ios_orientations`, `multi_window`)
+  take effect with mob_dev 0.7.9 or later.
+
 ### Added
 - **Deep links (MOB-379).** An app opened by a `<scheme>://...` URL gets it
   in Elixir as `{:link, %{url: url, source: :launch | :running}}` (see
@@ -38,9 +45,10 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   and iPad users can open several windows of the app, each with its own
   navigation, in one BEAM (`Mob.Scene` in mob). mob_dev stamps it into the
   built app's `Info.plist` as `UIApplicationSupportsMultipleScenes`; the
-  template's own plist keeps `false`. The feature needs mob#184 (`Mob.Scene`,
-  unreleased) and mob_dev#114 (the stamping); keep `false` until both ship.
-  An older mob_dev ignores the key. Native projects only:
+  template's own plist keeps `false`. mob_dev 0.7.9 and later stamp the key
+  (new projects pin 0.7.12), but the per-window navigation needs mob's
+  `Mob.Scene` (mob#184, not released yet), so keep `false` on mob 0.9.11;
+  the generated comment says so. Native projects only:
   `--liveview` apps render through one WebView and don't get the key.
   Existing apps add the line to `config :mob_dev`. Nothing in the generated
   SceneDelegate changes: mob's hosting controller finds its own window.
@@ -65,11 +73,10 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   in iPhone compatibility mode (320x480 on a 13-inch iPad Pro) and never
   resized. `mob.exs` (native and `--liveview`) sets
   `ios_target_devices: [:iphone, :ipad]` and `ios_orientations: :all`; set
-  `[:iphone]` or `:portrait` to opt out. The keys take effect with the
-  mob_dev release after 0.7.8, which stamps them into the built app; with
-  older mob_dev the plist defaults apply and the opt-out does nothing, so the
-  release that ships this should raise the generated mob_dev floor to it.
-  Existing apps: `mix mob.doctor` (same mob_dev) warns and prints the fix.
+  `[:iphone]` or `:portrait` to opt out. The keys take effect with mob_dev
+  0.7.9 or later, which stamps them into the built app (new projects pin
+  0.7.12); with older mob_dev the plist defaults apply and the opt-out does
+  nothing. Existing apps: `mix mob.doctor` warns and prints the fix.
   See `decisions/2026-10-01-universal-ios-template.md`.
 
 ## [0.6.3] - 2026-10-01

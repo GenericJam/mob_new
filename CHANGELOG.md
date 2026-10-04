@@ -8,6 +8,33 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Upgrading
+- New projects depend on **mob `~> 0.9.12`**: the generated `beam_jni.c`
+  links `mob_press_begin`, `mob_press_end` and `mob_send_press_tap`. Existing
+  apps that want `on_press_in` / `on_press_out` (or `Mob.Test`'s held press)
+  on Android bump mob and port the bridge changes listed under Added; apps
+  that don't need no change.
+
+### Added
+- **Press in / out and a held press in the generated Android bridge
+  (MOB-380).** `MobBridge.kt` observes `on_press_in` / `on_press_out` on every
+  node without consuming the touch, and pairs them through
+  `nativePressBegin` / `nativePressEnd` (new `beam_jni.c` stubs into mob's
+  `mob_press_begin` / `mob_press_end`), so a press_out survives the re-render
+  a press causes. A press node's `on_tap` goes through the new
+  `nativeSendPressTap` (mob's identity-tolerant `mob_send_press_tap`), so that
+  re-render can't drop the tap; plain taps keep the strict `nativeSendTap`.
+  New `pressDownXy` / `pressMoveXy` / `pressUpXy` back
+  `Mob.Test.press_down_xy/4` and friends: a real finger held on the app's
+  window across calls, auto-cancelled after `maxHoldMs`; the other synthetic
+  gestures refuse while it is down. Needs mob 0.9.12. Existing apps copy the
+  `MobPressInOutHandles` / `mobIsPressNode` / `pressModifier` block, the
+  held-press section, `sendTapFor` (and its use in the `on_tap` arms of
+  `RenderNodeInner` and `MobButton`) and the three externals into their
+  `MobBridge.kt`, and the three stubs into `beam_jni.c`.
+
 ## [0.6.4] - 2026-10-03
 
 ### Upgrading
@@ -42,22 +69,6 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `ios/AppDelegate.m`; to use deep links, add `url_schemes` to
   `config :mob_dev` and set `singleTask` in the manifest.
 
-- **Press in / out and a held press in the generated Android bridge
-  (MOB-380).** `MobBridge.kt` observes `on_press_in` / `on_press_out` on every
-  node without consuming the touch, and pairs them through
-  `nativePressBegin` / `nativePressEnd` (new `beam_jni.c` stubs into mob's
-  `mob_press_begin` / `mob_press_end`), so a press_out survives the re-render
-  a press causes. A press node's `on_tap` goes through the new
-  `nativeSendPressTap` (mob's identity-tolerant `mob_send_press_tap`), so that
-  re-render can't drop the tap; plain taps keep the strict `nativeSendTap`.
-  New `pressDownXy` / `pressMoveXy` / `pressUpXy` back
-  `Mob.Test.press_down_xy/4` and friends: a real finger held on the app's
-  window across calls, auto-cancelled after `maxHoldMs`; the other synthetic
-  gestures refuse while it is down. Needs mob 0.9.12. Existing apps copy the
-  `MobPressInOutHandles` / `mobIsPressNode` / `pressModifier` block, the
-  held-press section, `sendTapFor` (and its use in the `on_tap` arms of
-  `RenderNodeInner` and `MobButton`) and the three externals into their
-  `MobBridge.kt`, and the three stubs into `beam_jni.c`.
 - **`mob.exs` declares `multi_window: false` (MOB-245).** Set it to `true`
   and iPad users can open several windows of the app, each with its own
   navigation, in one BEAM (`Mob.Scene` in mob). mob_dev stamps it into the

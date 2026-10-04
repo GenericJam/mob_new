@@ -1312,9 +1312,10 @@ defmodule MobNew.ProjectGenerator do
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
-      #   * beam_jni.c's `nativePressBegin` / `nativePressEnd` stubs call
-      #     `mob_press_begin` / `mob_press_end`, new in 0.9.12 (MOB-380). On an
-      #     older mob the Android native build fails to compile.
+      #   * beam_jni.c's `nativePressBegin` / `nativePressEnd` /
+      #     `nativeSendPressTap` stubs call `mob_press_begin` / `mob_press_end` /
+      #     `mob_send_press_tap`, new in 0.9.12 (MOB-380). On an older mob the
+      #     Android native build fails to compile.
       #   * beam_jni.c's `nativeDeliverLink` stub and the iOS SceneDelegate
       #     call `mob_deliver_link`, new in 0.9.11 (MOB-379). On an older mob
       #     the native build fails to link.

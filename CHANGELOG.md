@@ -8,12 +8,13 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.6.4] - 2026-10-03
 
 ### Upgrading
 - New projects depend on **mob `~> 0.9.11`** and **mob_dev `~> 0.7.12`**
   (deep links, below). Existing apps that want deep links bump both and port
-  the native changes listed under Added; apps that don't need no change.
+  the native changes listed under Added; apps that don't want deep links need
+  no change.
   The iPad keys (`ios_target_devices`, `ios_orientations`, `multi_window`)
   take effect with mob_dev 0.7.9 or later.
 

@@ -1729,6 +1729,23 @@ object MobBridge {
     external fun nativeSendTap(handle: Int)
 
     /**
+     * The tap of a node that also declares `on_press_in` / `on_press_out`
+     * (MOB-380). Such a node re-renders between the finger's down and up (the
+     * press itself usually changes the screen), so the lift fires a handle from
+     * the render before. This sender accepts it when the slot still holds the
+     * same pid and tag; [nativeSendTap] stays generation-strict so a stale
+     * positional tag (Mob.List's `{:select, id, index}`) is dropped rather than
+     * delivered to a row that moved. Pick one with [sendTapFor].
+     */
+    @JvmStatic
+    external fun nativeSendPressTap(handle: Int)
+
+    /** Sends a tap through [nativeSendPressTap] for a press node, else [nativeSendTap]. */
+    fun sendTapFor(handle: Int, pressNode: Boolean) {
+        if (pressNode) nativeSendPressTap(handle) else nativeSendTap(handle)
+    }
+
+    /**
      * Routes a sheet dismissal back to BEAM as `{:dismiss, tag}`.
      *
      * Deliberately separate from [nativeSendTap]: `Mob.UI.sheet/2` documents
@@ -3537,6 +3554,10 @@ private data class MobPressHandles(val long: Int?, val double: Int?)
 /** on_press_in / on_press_out handles for one node, re-read each composition. */
 private data class MobPressInOutHandles(val pressIn: Int?, val pressOut: Int?)
 
+/** True when the node observes press in/out, so its tap uses nativeSendPressTap. */
+private fun mobIsPressNode(props: Map<String, Any?>): Boolean =
+    intProp(props, "on_press_in") != null || intProp(props, "on_press_out") != null
+
 /** Swipe handles for one node, re-read each composition. See MobScrollHandlers. */
 private data class MobSwipeHandlers(
     val any: Int?,
@@ -3735,6 +3756,9 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     val longPressHandle = intProp(node.props, "on_long_press")
     val doubleTapHandle = intProp(node.props, "on_double_tap")
     val isDisabled = boolProp(node.props, "disabled") ?: false
+    // A node observing press in/out re-renders mid-touch; its tap resolves by
+    // identity (nativeSendPressTap). Every other tap stays strict.
+    val pressNode = mobIsPressNode(node.props)
     val accessibilityRole = node.props["accessibility_role"] as? String
     val isButton = node.type == "box" && accessibilityRole == "button"
     // The node types iOS actually attaches gestures to. MobRootView applies
@@ -3769,7 +3793,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                 role = if (isButton) Role.Button else null,
                 onLongClick = longPressHandle?.let { h -> { MobBridge.nativeSendLongPress(h) } },
                 onDoubleClick = doubleTapHandle?.let { h -> { MobBridge.nativeSendDoubleTap(h) } }
-            ) { MobBridge.nativeSendTap(tapHandle) }
+            ) { MobBridge.sendTapFor(tapHandle, pressNode) }
 
         // Long press or double tap with NO on_tap: a raw detector, not
         // combinedClickable. combinedClickable would need an onClick, and
@@ -3806,7 +3830,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         // button role.
         isButton && tapHandle != null ->
             modifier.clickable(enabled = !isDisabled, role = Role.Button) {
-                MobBridge.nativeSendTap(tapHandle)
+                MobBridge.sendTapFor(tapHandle, pressNode)
             }
 
         // `enabled = !isDisabled` here too, not just on the button arm above.
@@ -3819,7 +3843,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         // (see MobAnchored). A clickable wrapped round it would swallow taps
         // meant for the trigger inside it.
         tapHandle != null && node.type != "button" && node.type != "anchored" ->
-            modifier.clickable(enabled = !isDisabled) { MobBridge.nativeSendTap(tapHandle) }
+            modifier.clickable(enabled = !isDisabled) { MobBridge.sendTapFor(tapHandle, pressNode) }
 
         else -> modifier
     }
@@ -4608,6 +4632,7 @@ private fun MobText(node: MobNode, modifier: Modifier) {
 private fun MobButton(node: MobNode, modifier: Modifier) {
     val label       = node.props["text"] as? String ?: ""
     val tapHandle   = intProp(node.props, "on_tap")
+    val pressNode   = mobIsPressNode(node.props)
     val bgColor     = colorProp(node.props, "background")
     val cornerRad   = floatProp(node.props, "corner_radius") ?: 0f
 
@@ -4621,7 +4646,7 @@ private fun MobButton(node: MobNode, modifier: Modifier) {
     // fill_width and corner_radius are driven by Elixir props (set in component
     // defaults but overridable per-node). Shape overrides M3's stadium default.
     Button(
-        onClick  = { tapHandle?.let { MobBridge.nativeSendTap(it) } },
+        onClick  = { tapHandle?.let { MobBridge.sendTapFor(it, pressNode) } },
         modifier = if (fillWidth) modifier.fillMaxWidth() else modifier,
         colors   = colors,
         shape    = RoundedCornerShape(cornerRad.dp),

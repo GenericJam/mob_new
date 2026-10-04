@@ -28,7 +28,7 @@ defmodule MobNew.Templates.AndroidBoxAccessibilityTest do
     # check, so `disabled: true` without a role announced as disabled to
     # TalkBack and still fired.
     assert source =~
-             "modifier.clickable(enabled = !isDisabled) { MobBridge.nativeSendTap(tapHandle) }"
+             "modifier.clickable(enabled = !isDisabled) { MobBridge.sendTapFor(tapHandle, pressNode) }"
 
     # Merge on label OR button role, matching iOS. Role without merging leaves
     # children as separate accessibility nodes inside a "button".

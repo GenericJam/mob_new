@@ -8,14 +8,14 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.6.5] - 2026-10-03
 
 ### Upgrading
 - New projects depend on **mob `~> 0.9.12`**: the generated `beam_jni.c`
   links `mob_press_begin`, `mob_press_end` and `mob_send_press_tap`. Existing
   apps that want `on_press_in` / `on_press_out` (or `Mob.Test`'s held press)
   on Android bump mob and port the bridge changes listed under Added; apps
-  that don't need no change.
+  that don't want them need no change.
 
 ### Added
 - **Press in / out and a held press in the generated Android bridge
@@ -29,11 +29,15 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   New `pressDownXy` / `pressMoveXy` / `pressUpXy` back
   `Mob.Test.press_down_xy/4` and friends: a real finger held on the app's
   window across calls, auto-cancelled after `maxHoldMs`; the other synthetic
-  gestures refuse while it is down. Needs mob 0.9.12. Existing apps copy the
-  `MobPressInOutHandles` / `mobIsPressNode` / `pressModifier` block, the
-  held-press section, `sendTapFor` (and its use in the `on_tap` arms of
-  `RenderNodeInner` and `MobButton`) and the three externals into their
-  `MobBridge.kt`, and the three stubs into `beam_jni.c`.
+  gestures refuse while it is down. Needs mob 0.9.12. Existing apps copy into
+  their `MobBridge.kt`: the three imports (`awaitEachGesture`,
+  `awaitFirstDown`, `PointerEventPass`), the `MobPressInOutHandles` /
+  `mobIsPressNode` / `pressModifier` block, the held-press section and the
+  `heldPress != null` guards it adds to `tapXy`, `longPressXy` and `swipeXy`,
+  `sendTapFor` (and its use in the `on_tap` arms of `RenderNodeInner` and
+  `MobButton`) and the three externals; and the three stubs into
+  `beam_jni.c`. The simplest port is a diff of a freshly generated app's two
+  files against the app's own.
 
 ## [0.6.4] - 2026-10-03
 

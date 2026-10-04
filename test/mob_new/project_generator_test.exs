@@ -329,11 +329,12 @@ defmodule MobNew.ProjectGeneratorTest do
     test "mix.exs floors mob at the release the generated app relies on", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "mix.exs"))
+      # 0.9.12 exports mob_press_begin/end, which beam_jni.c calls (MOB-380);
       # 0.9.11 exports mob_deliver_link, which beam_jni.c and the SceneDelegate
       # call (MOB-379); mob_dev 0.7.12 turns mob.exs's url_schemes into the
       # native URL registrations. 0.9.8 already required the notification
       # envelope (MOB-316) and the private dist cookie (MOB-49).
-      assert content =~ ~s({:mob,     "~> 0.9.11"})
+      assert content =~ ~s({:mob,     "~> 0.9.12"})
       assert content =~ ~s({:mob_dev, "~> 0.7.12", only: :dev, runtime: false})
       assert content =~ ~s({:mob_mishka, "~> 0.1.3"})
     end

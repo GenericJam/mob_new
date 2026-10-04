@@ -122,8 +122,7 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
              gesturableType ->
            """)
 
-    assert has?(src, "-> { MobBridge.nativeSendTap(tapHandle) }") or
-             has?(src, ") { MobBridge.nativeSendTap(tapHandle) }")
+    assert has?(src, ") { MobBridge.sendTapFor(tapHandle, pressNode) }")
 
     # …and the no-on_tap case uses a raw detector instead.
     assert has?(src, "detectTapGestures(")
@@ -315,6 +314,56 @@ defmodule MobNew.Templates.AndroidGestureWiringTest do
     # started; not closing at all leaves state opened on "began" never released.
     assert has?(src, ~s|onDragEnd = { emit(curX, curY, "ended") }|)
     assert has?(src, ~s|onDragCancel = { emit(curX, curY, "ended") }|)
+  end
+
+  # ── Press in / out (MOB-380) ──────────────────────────────────────────────
+
+  test "press in/out reach native through begin/end, with JNI stubs", %{bridge: src, jni: jni} do
+    assert has?(src, ~s|intProp(node.props, "on_press_in")|)
+    assert has?(src, ~s|intProp(node.props, "on_press_out")|)
+
+    for name <- ~w(nativePressBegin nativePressEnd) do
+      assert Regex.match?(~r/@JvmStatic\s+external fun #{name}\(/, src), "#{name} not declared"
+    end
+
+    assert has?(jni, "return (jint)mob_press_begin((int)in_handle, (int)out_handle);")
+    assert has?(jni, "mob_press_end((int)token);")
+  end
+
+  test "only a press node's tap resolves identity-tolerantly", %{bridge: src, jni: jni} do
+    # A plain tap must stay generation-strict: a stale positional tag such as
+    # Mob.List's {:select, id, index} would otherwise reach a row that moved.
+    assert has?(src, "if (pressNode) nativeSendPressTap(handle) else nativeSendTap(handle)")
+
+    assert has?(
+             src,
+             ~s|intProp(props, "on_press_in") != null \|\| intProp(props, "on_press_out") != null|
+           )
+
+    assert Regex.match?(~r/@JvmStatic\s+external fun nativeSendPressTap\(/, src)
+    assert has?(jni, "mob_send_press_tap((int)handle);")
+
+    # Every on_tap arm (RenderNodeInner and MobButton) routes through sendTapFor.
+    refute src =~ "MobBridge.nativeSendTap(tapHandle)"
+    assert has?(src, "onClick  = { tapHandle?.let { MobBridge.sendTapFor(it, pressNode) } },")
+  end
+
+  test "the press observer never consumes, and always ends what it began", %{bridge: src} do
+    [_, block] = String.split(src, "val pressModifier =", parts: 2)
+    [block, _] = String.split(block, "val base = pressModifier", parts: 2)
+
+    # Consuming here would take the touch from on_tap, long press and scroll.
+    refute block =~ "consume()"
+
+    assert has?(
+             block,
+             "awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)"
+           )
+
+    # The finally pairs the press_out with every press_in, including when the
+    # detector is torn down mid-press.
+    assert has?(block, "} finally { if (token >= 0) MobBridge.nativePressEnd(token) }")
+    assert has?(src, "val base = pressModifier.then(nodeModifier(node.props))")
   end
 
   # ── helpers ───────────────────────────────────────────────────────────────

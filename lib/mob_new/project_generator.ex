@@ -1308,10 +1308,14 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
     else
-      # Floor at 0.9.11, not "~> 0.9". Generated code depends on a specific
+      # Floor at 0.9.12, not "~> 0.9". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
+      #   * beam_jni.c's `nativePressBegin` / `nativePressEnd` /
+      #     `nativeSendPressTap` stubs call `mob_press_begin` / `mob_press_end` /
+      #     `mob_send_press_tap`, new in 0.9.12 (MOB-380). On an older mob the
+      #     Android native build fails to compile.
       #   * beam_jni.c's `nativeDeliverLink` stub and the iOS SceneDelegate
       #     call `mob_deliver_link`, new in 0.9.11 (MOB-379). On an older mob
       #     the native build fails to link.
@@ -1345,7 +1349,7 @@ defmodule MobNew.ProjectGenerator do
       #     Box accessibility props are validated and encoded from 0.7.32.
       #
       # `~>` still allows the whole 0.9.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.9.11"})
+      mob_dep = ~s({:mob,     "~> 0.9.12"})
       # mob_dev 0.7.12 turns mob.exs's `url_schemes` into the Android
       # intent-filter and iOS CFBundleURLTypes (MOB-379); an older one ignores
       # the key and no link opens the app. mob 0.9.8 also accepts only the

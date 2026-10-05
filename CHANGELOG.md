@@ -8,7 +8,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.6.6] - 2026-10-04
 
 ### Upgrading
 - Existing Android apps should port the permission queue (MOB-391): without

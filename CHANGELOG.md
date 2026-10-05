@@ -32,9 +32,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
      everything: `MobBridge.onPermissionResult(requestCode, permissions,
      grantResults)`, and drop the `PackageManager` import if nothing else uses
      it.
-  iOS needs nothing from this release. On iOS, update mob_location to 0.1.5
-  (`mix deps.update mob_location`): 0.1.4 answered only the last of
-  overlapping `:location` requests, and none made after the user had answered.
+  iOS needs nothing from this release's templates. On iOS, update
+  mob_location to 0.1.5 (`mix deps.update mob_location`; new apps now require
+  `~> 0.1.5`): 0.1.4 answered only the last of overlapping `:location`
+  requests, and none made later in the same session after the user had
+  answered.
 
 ### Fixed
 - **Overlapping permission requests on Android (MOB-391).** Android shows one

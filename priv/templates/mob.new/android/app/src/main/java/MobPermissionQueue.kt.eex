@@ -1,0 +1,108 @@
+package <%= java_package %>
+
+import android.Manifest
+
+/**
+ * Runtime permission requests, sent to the system one at a time.
+ *
+ * Android shows one permission dialog per activity at a time. A second
+ * `requestPermissions` while a dialog is up never shows its own dialog: the
+ * platform calls back at once with empty results. Two capabilities requested
+ * close together (`:notifications` on first use, then `:location` a second
+ * later) used to answer the second `:denied` without the user ever seeing it,
+ * and the single pending pid/capability slot sent the first dialog's answer to
+ * the second requester (MOB-391).
+ *
+ * So requests wait here and go to the system in order, each with its own
+ * request code. Every request gets exactly one answer, sent to its own pid:
+ *
+ *  - already satisfied when asked: `granted` at once, without waiting behind a
+ *    dialog that is up for something else;
+ *  - otherwise its dialog's answer, read when that request's result arrives.
+ *    A result whose code is not the request in flight is ignored, so an
+ *    interrupted or stale callback never answers a different request;
+ *  - empty results for the request in flight (the system cancelled or
+ *    interrupted it) answer from the current permission state;
+ *  - no activity to show a dialog on: `denied`.
+ *
+ * A capability is granted when every permission it maps to is granted, except
+ * that [Manifest.permission.ACCESS_FINE_LOCATION] is also satisfied by
+ * [Manifest.permission.ACCESS_COARSE_LOCATION]: on Android 12+ a FINE+COARSE
+ * request lets the user choose "Approximate", which grants COARSE only, and
+ * that is still location access.
+ *
+ * Not thread-safe: call every method on the main thread.
+ *
+ * @param isGranted whether the app currently holds a permission.
+ * @param launch shows the system dialog for `perms` under `requestCode`;
+ *   returns false when there is no activity to show it on. The result comes
+ *   back through [onResult], possibly before `launch` returns.
+ * @param deliver sends `{:permission, cap, :granted | :denied}` to `pid`.
+ */
+class MobPermissionQueue(
+    private val isGranted: (String) -> Boolean,
+    private val launch: (perms: Array<String>, requestCode: Int) -> Boolean,
+    private val deliver: (pid: Long, cap: String, granted: Boolean) -> Unit,
+) {
+    private class Request(val pid: Long, val cap: String, val perms: Array<String>) {
+        var code = 0
+    }
+
+    private val waiting = ArrayDeque<Request>()
+    private var inFlight: Request? = null
+    private var nextCode = 0
+
+    /** Queues a request for `perms` on behalf of `pid`, answered as `cap`. */
+    fun request(pid: Long, cap: String, perms: Array<String>) {
+        if (satisfied(perms, isGranted)) {
+            deliver(pid, cap, true)
+            return
+        }
+        waiting.addLast(Request(pid, cap, perms))
+        pump()
+    }
+
+    /** Forward of `Activity.onRequestPermissionsResult`. */
+    fun onResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        val req = inFlight ?: return
+        if (requestCode != req.code) return
+        inFlight = null
+        val answered = permissions.filterIndexed { i, _ -> grantResults.getOrNull(i) == PERMISSION_GRANTED }.toSet()
+        deliver(req.pid, req.cap, satisfied(req.perms) { it in answered || isGranted(it) })
+        pump()
+    }
+
+    private fun pump() {
+        while (inFlight == null) {
+            val req = waiting.removeFirstOrNull() ?: return
+            // An earlier dialog may have granted what this one needs.
+            if (satisfied(req.perms, isGranted)) {
+                deliver(req.pid, req.cap, true)
+                continue
+            }
+            req.code = REQUEST_CODE_BASE + nextCode
+            nextCode = (nextCode + 1) % REQUEST_CODE_SPAN
+            inFlight = req
+            if (!launch(req.perms, req.code) && inFlight === req) {
+                inFlight = null
+                deliver(req.pid, req.cap, false)
+            }
+        }
+    }
+
+    companion object {
+        /** Request codes used are `REQUEST_CODE_BASE until REQUEST_CODE_BASE + REQUEST_CODE_SPAN`. */
+        const val REQUEST_CODE_BASE = 9001
+        const val REQUEST_CODE_SPAN = 64
+
+        // android.content.pm.PackageManager.PERMISSION_GRANTED, kept local so
+        // the JVM unit tests need no Android classes.
+        private const val PERMISSION_GRANTED = 0
+
+        fun satisfied(perms: Array<String>, granted: (String) -> Boolean): Boolean =
+            perms.all {
+                granted(it) ||
+                    (it == Manifest.permission.ACCESS_FINE_LOCATION && granted(Manifest.permission.ACCESS_COARSE_LOCATION))
+            }
+    }
+}

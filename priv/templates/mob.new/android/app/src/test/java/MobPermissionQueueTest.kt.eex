@@ -1,0 +1,190 @@
+package <%= java_package %>
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * MobPermissionQueue against a fake platform that behaves like Android's
+ * `Activity.requestPermissions`: one dialog at a time, and a second request
+ * while one is up is answered at once with empty results (MOB-391).
+ */
+class MobPermissionQueueTest {
+
+    private val fine = "android.permission.ACCESS_FINE_LOCATION"
+    private val coarse = "android.permission.ACCESS_COARSE_LOCATION"
+    private val notif = "android.permission.POST_NOTIFICATIONS"
+    private val camera = "android.permission.CAMERA"
+
+    private class Dialog(val perms: List<String>, val code: Int)
+
+    private val held = mutableSetOf<String>()
+    private val dialogs = mutableListOf<Dialog>()
+    private var dialogUp: Dialog? = null
+    private var hasActivity = true
+    private val answers = mutableListOf<Triple<Long, String, Boolean>>()
+
+    private lateinit var queue: MobPermissionQueue
+
+    init {
+        queue = MobPermissionQueue(
+            isGranted = { it in held },
+            launch = { perms, code ->
+                if (!hasActivity) {
+                    false
+                } else if (dialogUp != null) {
+                    // What the platform does: no dialog, immediate empty result.
+                    queue.onResult(code, emptyArray(), IntArray(0))
+                    true
+                } else {
+                    val d = Dialog(perms.toList(), code)
+                    dialogs += d
+                    dialogUp = d
+                    true
+                }
+            },
+            deliver = { pid, cap, granted -> answers += Triple(pid, cap, granted) },
+        )
+    }
+
+    /** The user answers the dialog that is up, granting `grant`. */
+    private fun answer(vararg grant: String) {
+        val d = dialogUp ?: error("no dialog up")
+        dialogUp = null
+        held += grant
+        val results = d.perms.map { if (it in grant) 0 else -1 }.toIntArray()
+        queue.onResult(d.code, d.perms.toTypedArray(), results)
+    }
+
+    @Test
+    fun overlappingRequestsGetTheirOwnDialogsAndAnswers() {
+        queue.request(1, "notifications", arrayOf(notif))
+        queue.request(2, "location", arrayOf(fine, coarse))
+
+        assertEquals("the second request waits for the first dialog", 1, dialogs.size)
+        assertEquals(emptyList<Triple<Long, String, Boolean>>(), answers)
+
+        answer(notif)
+        assertEquals(listOf(Triple(1L, "notifications", true)), answers)
+        assertEquals("the location dialog follows", listOf(fine, coarse), dialogUp?.perms)
+
+        answer()
+        assertEquals(
+            listOf(Triple(1L, "notifications", true), Triple(2L, "location", false)),
+            answers,
+        )
+        assertEquals(2, dialogs.map { it.code }.distinct().size)
+    }
+
+    @Test
+    fun approximateLocationIsGranted() {
+        queue.request(1, "location", arrayOf(fine, coarse))
+        answer(coarse)
+        assertEquals(listOf(Triple(1L, "location", true)), answers)
+    }
+
+    @Test
+    fun heldCoarseLocationAnswersWithoutADialog() {
+        held += coarse
+        queue.request(1, "location", arrayOf(fine, coarse))
+        assertEquals(0, dialogs.size)
+        assertEquals(listOf(Triple(1L, "location", true)), answers)
+    }
+
+    @Test
+    fun coarseDoesNotStandInForOtherPermissions() {
+        held += coarse
+        queue.request(1, "camera", arrayOf(camera))
+        answer()
+        assertEquals(listOf(Triple(1L, "camera", false)), answers)
+    }
+
+    @Test
+    fun alreadyGrantedIsAnsweredWhileAnotherDialogIsUp() {
+        held += camera
+        queue.request(1, "notifications", arrayOf(notif))
+        queue.request(2, "camera", arrayOf(camera))
+        assertEquals(listOf(Triple(2L, "camera", true)), answers)
+        assertEquals(1, dialogs.size)
+    }
+
+    @Test
+    fun aQueuedRequestGrantedByAnEarlierDialogShowsNoDialog() {
+        queue.request(1, "location", arrayOf(fine, coarse))
+        queue.request(2, "location", arrayOf(fine, coarse))
+        answer(fine, coarse)
+        assertEquals(1, dialogs.size)
+        assertEquals(listOf(Triple(1L, "location", true), Triple(2L, "location", true)), answers)
+    }
+
+    @Test
+    fun aResultForAnotherCodeIsIgnored() {
+        queue.request(1, "notifications", arrayOf(notif))
+        val code = dialogUp!!.code
+        queue.onResult(code + 1, emptyArray(), IntArray(0))
+        queue.onResult(code + 1, arrayOf(notif), intArrayOf(0))
+        assertEquals(emptyList<Triple<Long, String, Boolean>>(), answers)
+        answer()
+        assertEquals(listOf(Triple(1L, "notifications", false)), answers)
+    }
+
+    @Test
+    fun emptyResultsAnswerFromTheCurrentStateAndMoveOn() {
+        queue.request(1, "notifications", arrayOf(notif))
+        queue.request(2, "camera", arrayOf(camera))
+        val first = dialogUp!!
+        dialogUp = null
+        queue.onResult(first.code, emptyArray(), IntArray(0))
+        assertEquals(listOf(Triple(1L, "notifications", false)), answers)
+        assertEquals(listOf(camera), dialogUp?.perms)
+
+        held += camera
+        val second = dialogUp!!
+        dialogUp = null
+        queue.onResult(second.code, emptyArray(), IntArray(0))
+        assertEquals(Triple(2L, "camera", true), answers.last())
+    }
+
+    @Test
+    fun aDialogHeldByAnotherRequesterAnswersOnceAndDoesNotStall() {
+        // Something outside the queue already has a dialog up, so the
+        // platform answers our launch synchronously with empty results.
+        dialogUp = Dialog(listOf("other"), 1)
+        queue.request(1, "notifications", arrayOf(notif))
+        queue.request(2, "camera", arrayOf(camera))
+        assertEquals(
+            listOf(Triple(1L, "notifications", false), Triple(2L, "camera", false)),
+            answers,
+        )
+
+        dialogUp = null
+        queue.request(3, "camera", arrayOf(camera))
+        answer(camera)
+        assertEquals(Triple(3L, "camera", true), answers.last())
+    }
+
+    @Test
+    fun noActivityAnswersDeniedAndTheQueueContinues() {
+        hasActivity = false
+        queue.request(1, "camera", arrayOf(camera))
+        assertEquals(listOf(Triple(1L, "camera", false)), answers)
+
+        hasActivity = true
+        queue.request(2, "camera", arrayOf(camera))
+        answer(camera)
+        assertEquals(Triple(2L, "camera", true), answers.last())
+    }
+
+    @Test
+    fun requestCodesStayInTheirBand() {
+        repeat(MobPermissionQueue.REQUEST_CODE_SPAN + 3) { i ->
+            queue.request(i.toLong(), "camera", arrayOf(camera))
+            answer()
+        }
+        val codes = dialogs.map { it.code }
+        assertEquals(MobPermissionQueue.REQUEST_CODE_SPAN, codes.distinct().size)
+        val band = MobPermissionQueue.REQUEST_CODE_BASE until
+            MobPermissionQueue.REQUEST_CODE_BASE + MobPermissionQueue.REQUEST_CODE_SPAN
+        assertTrue(codes.all { it in band })
+    }
+}

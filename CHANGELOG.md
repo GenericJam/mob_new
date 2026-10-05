@@ -8,6 +8,58 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Upgrading
+- Existing Android apps should port the permission queue (MOB-391): without
+  it, two `Mob.Permissions.request/2` calls close together answer the second
+  `:denied` without a dialog, and choosing "Approximate" location reports
+  `:denied`. No dependency change. Copy, from a freshly generated app (or this
+  release's templates):
+  1. `MobPermissionQueue.kt` into `android/app/src/main/java/<your package>/`
+     (and, optionally, `MobPermissionQueueTest.kt` into
+     `android/app/src/test/java/<your package>/`); set the `package` line.
+  2. In `MobBridge.kt`, replace `pendingPermissionPid`,
+     `pendingPermissionCap`, `request_permission`, `onPermissionResult` and
+     the `PERM_REQUEST_CODE` constant with the new `permissionQueue`,
+     `request_permission` and `onPermissionResult(requestCode, permissions,
+     grantResults)`. Keep any capabilities your app added to the `when`.
+     The new `request_permission` posts to `mainHandler`; an app generated
+     before mob_new 0.4.32 may not have one, so add
+     `private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())`
+     to the `MobBridge` object if needed.
+  3. In `MainActivity.kt`, make `onRequestPermissionsResult` forward
+     everything: `MobBridge.onPermissionResult(requestCode, permissions,
+     grantResults)`, and drop the `PackageManager` import if nothing else uses
+     it.
+  iOS needs nothing from this release's templates. On iOS, update
+  mob_location to 0.1.5 (`mix deps.update mob_location`; new apps now require
+  `~> 0.1.5`): 0.1.4 answered only the last of overlapping `:location`
+  requests, and none made later in the same session after the user had
+  answered.
+
+### Fixed
+- **Overlapping permission requests on Android (MOB-391).** Android shows one
+  permission dialog per activity at a time; a second `requestPermissions`
+  while one is up gets empty results at once and never shows its dialog. The
+  generated bridge read that as `:denied`, and its single pending pid /
+  capability slot sent the first dialog's answer to the second requester
+  (seen in Operator: `:notifications` then `:location` a second later gave
+  `{:permission, :location, :denied}` with no location dialog, then the
+  notification "Allow" as `{:permission, :location, :granted}`). The new
+  `MobPermissionQueue` sends requests to the system one at a time, each under
+  its own request code and answered once to its own pid; a result for any
+  other code is ignored, and an empty (interrupted) result answers from the
+  current permission state. A request that is already satisfied is answered
+  at once, even while another dialog is up.
+- **"Approximate" location now reports `:granted`.** `:location` asks for
+  FINE and COARSE; Android 12+ lets the user pick Approximate, which grants
+  COARSE only. FINE is now satisfied by COARSE, so that is `:granted`. The
+  message carries no precision: an app that needs precise location checks for
+  it itself. Asking for `:location` again after Approximate answers
+  `:granted` at once; it does not bring up Android's "change to precise"
+  dialog.
+
 ## [0.6.5] - 2026-10-03
 
 ### Upgrading

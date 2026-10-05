@@ -1894,42 +1894,60 @@ object MobBridge {
     @JvmStatic external fun nativeDeliverAlertAction(action: String)
 
     // ── Pending callback PIDs ──────────────────────────────────────────────
-    var pendingPermissionPid:  Long = 0
-    var pendingPermissionCap:  String = ""
     var pendingFilesPid:       Long = 0
 
     // ── Permissions ────────────────────────────────────────────────────────
+    // One system request at a time, each answered to its own pid: see
+    // MobPermissionQueue. Touched on the main thread only.
+    private val permissionQueue = MobPermissionQueue(
+        isGranted = { perm ->
+            val activity = activityRef?.get()
+            activity != null &&
+                ContextCompat.checkSelfPermission(activity, perm) == PackageManager.PERMISSION_GRANTED
+        },
+        // Returning false answers :denied and moves the queue on. Don't launch
+        // where no result would come back: never from a finishing or
+        // destroyed activity (its result is dropped), and never with nothing
+        // to ask — below API 33 androidx drops POST_NOTIFICATIONS and returns
+        // without any callback when that leaves the request empty.
+        launch = { perms, requestCode ->
+            val activity = activityRef?.get()?.takeUnless { it.isFinishing || it.isDestroyed }
+            val askable = perms.any {
+                android.os.Build.VERSION.SDK_INT >= 33 || it != android.Manifest.permission.POST_NOTIFICATIONS
+            }
+            if (activity != null && askable) ActivityCompat.requestPermissions(activity, perms, requestCode)
+            activity != null && askable
+        },
+        deliver = { pid, cap, granted ->
+            nativeDeliverAtom3(pid, "permission", cap, if (granted) "granted" else "denied")
+        },
+    )
+
     @JvmStatic
     fun request_permission(pid: Long, cap: String) {
-        pendingPermissionPid = pid
-        pendingPermissionCap = cap
-        val activity = activityRef?.get() ?: run {
-            nativeDeliverAtom3(pid, "permission", cap, "denied"); return
-        }
-        val perms = when (cap) {
-            "camera"        -> arrayOf(android.Manifest.permission.CAMERA)
-            "microphone"    -> arrayOf(android.Manifest.permission.RECORD_AUDIO)
-            "photo_library" -> if (android.os.Build.VERSION.SDK_INT >= 33)
-                arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO)
-            else arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
-            "notifications" -> if (android.os.Build.VERSION.SDK_INT >= 33)
-                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS)
-            else { nativeDeliverAtom3(pid, "permission", "notifications", "granted"); return }
-            // Fall through to a plugin-supplied capability (e.g. mob_location
-            // once :location leaves core). Unknown -> denied.
-            else -> io.mob.plugin.MobPluginBootstrap.permissionsFor(cap)
-                ?: run { nativeDeliverAtom3(pid, "permission", cap, "denied"); return }
-        }
-        if (perms.all { ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED }) {
-            nativeDeliverAtom3(pid, "permission", cap, "granted")
-        } else {
-            ActivityCompat.requestPermissions(activity, perms, PERM_REQUEST_CODE)
+        mainHandler.post {
+            val perms = when (cap) {
+                "camera"        -> arrayOf(android.Manifest.permission.CAMERA)
+                "microphone"    -> arrayOf(android.Manifest.permission.RECORD_AUDIO)
+                "photo_library" -> if (android.os.Build.VERSION.SDK_INT >= 33)
+                    arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO)
+                else arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                "notifications" -> if (android.os.Build.VERSION.SDK_INT >= 33)
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS)
+                else { nativeDeliverAtom3(pid, "permission", "notifications", "granted"); return@post }
+                // Fall through to a plugin-supplied capability (e.g. mob_location
+                // once :location leaves core). Unknown -> denied.
+                else -> io.mob.plugin.MobPluginBootstrap.permissionsFor(cap)
+                    ?: run { nativeDeliverAtom3(pid, "permission", cap, "denied"); return@post }
+            }
+            permissionQueue.request(pid, cap, perms)
         }
     }
 
+    /** Called from MainActivity.onRequestPermissionsResult (main thread). */
     @JvmStatic
-    fun onPermissionResult(granted: Boolean) {
-        nativeDeliverAtom3(pendingPermissionPid, "permission", pendingPermissionCap, if (granted) "granted" else "denied")
+    fun onPermissionResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        permissionQueue.onResult(requestCode, permissions, grantResults)
     }
 
     // ── File picker ───────────────────────────────────────────────────────
@@ -2694,8 +2712,6 @@ object MobBridge {
     // mob_notify plugin (io.mob.notify.MobNotifyBridge); shared delivery state
     // lives in the generated io.mob.plugin.MobNotifyHub. The channel id +
     // delivery thunks/receiver stay host-side (delivery is core/host-owned).
-    private const val PERM_REQUEST_CODE = 9001
-
     /**
      * Called from nif_safe_area via JNI — returns [top, right, bottom, left] in dp.
      * Reads the window's system bar insets on the UI thread.

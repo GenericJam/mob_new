@@ -578,6 +578,16 @@ git config core.hooksPath .githooks
   `scene:openURLContexts:`). The template declares no intent-filter or
   `CFBundleURLTypes`: mob_dev injects them from `url_schemes` in mob.exs.
 
+- **Android permission requests go through `MobPermissionQueue`
+  (MOB-391).** Android allows one permission dialog per activity at a time; a
+  second `requestPermissions` gets empty results at once and no dialog. Never
+  call `ActivityCompat.requestPermissions` from the bridge directly, never
+  keep a single pending pid/capability slot, and never read empty results as
+  `:denied`. The queue's behaviour lives in `MobPermissionQueue.kt` with JVM
+  tests in `src/test/java/MobPermissionQueueTest.kt.eex` (run
+  `./gradlew testDebugUnitTest` in a generated app). See
+  `decisions/2026-10-04-android-permission-queue.md`.
+
 ## The default app is the Mishka Chelekom showcase (via the mob_mishka plugin)
 
 The Mishka composites are no longer vendored into the template

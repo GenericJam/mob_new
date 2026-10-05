@@ -34,7 +34,7 @@ defmodule <%= module_name %>.MixProject do
       # the native build shrinks accordingly. Browse more at
       # https://hexdocs.pm/mob/packages.html.
       {:mob_camera, "~> 0.1"},
-      {:mob_location, "~> 0.1"},
+      {:mob_location, "~> 0.1.5"},
       {:mob_biometric, "~> 0.1"},
       {:mob_themes, "~> 0.1"},
       # Mishka Chelekom composites — the ~75 <Mishka…> tags the generated

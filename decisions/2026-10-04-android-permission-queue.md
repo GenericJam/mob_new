@@ -43,7 +43,9 @@ permission name constants) owns permission requests:
   head of the queue (an earlier dialog may have granted it).
 - `ACCESS_FINE_LOCATION` is satisfied by `ACCESS_COARSE_LOCATION`. Every other
   permission in a capability must be granted itself.
-- No activity: `:denied`, as before, and the queue moves on.
+- No activity, or only a finishing/destroyed one, or nothing left to ask
+  (below API 33 androidx drops POST_NOTIFICATIONS from the request and returns
+  without a callback): `:denied`, and the queue moves on.
 
 `MobBridge.request_permission` hops to the main thread before touching the
 queue; the NIF calls it from a BEAM scheduler thread. `MainActivity` forwards
@@ -60,11 +62,18 @@ Android does.
   apps see more `:granted` (Approximate) and no false `:denied`.
 - `:location` granted no longer means precise location. An app that needs
   precise location has to check for it itself; the message carries no
-  precision.
+  precision. Because a held COARSE answers `:location` at once, asking again
+  after the user chose Approximate does not bring up Android's "change to
+  precise" dialog, and Mob has no other way to ask for it. That is
+  deliberate: Operator asks for `:location` on every location tool call, and
+  an upgrade prompt each time would be worse. Revisit if an app needs precise
+  location.
 - A request whose result never comes back would hold up the requests behind
   it. Android keeps an in-flight permission request across activity
-  re-creation and delivers its result to the new activity, so this needs the
-  process to die, which clears the queue anyway. There is deliberately no
+  re-creation and delivers its result to the new activity. The bridge does not
+  launch from a finishing or destroyed activity, nor a request androidx would
+  drop without a callback (above). The remaining way to lose a result is
+  process death, which clears the queue anyway. There is deliberately no
   timeout: a user can leave a dialog up for as long as they like.
 - Existing apps have to port the change by hand (new file plus edits to
   `MobBridge.kt` and `MainActivity.kt`); see the CHANGELOG's Upgrading note.

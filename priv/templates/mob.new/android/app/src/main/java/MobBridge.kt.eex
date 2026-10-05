@@ -1905,10 +1905,18 @@ object MobBridge {
             activity != null &&
                 ContextCompat.checkSelfPermission(activity, perm) == PackageManager.PERMISSION_GRANTED
         },
+        // Returning false answers :denied and moves the queue on. Don't launch
+        // where no result would come back: never from a finishing or
+        // destroyed activity (its result is dropped), and never with nothing
+        // to ask — below API 33 androidx drops POST_NOTIFICATIONS and returns
+        // without any callback when that leaves the request empty.
         launch = { perms, requestCode ->
-            val activity = activityRef?.get()
-            if (activity != null) ActivityCompat.requestPermissions(activity, perms, requestCode)
-            activity != null
+            val activity = activityRef?.get()?.takeUnless { it.isFinishing || it.isDestroyed }
+            val askable = perms.any {
+                android.os.Build.VERSION.SDK_INT >= 33 || it != android.Manifest.permission.POST_NOTIFICATIONS
+            }
+            if (activity != null && askable) ActivityCompat.requestPermissions(activity, perms, requestCode)
+            activity != null && askable
         },
         deliver = { pid, cap, granted ->
             nativeDeliverAtom3(pid, "permission", cap, if (granted) "granted" else "denied")

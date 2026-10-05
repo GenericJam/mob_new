@@ -24,12 +24,17 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
      the `PERM_REQUEST_CODE` constant with the new `permissionQueue`,
      `request_permission` and `onPermissionResult(requestCode, permissions,
      grantResults)`. Keep any capabilities your app added to the `when`.
+     The new `request_permission` posts to `mainHandler`; an app generated
+     before mob_new 0.4.32 may not have one, so add
+     `private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())`
+     to the `MobBridge` object if needed.
   3. In `MainActivity.kt`, make `onRequestPermissionsResult` forward
      everything: `MobBridge.onPermissionResult(requestCode, permissions,
      grantResults)`, and drop the `PackageManager` import if nothing else uses
      it.
-  iOS needs nothing from this release; see mob_location for the iOS
-  `:location` fix.
+  iOS needs nothing from this release. On iOS, update mob_location to 0.1.5
+  (`mix deps.update mob_location`): 0.1.4 answered only the last of
+  overlapping `:location` requests, and none made after the user had answered.
 
 ### Fixed
 - **Overlapping permission requests on Android (MOB-391).** Android shows one
@@ -49,7 +54,9 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   FINE and COARSE; Android 12+ lets the user pick Approximate, which grants
   COARSE only. FINE is now satisfied by COARSE, so that is `:granted`. The
   message carries no precision: an app that needs precise location checks for
-  it itself.
+  it itself. Asking for `:location` again after Approximate answers
+  `:granted` at once; it does not bring up Android's "change to precise"
+  dialog.
 
 ## [0.6.5] - 2026-10-03
 

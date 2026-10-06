@@ -8,7 +8,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.6.7] - 2026-10-06
 
 ### Upgrading
 - Existing Android apps that fail `./gradlew :app:lintRelease` on these

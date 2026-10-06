@@ -12,8 +12,10 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ### Upgrading
 - Existing Android apps that fail `./gradlew :app:lintRelease` on these
-  errors can port the three template fixes below by hand (MOB-402). No
-  dependency change.
+  errors can port the three template fixes below by hand (MOB-402); they
+  need no dependency change. To clear mob_location's and mob_bluetooth's
+  `MissingPermission` errors too, run `mix deps.update mob_location
+  mob_bluetooth` (0.1.6+ / 0.4.2+; MOB-401, MOB-400).
   1. `MainActivity.kt`, `onConfigurationChanged`: read the rotation from
      `display?.rotation` only on API 30+, else
      `@Suppress("DEPRECATION") windowManager.defaultDisplay.rotation`.

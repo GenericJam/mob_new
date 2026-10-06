@@ -6708,11 +6708,11 @@ class NotificationReceiver : BroadcastReceiver() {
         postIfPermitted(context, id.hashCode(), notif)
     }
 
-    // POST_NOTIFICATIONS is declared by the mob_notify plugin's manifest (the
-    // plugin that schedules these alarms), not this template's, so lint's
-    // manifest-only NotificationPermission check can't see it. The runtime
-    // check makes the post run only with the grant (API 33+), which is when
-    // the system would accept it anyway.
+    // POST_NOTIFICATIONS comes from the mob_notify plugin (the one that
+    // schedules these alarms), merged into the manifest only when it's
+    // installed; without it lint's NotificationPermission fires here. The
+    // runtime check makes the post run only with the grant on API 33+, where
+    // the system would drop it otherwise anyway.
     @android.annotation.SuppressLint("NotificationPermission")
     private fun postIfPermitted(context: android.content.Context, id: Int, notif: android.app.Notification) {
         if (android.os.Build.VERSION.SDK_INT >= 33 &&

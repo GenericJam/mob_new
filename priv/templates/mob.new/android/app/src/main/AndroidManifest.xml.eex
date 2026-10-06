@@ -13,9 +13,10 @@
 
     <!-- Camera. The mob_camera plugin merges the CAMERA permission at build, but
          a plugin manifest can't contribute uses-feature tags. Without these,
-         CAMERA implies a required camera and the Play Store filters the app
-         off camera-less devices (Chromebooks). required=false: capture fails
-         gracefully there. Harmless when mob_camera isn't installed. -->
+         CAMERA implies a required rear camera with autofocus, and the Play
+         Store hides the app from devices without one (most Chromebooks).
+         required=false: capture fails gracefully there. Harmless when
+         mob_camera isn't installed. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 

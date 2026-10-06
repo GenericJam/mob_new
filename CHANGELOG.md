@@ -26,22 +26,25 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
      and the same for `android.hardware.camera.autofocus`.
 
 ### Fixed
-- **A freshly generated app passes `./gradlew :app:lintRelease`** (MOB-402).
-  Three template errors failed release lint:
+- **A freshly generated app passes `./gradlew :app:lintRelease`** (MOB-402),
+  with mob_location 0.1.6 (its own `MissingPermission` errors, MOB-401),
+  which the generated `~> 0.1.5` requirement picks up. Checked on the
+  default showcase plugin set and `--blank`. Three template errors failed
+  release lint:
   - `MainActivity.onConfigurationChanged` called `Activity.getDisplay()`,
     API 30, with minSdk 28 [NewApi]. It now uses
     `windowManager.defaultDisplay` below API 30.
-  - `NotificationReceiver` posted without `POST_NOTIFICATIONS` in the
-    template manifest [NotificationPermission]. That permission comes from
-    mob_notify, the plugin that schedules these notifications, so the post
-    now checks the runtime grant first on API 33+ (where the system would
-    drop it anyway) and the lint check is suppressed on that one helper.
+  - `NotificationReceiver` posts a notification, but `POST_NOTIFICATIONS`
+    is merged into the manifest only when mob_notify (the plugin that
+    schedules these) is installed [NotificationPermission]. The post now
+    checks the runtime grant first on API 33+ (where the system would drop
+    it anyway) and the lint check is suppressed on that one helper.
   - mob_camera merges `CAMERA`, but plugin manifests can't add
-    `uses-feature`, so the implied required camera hid the app from
-    camera-less devices on Play (Chromebooks)
-    [PermissionImpliesUnsupportedChromeOsHardware]. The manifest now declares
-    `android.hardware.camera` and `camera.autofocus` with
-    `required="false"`.
+    `uses-feature`, so `CAMERA` implied a required rear camera with
+    autofocus and Play hid the app from devices without one (most
+    Chromebooks) [PermissionImpliesUnsupportedChromeOsHardware]. The
+    manifest now declares `android.hardware.camera` and `camera.autofocus`
+    with `required="false"`.
 
 ## [0.6.6] - 2026-10-04
 

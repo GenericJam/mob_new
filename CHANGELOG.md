@@ -8,6 +8,46 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Upgrading
+- Existing Android apps that fail `./gradlew :app:lintRelease` on these
+  errors can port the three template fixes below by hand (MOB-402); they
+  need no dependency change. To clear mob_location's and mob_bluetooth's
+  `MissingPermission` errors too, run `mix deps.update mob_location
+  mob_bluetooth` (0.1.6+ / 0.4.2+; MOB-401, MOB-400).
+  1. `MainActivity.kt`, `onConfigurationChanged`: read the rotation from
+     `display?.rotation` only on API 30+, else
+     `@Suppress("DEPRECATION") windowManager.defaultDisplay.rotation`.
+  2. `MobBridge.kt`, `NotificationReceiver`: post through a
+     `postIfPermitted` helper that returns early on API 33+ without
+     `POST_NOTIFICATIONS`, annotated
+     `@SuppressLint("NotificationPermission")`.
+  3. `AndroidManifest.xml`: add
+     `<uses-feature android:name="android.hardware.camera" android:required="false" />`
+     and the same for `android.hardware.camera.autofocus`.
+
+### Fixed
+- **A freshly generated app passes `./gradlew :app:lintRelease`** (MOB-402),
+  with mob_location 0.1.6 (its own `MissingPermission` errors, MOB-401),
+  which the generated `~> 0.1.5` requirement picks up. Checked on the
+  default showcase plugin set and `--blank`. Three template errors failed
+  release lint:
+  - `MainActivity.onConfigurationChanged` called `Activity.getDisplay()`,
+    API 30, with minSdk 28 [NewApi]. It now uses
+    `windowManager.defaultDisplay` below API 30.
+  - `NotificationReceiver` posts a notification, but `POST_NOTIFICATIONS`
+    is merged into the manifest only when mob_notify (the plugin that
+    schedules these) is installed [NotificationPermission]. The post now
+    checks the runtime grant first on API 33+ (where the system would drop
+    it anyway) and the lint check is suppressed on that one helper.
+  - mob_camera merges `CAMERA`, but plugin manifests can't add
+    `uses-feature`, so `CAMERA` implied a required rear camera with
+    autofocus and Play hid the app from devices without one (most
+    Chromebooks) [PermissionImpliesUnsupportedChromeOsHardware]. The
+    manifest now declares `android.hardware.camera` and `camera.autofocus`
+    with `required="false"`.
+
 ## [0.6.6] - 2026-10-04
 
 ### Upgrading

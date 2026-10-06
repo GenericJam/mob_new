@@ -8,9 +8,17 @@
          Normal (install-time) permission; no runtime request needed. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Microphone (audio recording). CAMERA + the camera uses-features are
-         declared by the mob_camera plugin's manifest and merged at build. -->
+    <!-- Microphone (audio recording). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Camera. The mob_camera plugin merges the CAMERA permission at build, but
+         a plugin manifest can't contribute uses-feature tags. Without these,
+         CAMERA implies a required rear camera with autofocus, and the Play
+         Store hides the app from devices without one (most Chromebooks).
+         required=false: capture fails gracefully there. Harmless when
+         mob_camera isn't installed. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <!-- USB host (Mob.Peripheral.VendorUsb). required=false so the Play Store
          doesn't filter the app off devices without USB host support; apps

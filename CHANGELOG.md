@@ -8,6 +8,41 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Upgrading
+- Existing Android apps that fail `./gradlew :app:lintRelease` on these
+  errors can port the three template fixes below by hand (MOB-402). No
+  dependency change.
+  1. `MainActivity.kt`, `onConfigurationChanged`: read the rotation from
+     `display?.rotation` only on API 30+, else
+     `@Suppress("DEPRECATION") windowManager.defaultDisplay.rotation`.
+  2. `MobBridge.kt`, `NotificationReceiver`: post through a
+     `postIfPermitted` helper that returns early on API 33+ without
+     `POST_NOTIFICATIONS`, annotated
+     `@SuppressLint("NotificationPermission")`.
+  3. `AndroidManifest.xml`: add
+     `<uses-feature android:name="android.hardware.camera" android:required="false" />`
+     and the same for `android.hardware.camera.autofocus`.
+
+### Fixed
+- **A freshly generated app passes `./gradlew :app:lintRelease`** (MOB-402).
+  Three template errors failed release lint:
+  - `MainActivity.onConfigurationChanged` called `Activity.getDisplay()`,
+    API 30, with minSdk 28 [NewApi]. It now uses
+    `windowManager.defaultDisplay` below API 30.
+  - `NotificationReceiver` posted without `POST_NOTIFICATIONS` in the
+    template manifest [NotificationPermission]. That permission comes from
+    mob_notify, the plugin that schedules these notifications, so the post
+    now checks the runtime grant first on API 33+ (where the system would
+    drop it anyway) and the lint check is suppressed on that one helper.
+  - mob_camera merges `CAMERA`, but plugin manifests can't add
+    `uses-feature`, so the implied required camera hid the app from
+    camera-less devices on Play (Chromebooks)
+    [PermissionImpliesUnsupportedChromeOsHardware]. The manifest now declares
+    `android.hardware.camera` and `camera.autofocus` with
+    `required="false"`.
+
 ## [0.6.6] - 2026-10-04
 
 ### Upgrading

@@ -447,7 +447,14 @@ class MainActivity : ComponentActivity() {
 
         // Forward the new orientation to the BEAM so Mob.Device.orientation/0 and
         // the :display subscription reflect a rotation (mob_send_orientation_changed).
-        val orient = when (display?.rotation) {
+        // Activity.getDisplay() is API 30; minSdk is 28.
+        val rotation = if (android.os.Build.VERSION.SDK_INT >= 30) {
+            display?.rotation
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.rotation
+        }
+        val orient = when (rotation) {
             android.view.Surface.ROTATION_90 -> "landscape_left"
             android.view.Surface.ROTATION_270 -> "landscape_right"
             android.view.Surface.ROTATION_180 -> "portrait_upside_down"

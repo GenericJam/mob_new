@@ -6698,7 +6698,6 @@ class NotificationReceiver : BroadcastReceiver() {
             context, id.hashCode(), tapIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-        val nm = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
         val notif = NotificationCompat.Builder(context, io.mob.plugin.MobNotifyHub.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
@@ -6706,7 +6705,24 @@ class NotificationReceiver : BroadcastReceiver() {
             .setContentIntent(contentPi)
             .setAutoCancel(true)
             .build()
-        nm.notify(id.hashCode(), notif)
+        postIfPermitted(context, id.hashCode(), notif)
+    }
+
+    // POST_NOTIFICATIONS is declared by the mob_notify plugin's manifest (the
+    // plugin that schedules these alarms), not this template's, so lint's
+    // manifest-only NotificationPermission check can't see it. The runtime
+    // check makes the post run only with the grant (API 33+), which is when
+    // the system would accept it anyway.
+    @android.annotation.SuppressLint("NotificationPermission")
+    private fun postIfPermitted(context: android.content.Context, id: Int, notif: android.app.Notification) {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val nm = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(id, notif)
     }
 
     // Mob.Notification's JSON envelope (see mob's guides/push_notifications.md).

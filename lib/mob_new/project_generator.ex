@@ -152,6 +152,7 @@ defmodule MobNew.ProjectGenerator do
       ndk_version: MobNew.NdkVersion.recommended(),
       python: Keyword.get(opts, :python, false),
       blank: blank,
+      liveview: Keyword.get(opts, :liveview, false),
       mob_plugins: mob_plugins(blank, deliver),
       unsafe_plugins: unsafe_plugins(blank, mob_mishka_dep, deliver and opts[:local] == true),
       deliver: deliver,
@@ -746,6 +747,9 @@ defmodule MobNew.ProjectGenerator do
 
       cond do
         rel == "mix.exs.eex" -> true
+        # phx.new writes its own AGENTS.md; apply_liveview_patches prepends the
+        # Mob section to it rather than overwriting it.
+        rel == "AGENTS.md.eex" -> true
         String.starts_with?(rel, "config/") -> true
         # Native-template `lib/app_name/` includes sample screens (audio, camera,
         # webview, etc.) that are Mob-native UI — they don't make sense in a
@@ -832,6 +836,20 @@ defmodule MobNew.ProjectGenerator do
     #     native compile + link the same way for vanilla and LV.
     _ = {project_dir, app_name, module_name}
 
+    # 11. Put Mob's agent guidance in front of the AGENTS.md phx.new wrote.
+    write_liveview_agents_md(project_dir, %{a | liveview: true}, opts)
+  end
+
+  # phx.new writes an AGENTS.md of Phoenix guidelines, so the template is
+  # blocked from the copy (liveview_phoenix_owned?/3) and its LiveView-mode
+  # rendering goes in front here instead of replacing Phoenix's.
+  defp write_liveview_agents_md(project_dir, assigns, opts) do
+    path = Path.join(project_dir, "AGENTS.md")
+    template = Path.join(templates_root(opts), "AGENTS.md.eex")
+    mob_section = EEx.eval_file(template, Map.to_list(assigns))
+    phoenix = if File.exists?(path), do: File.read!(path), else: ""
+    File.write!(path, mob_section <> phoenix)
+    Mix.shell().info([:green, "* patch ", :reset, path, " (added Mob docs pointers)"])
     :ok
   end
 
@@ -1308,10 +1326,15 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
     else
-      # Floor at 0.9.12, not "~> 0.9". Generated code depends on a specific
+      # Floor at 0.9.17, not "~> 0.9". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
+      #   * The generated AGENTS.md sends agents to `deps/mob/guides/*.md` and
+      #     `deps/mob/usage-rules.md`, which the Hex package ships from 0.9.17,
+      #     and its async rule names `Mob.Socket.start_async/3` and
+      #     `handle_async/3`, also new in 0.9.17. On an older mob those files
+      #     are missing and those functions don't exist.
       #   * beam_jni.c's `nativePressBegin` / `nativePressEnd` /
       #     `nativeSendPressTap` stubs call `mob_press_begin` / `mob_press_end` /
       #     `mob_send_press_tap`, new in 0.9.12 (MOB-380). On an older mob the
@@ -1349,7 +1372,7 @@ defmodule MobNew.ProjectGenerator do
       #     Box accessibility props are validated and encoded from 0.7.32.
       #
       # `~>` still allows the whole 0.9.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.9.12"})
+      mob_dep = ~s({:mob,     "~> 0.9.17"})
       # mob_dev 0.7.12 turns mob.exs's `url_schemes` into the Android
       # intent-filter and iOS CFBundleURLTypes (MOB-379); an older one ignores
       # the key and no link opens the app. mob 0.9.8 also accepts only the

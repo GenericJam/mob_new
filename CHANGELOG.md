@@ -8,6 +8,30 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Upgrading
+- New projects depend on **mob `~> 0.9.17`**, the first release whose Hex
+  package ships `guides/` and `usage-rules.md`, and the release that adds
+  `Mob.Socket.start_async/3` / `handle_async/3`. Existing apps can copy the
+  generated `AGENTS.md` and `CLAUDE.md` (generate a throwaway project with
+  `mix mob.new tmp_app --no-install`) and bump mob to `~> 0.9.17`.
+
+### Added
+- **Generated projects get an `AGENTS.md` and a `CLAUDE.md`** so a coding
+  agent can find Mob's docs. `AGENTS.md` lists where the docs are, most
+  version-exact first (`deps/mob/guides/*.md` and `deps/mob/usage-rules.md`,
+  https://hexdocs.pm/mob/llms.txt and the per-page `.md` URLs,
+  `mix hex.docs fetch mob`, IEx `h`), the guides to start with, and the app
+  rules: async loading with `start_async/3` + `handle_async/3`, never a bare
+  `Task.async`; long lists in `<LazyList>`; UI in `~MOB`; tests with
+  `Mob.ScreenCase`. It also points usage_rules users at
+  `mix usage_rules.sync`. `CLAUDE.md` is a one-line pointer to `AGENTS.md`.
+  In a `--liveview` project the Mob section goes in front of the `AGENTS.md`
+  that `mix phx.new` writes, and Phoenix's guidelines stay below it.
+- `mix mob.new`'s next steps end with a docs line pointing to `AGENTS.md` and
+  https://hexdocs.pm/mob/llms.txt.
+
 ## [0.6.7] - 2026-10-06
 
 ### Upgrading

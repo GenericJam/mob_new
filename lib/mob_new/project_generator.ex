@@ -69,7 +69,8 @@ defmodule MobNew.ProjectGenerator do
   #      says so, or it has none). Templates read the assigns their own
   #      version's `assigns/2` sets; an older archive rendering a newer
   #      checkout's templates fails on the first assign it doesn't set
-  #      (MOB-465), so a mismatched checkout is skipped with a warning.
+  #      (MOB-465), so a mismatched checkout is skipped (noted once by
+  #      log_local_priv_once/2).
   # Otherwise returns nil (caller falls back to :code.priv_dir/1).
   #
   # Public for testing — same pattern as other "decide which fixture to
@@ -78,36 +79,33 @@ defmodule MobNew.ProjectGenerator do
   @doc false
   @spec local_mob_new_priv(keyword()) :: String.t() | nil
   def local_mob_new_priv(opts) do
-    if Keyword.get(opts, :local, false) do
-      [System.get_env("MOB_NEW_DIR"), Path.expand("~/code/mob_new")]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.find_value(&priv_if_templates_exist/1)
+    case local_checkout(opts) do
+      {:ok, priv} -> priv
+      _ -> nil
     end
   end
 
-  defp priv_if_templates_exist(dir) do
-    priv = Path.join(dir, "priv")
-
-    if File.dir?(Path.join(priv, "templates/mob.new")) and same_version?(dir), do: priv
+  # The first candidate with templates is the checkout `--local` means; a
+  # version mismatch there falls back to the bundled templates, never on to
+  # the next candidate.
+  defp local_checkout(opts) do
+    if Keyword.get(opts, :local, false) do
+      [System.get_env("MOB_NEW_DIR"), Path.expand("~/code/mob_new")]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.find(&File.dir?(Path.join(&1, "priv/templates/mob.new")))
+      |> checkout_status()
+    end
   end
 
-  defp same_version?(dir) do
-    running = MobNew.VersionCheck.current_version()
+  defp checkout_status(nil), do: nil
 
+  defp checkout_status(dir) do
     with {:ok, mix_exs} <- File.read(Path.join(dir, "mix.exs")),
-         [_, checkout] <- Regex.run(~r/^\s*version:\s*"([^"]+)"/m, mix_exs),
-         false <- checkout == running do
-      Mix.shell().info([
-        :yellow,
-        "* --local: skipping templates in #{dir} (mob_new #{checkout}); this generator is ",
-        "mob_new #{running}. Run `mix mob.new` from inside that checkout, or ",
-        "`mix archive.install hex mob_new` to match it.",
-        :reset
-      ])
-
-      false
+         [_, version] <- Regex.run(~r/^\s*version:\s*"([^"]+)"/m, mix_exs),
+         false <- version == MobNew.VersionCheck.current_version() do
+      {:skipped, dir, version}
     else
-      _ -> true
+      _ -> {:ok, Path.join(dir, "priv")}
     end
   end
 
@@ -737,15 +735,23 @@ defmodule MobNew.ProjectGenerator do
   end
 
   # One-time log so the user knows their --local is doing what they
-  # expect. The first time templates resolve from a local checkout
-  # (rather than the installed archive), say so.
+  # expect: which checkout's templates are used, or why one was skipped.
   defp log_local_priv_once(opts, t_root) do
-    if Keyword.get(opts, :local, false) do
-      archive_root = :code.priv_dir(:mob_new) |> to_string() |> Path.join("templates/mob.new")
-
-      if t_root != archive_root do
+    case local_checkout(opts) do
+      {:ok, _priv} ->
         Mix.shell().info([:cyan, "* --local: using templates from ", :reset, t_root])
-      end
+
+      {:skipped, dir, version} ->
+        Mix.shell().info([
+          :yellow,
+          "* --local: skipping templates in #{dir} (mob_new #{version}); this generator is ",
+          "mob_new #{MobNew.VersionCheck.current_version()}. Run `mix mob.new` from inside ",
+          "that checkout, or `mix archive.install hex mob_new` to match it.",
+          :reset
+        ])
+
+      nil ->
+        :ok
     end
   end
 

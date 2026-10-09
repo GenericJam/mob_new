@@ -3825,7 +3825,7 @@ defmodule MobNew.ProjectGeneratorTest do
       assert MobNew.ProjectGenerator.local_mob_new_priv(local: true) == Path.join(tmp, "priv")
 
       File.write!(Path.join(tmp, "mix.exs"), ~s(  [app: :mob_new,\n   version: "99.0.0"]\n))
-      refute MobNew.ProjectGenerator.local_mob_new_priv(local: true) == Path.join(tmp, "priv")
+      assert MobNew.ProjectGenerator.local_mob_new_priv(local: true) == nil
     end
 
     test "no MOB_NEW_DIR + no ~/code/mob_new → nil (no false positives)" do

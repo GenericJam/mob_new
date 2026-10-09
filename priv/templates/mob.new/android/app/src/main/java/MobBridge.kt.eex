@@ -819,10 +819,18 @@ object MobBridge {
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            PixelCopy.request(window, src, { result ->
-                ok = result == PixelCopy.SUCCESS
-                latch.countDown()
-            }, handler)
+            // A window with no surface (another activity, say the camera an
+            // IMAGE_CAPTURE intent opened, covers it) throws instead of
+            // calling back: uncaught, that kills the app (MOB-426). null is
+            // reported as {:error, :no_window}.
+            try {
+                PixelCopy.request(window, src, { result ->
+                    ok = result == PixelCopy.SUCCESS
+                    latch.countDown()
+                }, handler)
+            } catch (e: IllegalArgumentException) {
+                return null
+            }
         } else {
             // Pre-O fallback: draw the decor view (misses SurfaceView/GL layers).
             handler.post {

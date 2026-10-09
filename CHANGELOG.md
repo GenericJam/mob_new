@@ -8,7 +8,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.6.8] - 2026-10-09
 
 ### Upgrading
 - New projects depend on **mob `~> 0.9.17`**, the first release whose Hex

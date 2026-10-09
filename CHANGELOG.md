@@ -8,6 +8,20 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **`mix mob.new --local` no longer fails with `undefined variable
+  "liveview"` in `AGENTS.md.eex` (MOB-465).** `--local` renders a mob_new
+  checkout's templates, but an installed mob_new archive's code ran them, even
+  inside that checkout, so a 0.6.7 archive met 0.6.8's templates. Inside a
+  checkout, its own code now wins over the archive. Elsewhere, `--local` skips
+  a checkout whose `mix.exs` version differs from the running generator, with
+  a note, and uses the generator's bundled templates.
+- A test renders every template under every combination of `--local`,
+  `--blank`, `--liveview`, `--python` and `--deliver` and fails on any compile
+  error or warning.
+
 ## [0.6.8] - 2026-10-09
 
 ### Upgrading

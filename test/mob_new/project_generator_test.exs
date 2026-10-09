@@ -3815,20 +3815,31 @@ defmodule MobNew.ProjectGeneratorTest do
                Path.join(tmp, "priv")
     end
 
+    test "skips a checkout of another mob_new version (its templates need that version's assigns)",
+         %{tmp: tmp} do
+      System.put_env("MOB_NEW_DIR", tmp)
+      on_exit(fn -> System.delete_env("MOB_NEW_DIR") end)
+      running = MobNew.VersionCheck.current_version()
+
+      File.write!(Path.join(tmp, "mix.exs"), ~s(  [app: :mob_new,\n   version: "#{running}"]\n))
+      assert MobNew.ProjectGenerator.local_mob_new_priv(local: true) == Path.join(tmp, "priv")
+
+      File.write!(Path.join(tmp, "mix.exs"), ~s(  [app: :mob_new,\n   version: "99.0.0"]\n))
+      refute MobNew.ProjectGenerator.local_mob_new_priv(local: true) == Path.join(tmp, "priv")
+    end
+
     test "no MOB_NEW_DIR + no ~/code/mob_new → nil (no false positives)" do
       System.delete_env("MOB_NEW_DIR")
-      # If the host happens to have ~/code/mob_new (this dev's machine
-      # almost certainly does), the function correctly finds it. Don't
-      # over-assert; just confirm shape.
+      # If the host has ~/code/mob_new (this dev's machine almost certainly
+      # does), whether it's used depends on its version (covered above), so
+      # only the no-checkout case is asserted.
       #
       # The Path.expand here probes an EXTERNAL filesystem location (the
       # developer's checkout of mob_new) — it's not looking up this app's
       # own priv/, which is what JumpCredo's Application.app_dir check
       # is for. Silenced inline.
       # credo:disable-for-next-line ExSlop.Check.Warning.PathExpandPriv
-      if File.dir?(Path.expand("~/code/mob_new/priv/templates/mob.new")) do
-        assert is_binary(MobNew.ProjectGenerator.local_mob_new_priv(local: true))
-      else
+      unless File.dir?(Path.expand("~/code/mob_new/priv/templates/mob.new")) do
         assert MobNew.ProjectGenerator.local_mob_new_priv(local: true) == nil
       end
     end

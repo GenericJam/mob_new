@@ -64,7 +64,12 @@ defmodule MobNew.ProjectGenerator do
   #   1. `opts[:local]` is truthy (user opted in), AND
   #   2. an override path is reachable: `$MOB_NEW_DIR` env var or
   #      `$HOME/code/mob_new` as the fallback location, AND
-  #   3. that path actually contains `priv/templates/mob.new/`.
+  #   3. that path actually contains `priv/templates/mob.new/`, AND
+  #   4. that checkout is the version of the running generator (its mix.exs
+  #      says so, or it has none). Templates read the assigns their own
+  #      version's `assigns/2` sets; an older archive rendering a newer
+  #      checkout's templates fails on the first assign it doesn't set
+  #      (MOB-465), so a mismatched checkout is skipped with a warning.
   # Otherwise returns nil (caller falls back to :code.priv_dir/1).
   #
   # Public for testing — same pattern as other "decide which fixture to
@@ -82,7 +87,28 @@ defmodule MobNew.ProjectGenerator do
 
   defp priv_if_templates_exist(dir) do
     priv = Path.join(dir, "priv")
-    if File.dir?(Path.join(priv, "templates/mob.new")), do: priv
+
+    if File.dir?(Path.join(priv, "templates/mob.new")) and same_version?(dir), do: priv
+  end
+
+  defp same_version?(dir) do
+    running = MobNew.VersionCheck.current_version()
+
+    with {:ok, mix_exs} <- File.read(Path.join(dir, "mix.exs")),
+         [_, checkout] <- Regex.run(~r/^\s*version:\s*"([^"]+)"/m, mix_exs),
+         false <- checkout == running do
+      Mix.shell().info([
+        :yellow,
+        "* --local: skipping templates in #{dir} (mob_new #{checkout}); this generator is ",
+        "mob_new #{running}. Run `mix mob.new` from inside that checkout, or ",
+        "`mix archive.install hex mob_new` to match it.",
+        :reset
+      ])
+
+      false
+    else
+      _ -> true
+    end
   end
 
   # Reverse-DNS prefix for the generated bundle id. Honors MOB_BUNDLE_PREFIX

@@ -1,3 +1,12 @@
+# An installed mob_new archive sits on the code path ahead of this project's
+# own beams, so `mix mob.new` run inside a checkout would execute the archive's
+# (older) generator against this checkout's templates (`--local` reads them
+# from here). A template that reads an assign the archive's code doesn't set
+# then fails to compile (MOB-465). Inside the checkout, the checkout's code wins.
+for path <- :code.get_path(),
+    path |> to_string() |> String.contains?("/archives/mob_new-"),
+    do: Code.delete_path(to_string(path))
+
 defmodule MobNew.MixProject do
   use Mix.Project
 

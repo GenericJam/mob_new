@@ -8,6 +8,22 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Upgrading
+- Existing Android apps can port the fix below by hand: in `MobBridge.kt`'s
+  `screenshot`, wrap the window `PixelCopy.request(...)` in
+  `try { ... } catch (e: IllegalArgumentException) { return null }`.
+
+### Fixed
+- **Android: taking a screenshot no longer kills the app when another
+  activity covers it (MOB-426).** With the system camera (opened by an
+  `IMAGE_CAPTURE` intent), a picker or a share sheet over the app, the
+  window has no surface and `PixelCopy.request` threw
+  `IllegalArgumentException` synchronously; uncaught, it took the process
+  down. `MobBridge.screenshot` now returns null there, which the NIF
+  reports as `{:error, :no_window}`.
+
 ## [0.6.7] - 2026-10-06
 
 ### Upgrading

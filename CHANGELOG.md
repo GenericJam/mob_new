@@ -8,7 +8,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
-## [Unreleased]
+## [0.6.9] - 2026-10-09
 
 ### Fixed
 - **`mix mob.new --local` no longer fails with `undefined variable

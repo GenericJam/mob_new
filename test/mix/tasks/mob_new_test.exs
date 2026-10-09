@@ -94,6 +94,8 @@ defmodule Mix.Tasks.Mob.NewTest do
       {cd, _} = :binary.match(steps, "cd out_app")
       {deps, _} = :binary.match(steps, "mix deps.get")
       assert cd < deps
+      assert steps =~ "AGENTS.md"
+      assert steps =~ "https://hexdocs.pm/mob/llms.txt"
     end
   end
 end

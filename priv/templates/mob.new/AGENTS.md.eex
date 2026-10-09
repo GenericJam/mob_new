@@ -1,0 +1,54 @@
+<%= if liveview do %># Mob: this Phoenix app runs on a phone
+
+<%= module_name %> is a [Mob](https://hexdocs.pm/mob) app in LiveView mode: Phoenix
+and the BEAM run on the device, and the LiveView UI renders in a native
+WebView. Mob's entry points are `lib/<%= app_name %>/mob_app.ex` and
+`lib/<%= app_name %>/mob_screen.ex`; the Phoenix guidelines further down cover
+the web UI.
+<% else %># AGENTS.md: <%= app_name %>
+
+<%= module_name %> is a [Mob](https://hexdocs.pm/mob) app: Elixir on the BEAM,
+running on the phone, rendering native SwiftUI / Jetpack Compose views. Screens
+live in `lib/<%= app_name %>/`; `lib/<%= app_name %>/app.ex` starts the app.
+<% end %>
+## Where Mob's docs are
+
+Read the docs for the mob version this app actually uses, in this order:
+
+1. **`deps/mob/guides/*.md` and `deps/mob/usage-rules.md`**, after `mix deps.get`.
+   These match the installed version exactly. (With a `path:` dependency on
+   mob, read that checkout's `guides/` instead.)
+2. **https://hexdocs.pm/mob/llms.txt**, the index of every page. Each page is
+   also served as Markdown at `https://hexdocs.pm/mob/<page>.md`, e.g.
+   https://hexdocs.pm/mob/screen_lifecycle.md. Hexdocs shows the latest
+   release; check `mix.lock` if behaviour differs.
+3. **`mix hex.docs fetch mob`** for offline docs, written to
+   `~/.hex/docs/hexpm/mob/<version>/`.
+4. **IEx**: `iex -S mix`, then `h Mob.Socket.start_async` (any module or
+   function).
+
+Guides to start with: `getting_started`, `screen_lifecycle` (including async
+loading with `start_async/3` / `handle_async/3`), `components`, `events`,
+`navigation`, `testing` (`Mob.ScreenCase`), `coming_from_liveview`<%= if liveview do %>,
+`liveview`<% end %>.
+
+## Rules for this app
+
+<%= if liveview do %>These apply to native Mob screens (`use Mob.Screen`) if you add any; LiveView
+pages follow the Phoenix guidelines below.
+
+<% end %>- Load data asynchronously with `Mob.Socket.start_async/3` and handle the result
+  in `handle_async/3` (LiveView's `start_async`; `assign_async` is a `:loading`
+  assign plus `start_async`). Never a bare `Task.async` in a screen.
+- Long or paginated lists use `<LazyList>` with `on_end_reached`. Mob has no
+  `stream`.
+- Write UI with the `~MOB` sigil.
+- Test screens with `Mob.ScreenCase` (`mount_screen`, `render_event`,
+  `render_info`, `render_async`).
+
+If you use [usage_rules](https://hexdocs.pm/usage_rules), `mix usage_rules.sync`
+picks up `deps/mob/usage-rules.md`.
+<%= if liveview do %>
+---
+
+<% end %>

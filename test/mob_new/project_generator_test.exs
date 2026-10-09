@@ -145,6 +145,10 @@ defmodule MobNew.ProjectGeneratorTest do
       assert owned?("mix.exs.eex")
     end
 
+    test "blocks AGENTS.md.eex (phx.new writes AGENTS.md; Mob's section is prepended)" do
+      assert owned?("AGENTS.md.eex")
+    end
+
     # .gitignore.eex/.tool-versions.eex template files were deleted as dead:
     # the inline @dotfiles map supersedes them in BOTH --local and archive
     # modes (byte-diff-proven), so there is nothing for LiveView mode to block.
@@ -329,14 +333,62 @@ defmodule MobNew.ProjectGeneratorTest do
     test "mix.exs floors mob at the release the generated app relies on", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "mix.exs"))
+      # 0.9.17 ships guides/ and usage-rules.md in the Hex package and adds
+      # start_async/handle_async, all of which the generated AGENTS.md names;
       # 0.9.12 exports mob_press_begin/end, which beam_jni.c calls (MOB-380);
       # 0.9.11 exports mob_deliver_link, which beam_jni.c and the SceneDelegate
       # call (MOB-379); mob_dev 0.7.12 turns mob.exs's url_schemes into the
       # native URL registrations. 0.9.8 already required the notification
       # envelope (MOB-316) and the private dist cookie (MOB-49).
-      assert content =~ ~s({:mob,     "~> 0.9.12"})
+      assert content =~ ~s({:mob,     "~> 0.9.17"})
       assert content =~ ~s({:mob_dev, "~> 0.7.12", only: :dev, runtime: false})
       assert content =~ ~s({:mob_mishka, "~> 0.1.3"})
+    end
+
+    test "AGENTS.md points an agent at version-matched Mob docs and the app rules",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      agents = File.read!(Path.join(dir, "AGENTS.md"))
+
+      # Doc locations, most version-exact first.
+      locations = [
+        "deps/mob/guides/*.md",
+        "deps/mob/usage-rules.md",
+        "https://hexdocs.pm/mob/llms.txt",
+        "https://hexdocs.pm/mob/<page>.md",
+        "mix hex.docs fetch mob",
+        "h Mob.Socket.start_async"
+      ]
+
+      offsets =
+        Enum.map(locations, fn needle ->
+          {offset, _} = :binary.match(agents, needle)
+          offset
+        end)
+
+      assert offsets == Enum.sort(offsets)
+
+      for guide <-
+            ~w(getting_started screen_lifecycle components events navigation testing coming_from_liveview) do
+        assert agents =~ "`#{guide}`"
+      end
+
+      assert agents =~ "`Mob.Socket.start_async/3`"
+      assert agents =~ "`handle_async/3`"
+      assert agents =~ "`Task.async`"
+      assert agents =~ "`<LazyList>`"
+      assert agents =~ "`~MOB`"
+      assert agents =~ "`Mob.ScreenCase`"
+      assert agents =~ "mix usage_rules.sync"
+      assert agents =~ "lib/test_app/app.ex"
+      refute agents =~ "Phoenix"
+    end
+
+    test "CLAUDE.md is the one-line pointer to AGENTS.md", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      assert File.read!(Path.join(dir, "CLAUDE.md")) ==
+               "See [AGENTS.md](AGENTS.md) for this project's guidance.\n"
     end
 
     test "mix.exs contains correct app name", %{tmp: tmp} do
@@ -2507,6 +2559,27 @@ defmodule MobNew.ProjectGeneratorTest do
     end
 
     @tag :integration
+    test "AGENTS.md leads with Mob's docs pointers and keeps Phoenix's guidelines",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp)
+      agents = File.read!(Path.join(dir, "AGENTS.md"))
+
+      assert agents =~ ~r/\A# Mob: this Phoenix app runs on a phone/
+      assert agents =~ "lib/lv_test/mob_screen.ex"
+      assert agents =~ "https://hexdocs.pm/mob/llms.txt"
+      assert agents =~ "deps/mob/guides/*.md"
+      assert agents =~ "`liveview`"
+      assert agents =~ "`Mob.Socket.start_async/3`"
+      # phx.new's own guidelines survive, after the Mob section.
+      {mob_at, _} = :binary.match(agents, "## Where Mob's docs are")
+      [{phoenix_at, _}] = Regex.run(~r/^#+ Phoenix .*guidelines$/m, agents, return: :index)
+      assert mob_at < phoenix_at
+
+      assert File.read!(Path.join(dir, "CLAUDE.md")) ==
+               "See [AGENTS.md](AGENTS.md) for this project's guidance.\n"
+    end
+
+    @tag :integration
     test "returns error if directory already exists", %{tmp: tmp} do
       File.mkdir_p!(Path.join(tmp, "lv_test"))
       assert {:error, msg} = ProjectGenerator.liveview_generate("lv_test", tmp)
@@ -2735,7 +2808,13 @@ defmodule MobNew.ProjectGeneratorTest do
 
     @tag :integration
     test "generates local dep paths when --local flag set", %{tmp: tmp} do
-      {:ok, dir} = ProjectGenerator.liveview_generate("lv_test", tmp, local: true)
+      # MOB_NEW_DIR: `local: true` otherwise renders $HOME/code/mob_new's
+      # templates, not this checkout's.
+      {:ok, dir} =
+        with_env(%{"MOB_NEW_DIR" => File.cwd!()}, fn ->
+          ProjectGenerator.liveview_generate("lv_test", tmp, local: true)
+        end)
+
       content = File.read!(Path.join(dir, "mix.exs"))
       assert content =~ ~s(path:)
     end

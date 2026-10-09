@@ -435,6 +435,14 @@ git config core.hooksPath .githooks
   `.tool-versions` only when `mix phx.new` did not create one; never route the
   LiveView path through the native `write_dotfiles/2` overwrite behavior.
 
+- **The generated `AGENTS.md` is merged, not copied, on the LiveView path.**
+  `mix phx.new` writes its own `AGENTS.md` of Phoenix guidelines, so
+  `AGENTS.md.eex` is on the phx-owned blocklist and
+  `write_liveview_agents_md/3` renders it with `liveview: true` and puts it in
+  front of Phoenix's file. Its doc pointers (`deps/mob/guides`,
+  `usage-rules.md`, `start_async`) set the generated mob floor at 0.9.17;
+  don't lower the pin below a release that ships them.
+
 - **Archive compile-time resources must ship in the Hex package.** The exact
   Zig pin lives in `priv/zig-version`, not the repository-root `.tool-versions`:
   Hex includes `priv/`, but omits root dotfiles. Keep the two pins in lockstep;

@@ -138,6 +138,8 @@ MOB_DIR=~/code/mob MOB_DEV_DIR=~/code/mob_dev mix mob.new my_app --local
 ```
 my_app/
 ├── mix.exs
+├── AGENTS.md                # where Mob's docs are + app rules, for coding agents
+├── CLAUDE.md                # one-line pointer to AGENTS.md
 ├── lib/
 │   └── my_app/
 │       ├── app.ex           # Mob.App entry point
@@ -172,6 +174,8 @@ mix mob.connect       # open IEx connected to the running device node
 ## Documentation
 
 Full guide at [hexdocs.pm/mob](https://hexdocs.pm/mob), including [Getting Started](https://hexdocs.pm/mob/getting_started.html), screen lifecycle, components, navigation, and live debugging.
+
+For AI coding agents: [hexdocs.pm/mob/llms.txt](https://hexdocs.pm/mob/llms.txt) indexes every page, each also served as Markdown at `https://hexdocs.pm/mob/<page>.md`. Inside a generated app, the version-matched guides are in `deps/mob/guides/`, and `AGENTS.md` lists all of this.
 
 ## Development
 

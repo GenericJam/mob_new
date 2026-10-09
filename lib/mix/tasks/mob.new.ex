@@ -89,6 +89,8 @@ defmodule Mix.Tasks.Mob.New do
 
       APP_NAME/
         mix.exs
+        AGENTS.md                # where Mob's docs are + app rules, for coding agents
+        CLAUDE.md                # one-line pointer to AGENTS.md
         lib/APP_NAME/app.ex
         lib/APP_NAME/home_screen.ex
         android/
@@ -116,6 +118,7 @@ defmodule Mix.Tasks.Mob.New do
       APP_NAME/
         lib/APP_NAME/mob_screen.ex      # Mob.Screen wrapping the Phoenix WebView
         mob.exs                          # Mob project config (commit it); on-device Phoenix port defaults to a per-app hash in 4200..4999
+        CLAUDE.md                        # one-line pointer to AGENTS.md
         android/                         # same Android boilerplate as native mode
         ios/                             # same iOS boilerplate as native mode
 
@@ -124,6 +127,7 @@ defmodule Mix.Tasks.Mob.New do
     - `lib/APP_NAME_web/.../root.html.heex` — mob-bridge hidden div
     - `lib/APP_NAME/application.ex`     — Mob.App child in supervision tree
     - `mix.exs`                          — mob / mob_dev deps added
+    - `AGENTS.md`                        — Mob docs pointers + rules prepended to Phoenix's guidelines
 
   After generation, run:
 
@@ -344,7 +348,13 @@ defmodule Mix.Tasks.Mob.New do
     no_ios = gen_opts[:no_ios] || false
     no_android = gen_opts[:no_android] || false
 
-    common = ["mix.exs", "lib/#{app_name}/app.ex", "lib/#{app_name}/home_screen.ex"]
+    common = [
+      "mix.exs",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "lib/#{app_name}/app.ex",
+      "lib/#{app_name}/home_screen.ex"
+    ]
 
     deliver_files =
       if gen_opts[:deliver],
@@ -380,6 +390,9 @@ defmodule Mix.Tasks.Mob.New do
     end)
   end
 
+  @docs_hint "Docs: AGENTS.md says where Mob's docs are (for you and your coding agent);\n" <>
+               "the index is https://hexdocs.pm/mob/llms.txt"
+
   defp print_next_steps(app_name, no_install, gen_opts) do
     install_hint =
       if no_install,
@@ -408,6 +421,8 @@ defmodule Mix.Tasks.Mob.New do
 
         mix mob.deploy                 # fast push + restart
         mix mob.watch                  # auto-push on file save
+
+    #{@docs_hint}
     """)
 
     if gen_opts[:deliver], do: print_deliver_next_steps(app_name)
@@ -525,6 +540,8 @@ defmodule Mix.Tasks.Mob.New do
 
         mix mob.deploy                 # fast push + restart
         mix mob.watch                  # auto-push on file save
+
+    #{@docs_hint}
     """)
   end
 

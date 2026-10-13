@@ -4179,7 +4179,9 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                 //
                 // A child carrying `weight` also forces the eager path: weight
                 // comes from ColumnScope, and LazyColumn items have no such
-                // scope, so it would be dropped without a trace.
+                // scope, so it would be dropped without a trace. A bare spacer's
+                // implicit weight (mobChildWeight) doesn't count: under a vertical
+                // scroll's unbounded height it resolves to 0, as a lazy item would.
                 // OPT-IN. `lazy: true` on the scroll node, nothing else.
                 //
                 // Laziness is not free of observable consequences: rows below
@@ -5159,15 +5161,18 @@ private fun MobDivider(node: MobNode, modifier: Modifier) {
     )
 }
 
-// A row/column child's flex weight: an explicit `weight`, else 1 for a bare
-// spacer (no `size`), which fills the free main-axis space as on iOS.
+// A row/column child's flex weight: an explicit `weight`, else 1 for a spacer
+// without a positive `size`, which fills the free main-axis space as on iOS
+// (MobRootView treats a spacer of size <= 0 as a flexible Spacer()).
 private fun mobChildWeight(child: MobNode): Float? =
     floatProp(child.props, "weight")
-        ?: if (child.type == "spacer" && floatProp(child.props, "size") == null) 1f else null
+        ?: if (child.type == "spacer" && mobSpacerSize(child) == null) 1f else null
+
+private fun mobSpacerSize(node: MobNode): Float? = floatProp(node.props, "size")?.takeIf { it > 0f }
 
 @Composable
 private fun MobSpacer(node: MobNode, modifier: Modifier) {
-    val size = floatProp(node.props, "size")
+    val size = mobSpacerSize(node)
     // size() sets both width and height so Spacer works as a gap in both Column and Row.
     Spacer(modifier = if (size != null) modifier.size(size.dp) else modifier)
 }
@@ -6411,9 +6416,9 @@ private fun nodeModifier(props: Map<String, Any?>): Modifier {
     }
 
     // Clip children to the shape BEFORE padding, so the rounded mask is the
-    // node's outer edge (as on iOS, where .clipShape follows .padding).
-    // Clipping after padding rounded the inner content rect with the full
-    // radius and shaved the glyphs that sit in its corners.
+    // node's outer edge, where iOS clips buttons and images (.clipShape after
+    // .padding). Clipping after padding rounded the inner content rect with
+    // the full radius and shaved the glyphs that sit in its corners.
     if (shape != null) m = m.clip(shape)
 
     val uniform = intProp(props, "padding")

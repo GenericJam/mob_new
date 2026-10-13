@@ -8,6 +8,20 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Android rounded corners no longer shave padded content (MOB-477).** The
+  generated `MobBridge.kt` clipped a `corner_radius` node after its padding,
+  rounding the inner content rect with the full radius, so glyphs in its
+  corners lost pixels (the T of a top-left "Theme" label). It now clips at the
+  node's outer edge.
+- **A bare `<Spacer/>` fills the free space on Android (MOB-477).** A spacer
+  in a row or column with no positive `size` and no `weight` now takes weight
+  1, as on iOS and as the components guide documents, so
+  `<Row><Text/><Spacer/><Text/></Row>` pushes its texts to opposite ends.
+  It also makes its parent fill a bounded main axis.
+
 ## [0.6.9] - 2026-10-09
 
 ### Fixed

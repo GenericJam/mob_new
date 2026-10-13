@@ -7,7 +7,6 @@ import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.unit.dp
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -15,8 +14,8 @@ import org.junit.Test
 
 /**
  * MOB-477: a bare <Spacer/> (no size, no weight) fills the free main-axis
- * space, as on iOS and as guides/components.md documents. The node goes through JSONObject(...).toMobNode(), the real BEAM-to-native
- * parsing path, and is rendered by RenderNode.
+ * space, as on iOS and as guides/components.md documents. The node is parsed
+ * by MobJson.parseNode, the path setRootJson uses.
  */
 class BareSpacerFlexTest {
     @get:Rule
@@ -36,7 +35,7 @@ class BareSpacerFlexTest {
                 ]
             }
         """.trimIndent()
-        val node = JSONObject(json).toMobNode()
+        val node = MobJson.parseNode(json)
 
         composeTestRule.setContent {
             Box(Modifier.size(width = 300.dp, height = 50.dp)) { RenderNode(node) }

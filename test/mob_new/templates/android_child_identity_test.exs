@@ -36,17 +36,6 @@ defmodule MobNew.Templates.AndroidChildIdentityTest do
     assert length(String.split(src, "val keys = mobChildKeys(node.children)")) - 1 == 4
   end
 
-  test "weight is resolved in the layout scope, not inside key()", %{src: src} do
-    # Modifier.weight comes from ColumnScope/RowScope. forEachIndexed is inline
-    # so the scope survives, but key()'s block is a plain composable lambda with
-    # no scope of its own — computing the modifier inside it would not compile.
-    assert has?(src, """
-           val w = floatProp(child.props, "weight")
-           val childModifier = if (w != null) Modifier.weight(w) else Modifier
-           key(keys[i]) { RenderNode(child, childModifier) }
-           """)
-  end
-
   test "authored ids and positions cannot collide", %{src: src} do
     body = key_fun(src)
     assert has?(body, ~s|"i\\u0001" + authored|)

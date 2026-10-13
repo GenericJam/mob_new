@@ -1,0 +1,50 @@
+package <%= java_package %>
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.unit.dp
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+
+/**
+ * MOB-477: a bare <Spacer/> (no size, no weight) fills the free main-axis
+ * space, as on iOS and as guides/components.md documents. The node goes through JSONObject(...).toMobNode(), the real BEAM-to-native
+ * parsing path, and is rendered by RenderNode.
+ */
+class BareSpacerFlexTest {
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    /** A bare <Spacer/> fills the free space, pushing its siblings apart. */
+    @Test
+    fun bareSpacerFlexesInRow() {
+        val json = """
+            {
+                "type": "row",
+                "props": {"fill_width": true},
+                "children": [
+                    {"type": "text", "props": {"text": "Left"}, "children": []},
+                    {"type": "spacer", "props": {}, "children": []},
+                    {"type": "text", "props": {"text": "Right"}, "children": []}
+                ]
+            }
+        """.trimIndent()
+        val node = JSONObject(json).toMobNode()
+
+        composeTestRule.setContent {
+            Box(Modifier.size(width = 300.dp, height = 50.dp)) { RenderNode(node) }
+        }
+
+        val left = composeTestRule.onNodeWithText("Left").getBoundsInRoot()
+        val right = composeTestRule.onNodeWithText("Right").getBoundsInRoot()
+        assertEquals(0f, left.left.value, 0.5f)
+        assertTrue("Right ends at ${right.right}", right.right.value > 299f)
+    }
+}

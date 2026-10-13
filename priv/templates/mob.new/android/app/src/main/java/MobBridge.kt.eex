@@ -4056,7 +4056,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                 // Modifier.weight is resolved out here, in ColumnScope — forEachIndexed
                 // is inline so the scope survives, but key()'s block is a plain
                 // composable lambda and has no scope of its own.
-                val w = floatProp(child.props, "weight")
+                val w = mobChildWeight(child)
                 val childModifier = if (w != null) Modifier.weight(w) else Modifier
                 key(keys[i]) { RenderNode(child, childModifier) }
             }
@@ -4070,7 +4070,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         ) {
             val keys = mobChildKeys(node.children)
             node.children.forEachIndexed { i, child ->
-                val w = floatProp(child.props, "weight")
+                val w = mobChildWeight(child)
                 val childModifier = if (w != null) Modifier.weight(w) else Modifier
                 key(keys[i]) { RenderNode(child, childModifier) }
             }
@@ -5158,6 +5158,12 @@ private fun MobDivider(node: MobNode, modifier: Modifier) {
         color     = if (color != Color.Unspecified) color else DividerDefaults.color,
     )
 }
+
+// A row/column child's flex weight: an explicit `weight`, else 1 for a bare
+// spacer (no `size`), which fills the free main-axis space as on iOS.
+private fun mobChildWeight(child: MobNode): Float? =
+    floatProp(child.props, "weight")
+        ?: if (child.type == "spacer" && floatProp(child.props, "size") == null) 1f else null
 
 @Composable
 private fun MobSpacer(node: MobNode, modifier: Modifier) {
@@ -6404,6 +6410,12 @@ private fun nodeModifier(props: Map<String, Any?>): Modifier {
             else m.border(borderWidth.dp, borderColor)
     }
 
+    // Clip children to the shape BEFORE padding, so the rounded mask is the
+    // node's outer edge (as on iOS, where .clipShape follows .padding).
+    // Clipping after padding rounded the inner content rect with the full
+    // radius and shaved the glyphs that sit in its corners.
+    if (shape != null) m = m.clip(shape)
+
     val uniform = intProp(props, "padding")
     val top     = intProp(props, "padding_top")
     val right   = intProp(props, "padding_right")
@@ -6420,10 +6432,6 @@ private fun nodeModifier(props: Map<String, Any?>): Modifier {
         uniform != null -> m.padding(uniform.dp)
         else            -> m
     }
-
-    // Clip children to shape after padding so the rounded mask covers the
-    // entire padded area, not just the inner content.
-    if (shape != null) m = m.clip(shape)
 
     val fixedWidth = floatProp(props, "width")?.takeIf { it > 0f }
     val fixedHeight = floatProp(props, "height")?.takeIf { it > 0f }

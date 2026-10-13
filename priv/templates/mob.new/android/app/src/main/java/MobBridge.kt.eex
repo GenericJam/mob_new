@@ -4056,7 +4056,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                 // Modifier.weight is resolved out here, in ColumnScope — forEachIndexed
                 // is inline so the scope survives, but key()'s block is a plain
                 // composable lambda and has no scope of its own.
-                val w = floatProp(child.props, "weight")
+                val w = mobChildWeight(child)
                 val childModifier = if (w != null) Modifier.weight(w) else Modifier
                 key(keys[i]) { RenderNode(child, childModifier) }
             }
@@ -4070,7 +4070,7 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         ) {
             val keys = mobChildKeys(node.children)
             node.children.forEachIndexed { i, child ->
-                val w = floatProp(child.props, "weight")
+                val w = mobChildWeight(child)
                 val childModifier = if (w != null) Modifier.weight(w) else Modifier
                 key(keys[i]) { RenderNode(child, childModifier) }
             }
@@ -4179,7 +4179,9 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
                 //
                 // A child carrying `weight` also forces the eager path: weight
                 // comes from ColumnScope, and LazyColumn items have no such
-                // scope, so it would be dropped without a trace.
+                // scope, so it would be dropped without a trace. A bare spacer's
+                // implicit weight (mobChildWeight) doesn't count: under a vertical
+                // scroll's unbounded height it resolves to 0, as a lazy item would.
                 // OPT-IN. `lazy: true` on the scroll node, nothing else.
                 //
                 // Laziness is not free of observable consequences: rows below
@@ -5159,9 +5161,18 @@ private fun MobDivider(node: MobNode, modifier: Modifier) {
     )
 }
 
+// A row/column child's flex weight: an explicit `weight`, else 1 for a spacer
+// without a positive `size`, which fills the free main-axis space as on iOS
+// (MobRootView treats a spacer of size <= 0 as a flexible Spacer()).
+private fun mobChildWeight(child: MobNode): Float? =
+    floatProp(child.props, "weight")
+        ?: if (child.type == "spacer" && mobSpacerSize(child) == null) 1f else null
+
+private fun mobSpacerSize(node: MobNode): Float? = floatProp(node.props, "size")?.takeIf { it > 0f }
+
 @Composable
 private fun MobSpacer(node: MobNode, modifier: Modifier) {
-    val size = floatProp(node.props, "size")
+    val size = mobSpacerSize(node)
     // size() sets both width and height so Spacer works as a gap in both Column and Row.
     Spacer(modifier = if (size != null) modifier.size(size.dp) else modifier)
 }
@@ -6404,6 +6415,12 @@ private fun nodeModifier(props: Map<String, Any?>): Modifier {
             else m.border(borderWidth.dp, borderColor)
     }
 
+    // Clip children to the shape BEFORE padding, so the rounded mask is the
+    // node's outer edge, where iOS clips buttons and images (.clipShape after
+    // .padding). Clipping after padding rounded the inner content rect with
+    // the full radius and shaved the glyphs that sit in its corners.
+    if (shape != null) m = m.clip(shape)
+
     val uniform = intProp(props, "padding")
     val top     = intProp(props, "padding_top")
     val right   = intProp(props, "padding_right")
@@ -6420,10 +6437,6 @@ private fun nodeModifier(props: Map<String, Any?>): Modifier {
         uniform != null -> m.padding(uniform.dp)
         else            -> m
     }
-
-    // Clip children to shape after padding so the rounded mask covers the
-    // entire padded area, not just the inner content.
-    if (shape != null) m = m.clip(shape)
 
     val fixedWidth = floatProp(props, "width")?.takeIf { it > 0f }
     val fixedHeight = floatProp(props, "height")?.takeIf { it > 0f }

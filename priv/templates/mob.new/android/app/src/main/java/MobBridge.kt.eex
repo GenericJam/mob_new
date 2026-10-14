@@ -115,6 +115,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -212,6 +213,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import android.content.ClipData
@@ -3650,6 +3652,11 @@ private fun MobScrollEvents(node: MobNode, scrollState: ScrollState, horizontal:
     val density = LocalDensity.current
 
     LaunchedEffect(scrollState, horizontal, density) {
+        // Start from the first measured position. Before the first layout
+        // maxValue is Int.MAX_VALUE, and an `anchor: "bottom"` scroll's value is
+        // still its Int.MAX_VALUE initial; the layout clamping it to the end
+        // would otherwise be reported as a scroll nobody made.
+        snapshotFlow { scrollState.maxValue }.first { it != Int.MAX_VALUE }
         var last = with(density) { scrollState.value.toDp().value }
         var lastTs = 0L
         var hasBegun = false
@@ -3721,6 +3728,61 @@ private fun MobScrollEvents(node: MobNode, scrollState: ScrollState, horizontal:
         }
     }
 }
+
+/**
+ * `anchor: "bottom"` on a vertical scroll (MOB-481). When the content grows or
+ * the viewport shrinks, the view follows to the new end if it was at the old
+ * end, or within [MOB_SCROLL_PIN_DP] of it. A user who has scrolled further
+ * away is left where they are. Opening at the end is not done here: the
+ * caller's ScrollState starts at Int.MAX_VALUE and the first layout clamps it.
+ */
+@Composable
+private fun MobScrollFollowEnd(scrollState: ScrollState) {
+    val pinPx = with(LocalDensity.current) { MOB_SCROLL_PIN_DP.dp.roundToPx() }
+    // Saved because the ScrollState is: restored into a smaller viewport, a
+    // view that was at the end has a restored offset short of the new end, and
+    // only this says it should follow. Defaults to true, so an anchor switched
+    // on at runtime moves to the end like a fresh scroll opens there.
+    var pinned by rememberSaveable { mutableStateOf(true) }
+    LaunchedEffect(scrollState, pinPx) {
+        // Not scrollState.maxValue: the first measured extent this effect sees
+        // must take the `pinned` branch below even when layout ran first.
+        var lastMax = Int.MAX_VALUE
+        var jumpPending = false
+        snapshotFlow { scrollState.value to scrollState.maxValue }.collect { (value, max) ->
+            if (max == Int.MAX_VALUE) return@collect
+            if (max != lastMax) {
+                // Judged by the offset now against the OLD end: a drag and a
+                // growth that land in one frame arrive here as one sample, and
+                // the drag must win. A jump not yet landed still counts as at
+                // the end, or a second growth right behind the first is missed.
+                val wasAtEnd = when (lastMax) {
+                    Int.MAX_VALUE -> pinned
+                    else -> jumpPending || lastMax - value <= pinPx
+                }
+                lastMax = max
+                if (wasAtEnd && value < max) {
+                    jumpPending = true
+                    pinned = true
+                    // In its own job: scrollTo loses to a drag in progress by
+                    // throwing CancellationException, which here would end the
+                    // collection and stop following for good. Not animated:
+                    // growth arriving mid-animation would find the offset far
+                    // from the old end and stop following.
+                    launch { scrollState.scrollTo(max) }
+                    return@collect
+                }
+            }
+            // No jump in flight from here: an offset-only sample is one landing
+            // (or the user scrolling), and a size change that needed none
+            // leaves nothing that would land and clear the flag later.
+            jumpPending = false
+            pinned = max - value <= pinPx
+        }
+    }
+}
+
+private const val MOB_SCROLL_PIN_DP = 32
 
 /**
  * Stable identities for a child list (MOB-127).
@@ -4119,12 +4181,24 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
             }
         }
         "scroll" -> {
+            val horizontal = node.props["axis"] == "horizontal"
+            // `anchor: "bottom"` (MOB-481): vertical, non-lazy scrolls only, as
+            // on iOS. The ScrollState starts at Int.MAX_VALUE so the first
+            // layout clamps it to the end: the scroll opens there with no frame
+            // at the top first.
+            val anchorBottom = !horizontal &&
+                node.props["anchor"] == "bottom" &&
+                boolProp(node.props, "lazy") != true
             // Re-created per navigation, for the same reason MobLazyList's state
             // is: `rememberScrollState()` is keyless, so with the composition
             // preserved across navigation (MOB-146) a scroll view landing in the
             // same slot would open the new screen at the old screen's offset.
-            val scrollState = key(MobBridge.LocalSlotEpoch.current) { rememberScrollState() }
-            val horizontal = node.props["axis"] == "horizontal"
+            val scrollState = key(MobBridge.LocalSlotEpoch.current) {
+                rememberScrollState(if (anchorBottom) Int.MAX_VALUE else 0)
+            }
+            // Keyed like the ScrollState, so its saved pinned flag is the
+            // screen's own and not the one this slot held before navigating.
+            if (anchorBottom) key(MobBridge.LocalSlotEpoch.current) { MobScrollFollowEnd(scrollState) }
 
             // Decided up front because it determines whether this node scrolls a
             // pixel ScrollState at all, and therefore whether the scroll event

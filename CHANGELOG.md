@@ -10,6 +10,19 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **`anchor: "bottom"` on `:scroll` renders on Android (MOB-481).** The
+  generated `MobBridge.kt` opens such a scroll at the end of its content. When
+  content grows or the viewport shrinks while the view is at the end, or
+  within 32 dp of it, it moves to the new end; a user who scrolled further up
+  is left where they are, including across saved-state restoration. Turning
+  the anchor on at runtime moves to the end. Vertical, non-lazy scrolls only,
+  as on iOS (mob). The scroll event family now starts from the first measured
+  position, so opening at the end is not reported as a scroll.
+  `ScrollAnchorBottomTest` (androidTest) covers opening, following, not
+  following, a drag and a growth in one frame, restoration, switching the
+  anchor on, and `lazy: true` ignoring it.
+
 ### Fixed
 - **Android rounded corners no longer shave padded content (MOB-477).** The
   generated `MobBridge.kt` clipped a `corner_radius` node after its padding,

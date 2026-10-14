@@ -440,8 +440,10 @@ git config core.hooksPath .githooks
   `AGENTS.md.eex` is on the phx-owned blocklist and
   `write_liveview_agents_md/3` renders it with `liveview: true` and puts it in
   front of Phoenix's file. Its doc pointers (`deps/mob/guides`,
-  `usage-rules.md`, `start_async`) set the generated mob floor at 0.9.17;
-  don't lower the pin below a release that ships them.
+  `usage-rules.md`, `start_async`) need mob 0.9.17, and the Android
+  `anchor="bottom"` scroll needs mob 0.9.18 for its iOS half, so the
+  generated floor is 0.9.18; don't lower the pin below a release that ships
+  them.
 
 - **Archive compile-time resources must ship in the Hex package.** The exact
   Zig pin lives in `priv/zig-version`, not the repository-root `.tool-versions`:

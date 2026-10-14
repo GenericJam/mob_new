@@ -23,6 +23,10 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   following, a drag and a growth in one frame, restoration, switching the
   anchor on, and `lazy: true` ignoring it.
 
+### Changed
+- **New projects depend on mob `~> 0.9.18`**, the release that renders
+  `anchor: "bottom"` on iOS, so a generated app gets it on both platforms.
+
 ### Fixed
 - **Android rounded corners no longer shave padded content (MOB-477).** The
   generated `MobBridge.kt` clipped a `corner_radius` node after its padding,

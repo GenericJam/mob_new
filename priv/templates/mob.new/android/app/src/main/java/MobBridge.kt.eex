@@ -213,6 +213,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import android.content.ClipData
@@ -3729,36 +3730,52 @@ private fun MobScrollEvents(node: MobNode, scrollState: ScrollState, horizontal:
 }
 
 /**
- * `anchor: "bottom"` on a vertical scroll (MOB-481). While the view is at the
- * end, or within [MOB_SCROLL_PIN_DP] of it, content growth or a shrinking
- * viewport (the keyboard opening) keeps it at the end. Once the user scrolls
- * further away, growth leaves them where they are. Opening at the end is not
- * done here: the caller's ScrollState starts at Int.MAX_VALUE and the first
- * layout clamps it.
+ * `anchor: "bottom"` on a vertical scroll (MOB-481). When the content grows or
+ * the viewport shrinks, the view follows to the new end if it was at the old
+ * end, or within [MOB_SCROLL_PIN_DP] of it. A user who has scrolled further
+ * away is left where they are. Opening at the end is not done here: the
+ * caller's ScrollState starts at Int.MAX_VALUE and the first layout clamps it.
  */
 @Composable
 private fun MobScrollFollowEnd(scrollState: ScrollState) {
     val pinPx = with(LocalDensity.current) { MOB_SCROLL_PIN_DP.dp.roundToPx() }
+    // Saved because the ScrollState is: restored into a smaller viewport, a
+    // view that was at the end has a restored offset short of the new end, and
+    // only this says it should follow. Defaults to true, so an anchor switched
+    // on at runtime moves to the end like a fresh scroll opens there.
+    var pinned by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(scrollState, pinPx) {
-        var pinned = true
-        var lastMax = scrollState.maxValue
+        // Not scrollState.maxValue: the first measured extent this effect sees
+        // must take the `pinned` branch below even when layout ran first.
+        var lastMax = Int.MAX_VALUE
+        var jumpPending = false
         snapshotFlow { scrollState.value to scrollState.maxValue }.collect { (value, max) ->
-            val wasPinned = pinned
-            // Where the view is now. Also after a size change that is not
-            // followed: content that shrank to fit leaves a view that was
-            // scrolled up sitting at the end, and it follows from then on.
-            pinned = max - value <= pinPx
+            if (max == Int.MAX_VALUE) return@collect
             if (max != lastMax) {
-                lastMax = max
-                // In its own job: scrollTo loses to a drag in progress by
-                // throwing CancellationException, which here would end the
-                // collection and stop following for good. Not animated, so no
-                // intermediate offset far from the end reads as the user leaving.
-                if (wasPinned && value < max) {
-                    pinned = true
-                    launch { scrollState.scrollTo(max) }
+                // Judged by the offset now against the OLD end: a drag and a
+                // growth that land in one frame arrive here as one sample, and
+                // the drag must win. A jump not yet landed still counts as at
+                // the end, or a second growth right behind the first is missed.
+                val wasAtEnd = when (lastMax) {
+                    Int.MAX_VALUE -> pinned
+                    else -> jumpPending || lastMax - value <= pinPx
                 }
+                lastMax = max
+                if (wasAtEnd && value < max) {
+                    jumpPending = true
+                    pinned = true
+                    // In its own job: scrollTo loses to a drag in progress by
+                    // throwing CancellationException, which here would end the
+                    // collection and stop following for good. Not animated:
+                    // growth arriving mid-animation would find the offset far
+                    // from the old end and stop following.
+                    launch { scrollState.scrollTo(max) }
+                    return@collect
+                }
+            } else {
+                jumpPending = false
             }
+            pinned = max - value <= pinPx
         }
     }
 }
@@ -4177,7 +4194,9 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
             val scrollState = key(MobBridge.LocalSlotEpoch.current) {
                 rememberScrollState(if (anchorBottom) Int.MAX_VALUE else 0)
             }
-            if (anchorBottom) MobScrollFollowEnd(scrollState)
+            // Keyed like the ScrollState, so its saved pinned flag is the
+            // screen's own and not the one this slot held before navigating.
+            if (anchorBottom) key(MobBridge.LocalSlotEpoch.current) { MobScrollFollowEnd(scrollState) }
 
             // Decided up front because it determines whether this node scrolls a
             // pixel ScrollState at all, and therefore whether the scroll event

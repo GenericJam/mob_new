@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.10] - 2026-10-14
+
 ### Added
 - **`anchor: "bottom"` on `:scroll` renders on Android (MOB-481).** The
   generated `MobBridge.kt` opens such a scroll at the end of its content. When

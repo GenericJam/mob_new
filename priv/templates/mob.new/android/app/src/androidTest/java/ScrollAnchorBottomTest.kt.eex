@@ -1,0 +1,129 @@
+package <%= java_package %>
+
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.unit.dp
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+
+/**
+ * MOB-481: `anchor: "bottom"` on a vertical :scroll opens at the end, keeps
+ * following the end while the view is there, and leaves a user who scrolled
+ * up where they are. Nodes go through MobJson.parseNode, the setRootJson path.
+ */
+class ScrollAnchorBottomTest {
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    @Test
+    fun opensAtTheEnd() {
+        val node = scroll("anchor-open", rows = 30)
+        val state = renderNode { node }
+
+        composeTestRule.runOnIdle {
+            assertTrue("content overflows: max=${state().maxValue}", state().maxValue > 0)
+            assertEquals(state().maxValue, state().value)
+        }
+    }
+
+    @Test
+    fun followsGrowthWhileAtTheEnd() {
+        var node by mutableStateOf(scroll("anchor-follow", rows = 30))
+        val state = renderNode { node }
+        val openMax = composeTestRule.runOnIdle { state().maxValue }
+
+        composeTestRule.runOnIdle { node = scroll("anchor-follow", rows = 31) }
+        composeTestRule.runOnIdle { node = scroll("anchor-follow", rows = 35) }
+
+        composeTestRule.runOnIdle {
+            assertTrue("content grew", state().maxValue > openMax)
+            assertEquals(state().maxValue, state().value)
+        }
+    }
+
+    @Test
+    fun leavesAUserWhoScrolledUpWhereTheyAre() {
+        var node by mutableStateOf(scroll("anchor-away", rows = 30))
+        val state = renderNode { node }
+
+        composeTestRule.onNodeWithTag("anchor-away").performTouchInput { swipeDown() }
+        val (offset, max) = composeTestRule.runOnIdle { state().value to state().maxValue }
+        assertTrue("swiped away from the end: $offset of $max", max - offset > 100)
+
+        composeTestRule.runOnIdle { node = scroll("anchor-away", rows = 31) }
+
+        composeTestRule.runOnIdle {
+            assertTrue("content grew", state().maxValue > max)
+            assertEquals(offset, state().value)
+        }
+    }
+
+    @Test
+    fun followsAgainOnceContentShrinksToFit() {
+        var node by mutableStateOf(scroll("anchor-shrink", rows = 30))
+        val state = renderNode { node }
+
+        composeTestRule.onNodeWithTag("anchor-shrink").performTouchInput { swipeDown() }
+        composeTestRule.runOnIdle { node = scroll("anchor-shrink", rows = 2) }
+        composeTestRule.runOnIdle { assertEquals(0, state().maxValue) }
+
+        composeTestRule.runOnIdle { node = scroll("anchor-shrink", rows = 30) }
+
+        composeTestRule.runOnIdle {
+            assertTrue("content overflows again", state().maxValue > 0)
+            assertEquals(state().maxValue, state().value)
+        }
+    }
+
+    /** The column's padding keeps `lazy: true` on the eager path, so a ScrollState exists to read. */
+    @Test
+    fun lazyScrollIgnoresTheAnchor() {
+        val node = scroll("anchor-lazy", rows = 30, lazy = true, columnProps = """{"padding": 4}""")
+        val state = renderNode { node }
+
+        composeTestRule.runOnIdle {
+            assertTrue("content overflows: max=${state().maxValue}", state().maxValue > 0)
+            assertEquals(0, state().value)
+        }
+    }
+
+    private fun renderNode(node: () -> MobNode): () -> ScrollState {
+        composeTestRule.setContent {
+            Box(Modifier.size(width = 300.dp, height = 400.dp)) { RenderNode(node()) }
+        }
+        composeTestRule.waitForIdle()
+        val id = node().props["id"] as String
+        return { MobBridge.scrollHandle(id).scrollState!! }
+    }
+
+    private fun scroll(
+        id: String,
+        rows: Int,
+        lazy: Boolean = false,
+        columnProps: String = """{"fill_width": true}""",
+    ): MobNode {
+        val texts = (1..rows).joinToString(",") { n ->
+            """{"type": "text", "props": {"id": "$id-$n", "text": "Row $n", "padding": 14}, "children": []}"""
+        }
+        return MobJson.parseNode(
+            """
+            {
+                "type": "scroll",
+                "props": {"id": "$id", "anchor": "bottom", "lazy": $lazy},
+                "children": [{"type": "column", "props": $columnProps, "children": [$texts]}]
+            }
+            """.trimIndent()
+        )
+    }
+}

@@ -115,6 +115,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -3650,6 +3651,11 @@ private fun MobScrollEvents(node: MobNode, scrollState: ScrollState, horizontal:
     val density = LocalDensity.current
 
     LaunchedEffect(scrollState, horizontal, density) {
+        // Start from the first measured position. Before the first layout
+        // maxValue is Int.MAX_VALUE, and an `anchor: "bottom"` scroll's value is
+        // still its Int.MAX_VALUE initial; the layout clamping it to the end
+        // would otherwise be reported as a scroll nobody made.
+        snapshotFlow { scrollState.maxValue }.first { it != Int.MAX_VALUE }
         var last = with(density) { scrollState.value.toDp().value }
         var lastTs = 0L
         var hasBegun = false
@@ -3721,6 +3727,43 @@ private fun MobScrollEvents(node: MobNode, scrollState: ScrollState, horizontal:
         }
     }
 }
+
+/**
+ * `anchor: "bottom"` on a vertical scroll (MOB-481). While the view is at the
+ * end, or within [MOB_SCROLL_PIN_DP] of it, content growth or a shrinking
+ * viewport (the keyboard opening) keeps it at the end. Once the user scrolls
+ * further away, growth leaves them where they are. Opening at the end is not
+ * done here: the caller's ScrollState starts at Int.MAX_VALUE and the first
+ * layout clamps it.
+ */
+@Composable
+private fun MobScrollFollowEnd(scrollState: ScrollState) {
+    val pinPx = with(LocalDensity.current) { MOB_SCROLL_PIN_DP.dp.roundToPx() }
+    LaunchedEffect(scrollState, pinPx) {
+        var pinned = true
+        var lastMax = scrollState.maxValue
+        snapshotFlow { scrollState.value to scrollState.maxValue }.collect { (value, max) ->
+            val wasPinned = pinned
+            // Where the view is now. Also after a size change that is not
+            // followed: content that shrank to fit leaves a view that was
+            // scrolled up sitting at the end, and it follows from then on.
+            pinned = max - value <= pinPx
+            if (max != lastMax) {
+                lastMax = max
+                // In its own job: scrollTo loses to a drag in progress by
+                // throwing CancellationException, which here would end the
+                // collection and stop following for good. Not animated, so no
+                // intermediate offset far from the end reads as the user leaving.
+                if (wasPinned && value < max) {
+                    pinned = true
+                    launch { scrollState.scrollTo(max) }
+                }
+            }
+        }
+    }
+}
+
+private const val MOB_SCROLL_PIN_DP = 32
 
 /**
  * Stable identities for a child list (MOB-127).
@@ -4119,12 +4162,22 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
             }
         }
         "scroll" -> {
+            val horizontal = node.props["axis"] == "horizontal"
+            // `anchor: "bottom"` (MOB-481): vertical, non-lazy scrolls only, as
+            // on iOS. The ScrollState starts at Int.MAX_VALUE so the first
+            // layout clamps it to the end: the scroll opens there with no frame
+            // at the top first.
+            val anchorBottom = !horizontal &&
+                node.props["anchor"] == "bottom" &&
+                boolProp(node.props, "lazy") != true
             // Re-created per navigation, for the same reason MobLazyList's state
             // is: `rememberScrollState()` is keyless, so with the composition
             // preserved across navigation (MOB-146) a scroll view landing in the
             // same slot would open the new screen at the old screen's offset.
-            val scrollState = key(MobBridge.LocalSlotEpoch.current) { rememberScrollState() }
-            val horizontal = node.props["axis"] == "horizontal"
+            val scrollState = key(MobBridge.LocalSlotEpoch.current) {
+                rememberScrollState(if (anchorBottom) Int.MAX_VALUE else 0)
+            }
+            if (anchorBottom) MobScrollFollowEnd(scrollState)
 
             // Decided up front because it determines whether this node scrolls a
             // pixel ScrollState at all, and therefore whether the scroll event

@@ -3772,9 +3772,11 @@ private fun MobScrollFollowEnd(scrollState: ScrollState) {
                     launch { scrollState.scrollTo(max) }
                     return@collect
                 }
-            } else {
-                jumpPending = false
             }
+            // No jump in flight from here: an offset-only sample is one landing
+            // (or the user scrolling), and a size change that needed none
+            // leaves nothing that would land and clear the flag later.
+            jumpPending = false
             pinned = max - value <= pinPx
         }
     }

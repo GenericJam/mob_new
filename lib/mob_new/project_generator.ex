@@ -1358,10 +1358,13 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
     else
-      # Floor at 0.9.17, not "~> 0.9". Generated code depends on a specific
+      # Floor at 0.9.18, not "~> 0.9". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
+      #   * MobBridge.kt renders `<Scroll anchor="bottom">` (MOB-481); the iOS
+      #     half is mob's native renderer from 0.9.18. On an older mob the
+      #     prop works on Android and is silently ignored on iOS.
       #   * The generated AGENTS.md sends agents to `deps/mob/guides/*.md` and
       #     `deps/mob/usage-rules.md`, which the Hex package ships from 0.9.17,
       #     and its async rule names `Mob.Socket.start_async/3` and
@@ -1404,7 +1407,7 @@ defmodule MobNew.ProjectGenerator do
       #     Box accessibility props are validated and encoded from 0.7.32.
       #
       # `~>` still allows the whole 0.9.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.9.17"})
+      mob_dep = ~s({:mob,     "~> 0.9.18"})
       # mob_dev 0.7.12 turns mob.exs's `url_schemes` into the Android
       # intent-filter and iOS CFBundleURLTypes (MOB-379); an older one ignores
       # the key and no link opens the app. mob 0.9.8 also accepts only the

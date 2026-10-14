@@ -27,6 +27,13 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 - **New projects depend on mob `~> 0.9.18`**, the release that renders
   `anchor: "bottom"` on iOS, so a generated app gets it on both platforms.
 
+### Upgrading
+- Existing apps own their `MobBridge.kt`, which is never re-rendered. For
+  `anchor: "bottom"`, port the MOB-481 changes to `MobBridge.kt` (the scroll
+  branch, `MobScrollFollowEnd`, and `MobScrollEvents` waiting for the first
+  layout; diff `mob_new` 0.6.9..0.6.10 `MobBridge.kt.eex`) and bump mob to
+  `~> 0.9.18` for iOS. The MOB-477 fixes are also `MobBridge.kt` changes.
+
 ### Fixed
 - **Android rounded corners no longer shave padded content (MOB-477).** The
   generated `MobBridge.kt` clipped a `corner_radius` node after its padding,

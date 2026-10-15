@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.13] - 2026-10-15
+
 ### Upgrading
 - **MOB-487** changes `android/app/src/main/jni/build.zig` and
   `CMakeLists.txt`, and existing apps own those files. Without it the

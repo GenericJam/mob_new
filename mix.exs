@@ -13,7 +13,7 @@ defmodule MobNew.MixProject do
   def project do
     [
       app: :mob_new,
-      version: "0.6.12",
+      version: "0.6.13",
       elixir: "~> 1.19",
       deps: deps(),
       aliases: aliases(),

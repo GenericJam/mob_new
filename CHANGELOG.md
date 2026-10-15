@@ -10,6 +10,50 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Upgrading
+- **MOB-394** is an `android/app/src/main/jni/build.zig` change, and existing
+  apps own that file. Only apps with `nx_tflite_mob` in deps need it (they
+  crash at launch on Android without it). Remove the line
+  `_ = tflite_lib;` and apply:
+
+  ```diff
+  @@ const main_link_cp = addLink(b, native_lib_step, .{
+           .nxeigen_static = nxeigen_static,
+           .nxeigen_lib = nxeigen_lib,
+  +        .tflite_static = tflite_static,
+  +        .tflite_lib = tflite_lib,
+       });
+  @@ const LinkOptions = struct {
+       nxeigen_static: bool = false,
+       nxeigen_lib: []const u8 = "",
+  +    tflite_static: bool = false,
+  +    tflite_lib: []const u8 = "",
+   };
+  @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) *std.Build.Step {
+       if (opts.nxeigen_static and opts.nxeigen_lib.len > 0) {
+           const lp: std.Build.LazyPath = .{ .cwd_relative = opts.nxeigen_lib };
+           run.addFileArg(lp);
+       }
+  +
+  +    if (opts.tflite_static and opts.tflite_lib.len > 0) {
+  +        const lp: std.Build.LazyPath = .{ .cwd_relative = opts.tflite_lib };
+  +        run.addFileArg(lp);
+  +        run.addArg(b.fmt("-L{s}/android/app/src/main/jniLibs/{s}", .{ opts.project_root, opts.abi }));
+  +        run.addArg("-ltensorflowlite_jni");
+  +    }
+  ```
+
+### Fixed
+- **Android: apps with `nx_tflite_mob` start (MOB-394).** mob_dev builds
+  `libtflite_nif.a` and passes it as `-Dtflite_lib`, and the driver table
+  references `tflite_nif_nif_init`, but the generated `build.zig` accepted
+  `tflite_lib` and threw it away. The app's `.so` then failed to load at
+  launch: `dlopen failed: cannot locate symbol "tflite_nif_nif_init"`. The
+  link now takes the archive plus `libtensorflowlite_jni.so` (the TFLite C
+  API it calls), which mob_dev copies into `jniLibs/<abi>/` before the link.
+  `AndroidTfliteLinkTest` runs the generated `build.zig` and checks the link
+  line with TFLite on and off.
+
 ## [0.6.11] - 2026-10-15
 
 ### Upgrading

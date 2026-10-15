@@ -10,6 +10,28 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Upgrading
+- **MOB-120** changes `MainActivity.kt` and `MobBridge.kt`, and existing apps
+  own both files. In `MainActivity.kt`, inside
+  `MaterialTheme(colorScheme = colorScheme) { … }` in `setContent`, wrap
+  `MobNavHost(state)` in
+  `CompositionLocalProvider(LocalContentColor provides colorScheme.onSurface) { … }`
+  and import `androidx.compose.material3.LocalContentColor`. In `MobBridge.kt`'s
+  `MobIcon`, pass `tint = tint.takeOrElse { LocalContentColor.current }` and
+  add the same import.
+
+### Fixed
+- **Android: text and icons with no `text_color` are readable on a dark
+  theme (MOB-120).** The generated `MainActivity.kt` wrapped every screen in
+  `MaterialTheme` but set no content colour (only a `Surface` does), so a
+  `<Text>` or switch label without its own colour drew in Compose's default
+  black: invisible on the default dark theme. The root now provides the
+  theme's `on_surface` as the content colour, which follows `Mob.Theme` light
+  and dark. An `<Icon>` without a colour passed no tint at all and drew the
+  Material vector's own black; it now takes the content colour too. An
+  explicit `text_color` still wins. `UnstyledContentColorTest` (androidTest)
+  covers text.
+
 ## [0.6.10] - 2026-10-14
 
 ### Added

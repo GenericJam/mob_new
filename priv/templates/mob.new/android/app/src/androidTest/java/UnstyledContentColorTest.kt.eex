@@ -1,0 +1,63 @@
+package <%= java_package %>
+
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
+import org.junit.Assert.assertEquals
+import org.junit.Rule
+import org.junit.Test
+
+/**
+ * MOB-120: text with no `text_color` draws in the theme's `on_surface`, not
+ * Compose's default black, so it stays readable on a dark background. The
+ * tree goes through MobTheme, the wrapper MainActivity puts around every
+ * screen, and MobJson.parseNode, the path setRootJson uses.
+ */
+class UnstyledContentColorTest {
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    private fun textNode(text: String, extraProps: String = "") =
+        MobJson.parseNode(
+            """{"type": "text", "props": {"text": "$text"$extraProps}, "children": []}""",
+        )
+
+    private fun drawnColor(text: String): Color {
+        val layouts = mutableListOf<TextLayoutResult>()
+        composeTestRule.onNodeWithText(text)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        return layouts.single().layoutInput.style.color
+    }
+
+    /** Before the BEAM pushes a theme, the stock dark scheme's on_surface. */
+    @Test
+    fun unstyledTextUsesOnSurfaceBeforeAnyTheme() {
+        val node = textNode("Plain")
+        composeTestRule.setContent { MobTheme(null) { RenderNode(node) } }
+
+        assertEquals(darkColorScheme().onSurface, drawnColor("Plain"))
+    }
+
+    /** A pushed theme's on_surface, light or dark. */
+    @Test
+    fun unstyledTextFollowsThePushedTheme() {
+        val light = mapOf("background" to 0xFFFFFFFF, "surface" to 0xFFFFFFFF, "on_surface" to 0xFF212121)
+        val node = textNode("Plain")
+        composeTestRule.setContent { MobTheme(light) { RenderNode(node) } }
+
+        assertEquals(Color(0xFF212121), drawnColor("Plain"))
+    }
+
+    /** An explicit text_color still wins over the theme's. */
+    @Test
+    fun explicitTextColorWins() {
+        val node = textNode("Red", """, "text_color": ${0xFFFF0000L}""")
+        composeTestRule.setContent { MobTheme(null) { RenderNode(node) } }
+
+        assertEquals(Color(0xFFFF0000), drawnColor("Red"))
+    }
+}

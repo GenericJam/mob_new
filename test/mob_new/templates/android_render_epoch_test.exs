@@ -35,7 +35,7 @@ defmodule MobNew.Templates.AndroidRenderEpochTest do
 
   test "MainActivity provides the epoch above the whole tree", %{main: main} do
     assert main =~
-             "CompositionLocalProvider(LocalRenderEpoch provides state.epoch) { MaterialTheme(colorScheme = colorScheme) { MobNavHost(state) } }"
+             "CompositionLocalProvider(LocalRenderEpoch provides state.epoch) { MobTheme(themeColors) { MobNavHost(state) } }"
   end
 
   test "the text field resyncs on a new epoch through MobTextSync, controlled fields only",

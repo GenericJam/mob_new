@@ -19,6 +19,9 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   and import `androidx.compose.material3.LocalContentColor`. In `MobBridge.kt`'s
   `MobIcon`, pass `tint = tint.takeOrElse { LocalContentColor.current }` and
   add the same import.
+- **MOB-375** is a `MobBridge.kt` change, and existing apps own that file.
+  Port `genericFontFamily` and its call at the end of the bundled-font lookup
+  in `resolveOneFontName`: diff `mob_new` 0.6.10..0.6.11 `MobBridge.kt.eex`.
 
 ### Fixed
 - **Android: text and icons with no `text_color` are readable on a dark
@@ -31,6 +34,19 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   Material vector's own black; it now takes the content colour too. An
   explicit `text_color` still wins. `UnstyledContentColorTest` (androidTest)
   covers text.
+- **Android: `font_weight` and `italic` apply to a generic system font
+  (MOB-375).** The generated `MobBridge.kt` wrapped a system family such as
+  `font: "monospace"` as one regular `Typeface`, a family with no bold or
+  italic face, so `font_weight: "bold"` and `italic: true` were dropped: an
+  API 35 emulator drew bold monospace as regular monospace, and an Android 11
+  phone fell back to the default sans. `monospace`, `serif`, `sans-serif` and
+  `cursive` now resolve to Compose's generic families, which carry every
+  weight and style. A bundled font of the same name still wins. Other system
+  family names (`sans-serif-condensed`, `casual`, …) are unchanged.
+  `font: "sans-serif"` also stops falling through to the theme's
+  `font_fallback`: `Typeface.create("sans-serif")` can be the default
+  typeface itself, which the not-found check took as a miss.
+  `SystemFontWeightTest` (androidTest) covers it.
 
 ## [0.6.10] - 2026-10-14
 

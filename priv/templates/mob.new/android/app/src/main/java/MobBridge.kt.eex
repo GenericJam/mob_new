@@ -6600,6 +6600,11 @@ private fun resolveOneFontName(name: String, context: android.content.Context?):
             }
         }
     }
+    // A generic family must stay a Compose GenericFontFamily: that resolves
+    // every weight and style from the system's own faces. Wrapped as one
+    // NORMAL Typeface, as other system names are below, the family has only
+    // that face, so `font_weight: bold` and `italic` were dropped (MOB-375).
+    genericFontFamily(name)?.let { return it }
     // Typeface.create(String, Int) never returns null and rarely throws for an
     // unrecognized family name — per its own docs, it silently substitutes
     // Typeface.DEFAULT. Reference-equality against that singleton is the
@@ -6619,6 +6624,15 @@ private fun resolveOneFontName(name: String, context: android.content.Context?):
         null
     }
 }
+
+private fun genericFontFamily(name: String): FontFamily? =
+    when (name) {
+        "monospace"  -> FontFamily.Monospace
+        "serif"      -> FontFamily.Serif
+        "sans-serif" -> FontFamily.SansSerif
+        "cursive"    -> FontFamily.Cursive
+        else         -> null
+    }
 
 // Walks [the node's own font, ...MobBridge.fontFallback] (the ordered list
 // from the last Mob.Theme.set/1 — see MOB_FONTS.md), returning the first

@@ -805,11 +805,16 @@ object MobBridge {
      * Capture the activity window in-process and return PNG/JPEG bytes.
      * Called from nif_screenshot/3 via JNI. `scale` is a multiplier of native
      * resolution (1.0 = full, 0.5 = half). Returns null when there is no live
-     * window (e.g. backgrounded) so the NIF can report {:error, :no_window}.
+     * window (e.g. backgrounded, or covered by another activity) so the NIF
+     * can report {:error, :no_window}. SurfaceViews (a 3D viewport, a camera
+     * preview, video) are composited in, as the screen shows them.
      */
     @JvmStatic
-    fun screenshot(format: String, quality: Int, scale: Double): ByteArray? {
-        val activity = activityRef?.get() ?: return null
+    fun screenshot(format: String, quality: Int, scale: Double): ByteArray? =
+        activityRef?.get()?.let { screenshotOf(it, format, quality, scale) }
+
+    /** [screenshot] of a given activity. Waits on the main thread, so call it from another one. */
+    internal fun screenshotOf(activity: Activity, format: String, quality: Int, scale: Double): ByteArray? {
         val window = activity.window ?: return null
         val decor = window.decorView
         val w = decor.width
@@ -822,10 +827,18 @@ object MobBridge {
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            PixelCopy.request(window, src, { result ->
-                ok = result == PixelCopy.SUCCESS
-                latch.countDown()
-            }, handler)
+            // A window with no surface (another activity, say the camera an
+            // IMAGE_CAPTURE intent opened, covers it) throws instead of
+            // calling back: uncaught, that kills the app (MOB-426). null is
+            // reported as {:error, :no_window}.
+            try {
+                PixelCopy.request(window, src, { result ->
+                    ok = result == PixelCopy.SUCCESS
+                    latch.countDown()
+                }, handler)
+            } catch (e: IllegalArgumentException) {
+                return null
+            }
         } else {
             // Pre-O fallback: draw the decor view (misses SurfaceView/GL layers).
             handler.post {
@@ -841,16 +854,20 @@ object MobBridge {
 
         if (!latch.await(2, java.util.concurrent.TimeUnit.SECONDS) || !ok) return null
 
+        val full =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) withSurfaceViews(decor, src, handler)
+            else src
+
         val bmp =
             if (scale > 0.0 && scale != 1.0) {
                 Bitmap.createScaledBitmap(
-                    src,
+                    full,
                     (w * scale).toInt().coerceAtLeast(1),
                     (h * scale).toInt().coerceAtLeast(1),
                     true
                 )
             } else {
-                src
+                full
             }
 
         val out = java.io.ByteArrayOutputStream()
@@ -860,6 +877,82 @@ object MobBridge {
             bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
         return out.toByteArray()
+    }
+
+    /**
+     * PixelCopy of a window copies the window's own surface only. A SurfaceView
+     * (a 3D viewport, a camera preview, video) has a surface of its own that
+     * the system composites underneath, through a transparent hole in the
+     * window: alone, the window copy has an empty hole there (MOB-422). Copies each
+     * visible SurfaceView, lays them out where they are, and the window over
+     * them, as the screen shows it. A SurfaceView set to draw on top of the
+     * window (setZOrderOnTop) punches no hole, so the window still covers it.
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.O)
+    private fun withSurfaceViews(
+        decor: android.view.View,
+        window: Bitmap,
+        handler: android.os.Handler,
+    ): Bitmap {
+        // Each SurfaceView with [x, y, width, height] in window pixels, all
+        // read on the main thread, in the same layout.
+        val found = java.util.ArrayList<Pair<android.view.SurfaceView, IntArray>>()
+        val listed = java.util.concurrent.CountDownLatch(1)
+        handler.post {
+            try {
+                collectSurfaceViews(decor, found)
+            } finally {
+                listed.countDown()
+            }
+        }
+        if (!listed.await(1, java.util.concurrent.TimeUnit.SECONDS) || found.isEmpty()) return window
+
+        // Every copy is requested before any is waited for, so surfaces that
+        // never answer cost one timeout between them, not one each. A copy is
+        // published by its own callback, so one that lands after the timeout
+        // is either wholly there or not drawn.
+        val copies = java.util.concurrent.atomic.AtomicReferenceArray<Bitmap>(found.size)
+        val done = java.util.concurrent.CountDownLatch(found.size)
+        found.forEachIndexed { i, (view, frame) ->
+            val bmp = Bitmap.createBitmap(frame[2], frame[3], Bitmap.Config.ARGB_8888)
+            try {
+                PixelCopy.request(view, bmp, { result ->
+                    if (result == PixelCopy.SUCCESS) copies.set(i, bmp)
+                    done.countDown()
+                }, handler)
+            } catch (e: IllegalArgumentException) {
+                // The surface went away since it was listed.
+                done.countDown()
+            }
+        }
+        done.await(1, java.util.concurrent.TimeUnit.SECONDS)
+
+        val out = Bitmap.createBitmap(window.width, window.height, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(out)
+        canvas.drawColor(android.graphics.Color.BLACK)
+        found.forEachIndexed { i, (_, frame) ->
+            copies.get(i)?.let { canvas.drawBitmap(it, frame[0].toFloat(), frame[1].toFloat(), null) }
+        }
+        canvas.drawBitmap(window, 0f, 0f, null)
+        return out
+    }
+
+    private fun collectSurfaceViews(
+        view: android.view.View,
+        out: MutableList<Pair<android.view.SurfaceView, IntArray>>,
+    ) {
+        if (view.visibility != android.view.View.VISIBLE) return
+        if (view is android.view.SurfaceView) {
+            if (view.width > 0 && view.height > 0 && view.holder.surface.isValid) {
+                val at = IntArray(2)
+                view.getLocationInWindow(at)
+                out.add(view to intArrayOf(at[0], at[1], view.width, view.height))
+            }
+            return
+        }
+        if (view is android.view.ViewGroup) {
+            for (i in 0 until view.childCount) collectSurfaceViews(view.getChildAt(i), out)
+        }
     }
 
     /**

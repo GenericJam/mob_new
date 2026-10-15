@@ -22,6 +22,12 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 - **MOB-375** is a `MobBridge.kt` change, and existing apps own that file.
   Port `genericFontFamily` and its call at the end of the bundled-font lookup
   in `resolveOneFontName`: diff `mob_new` 0.6.10..0.6.11 `MobBridge.kt.eex`.
+- **MOB-422** is a `MobBridge.kt` change, and existing apps own that file.
+  Port the `screenshot` / `screenshotOf` hunk and the two helpers below it
+  (`withSurfaceViews`, `collectSurfaceViews`): diff `mob_new`
+  0.6.10..0.6.11 `MobBridge.kt.eex`. It includes the MOB-426 guard (a
+  `try`/`catch (e: IllegalArgumentException) { return null }` around the
+  window `PixelCopy.request`).
 
 ### Fixed
 - **Android: text and icons with no `text_color` are readable on a dark
@@ -47,6 +53,19 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `font_fallback`: `Typeface.create("sans-serif")` can be the default
   typeface itself, which the not-found check took as a miss.
   `SystemFontWeightTest` (androidTest) covers it.
+- **Android screenshots show SurfaceViews (MOB-422).** `MobBridge.screenshot`
+  (behind `Mob.Test.screenshot/2` and `:mob_nif.screenshot/3`) copied only
+  the window, and a SurfaceView is its own surface composited behind a hole
+  in it, so a `mob_scene3d` viewport, a camera preview or a video came out as
+  an empty hole. On API 26+ it now copies each visible SurfaceView, places it
+  at its window position and draws the window over it, as the screen shows
+  it. `ScreenshotSurfaceViewTest` (androidTest) covers it.
+- **Android: a screenshot no longer kills the app when another activity
+  covers it (MOB-426).** With the system camera (opened by an
+  `IMAGE_CAPTURE` intent), a picker or a share sheet over the app, the window
+  has no surface and `PixelCopy.request` threw `IllegalArgumentException`;
+  uncaught, it took the process down. `MobBridge.screenshot` now returns null
+  there, which the NIF reports as `{:error, :no_window}`.
 
 ## [0.6.10] - 2026-10-14
 

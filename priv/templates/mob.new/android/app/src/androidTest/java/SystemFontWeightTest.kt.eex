@@ -1,0 +1,97 @@
+package <%= java_package %>
+
+import android.graphics.Typeface
+import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.width
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+
+/**
+ * MOB-375: a system family keeps its face, and takes the weight and style,
+ * when the node also sets `font_weight` or `italic`. For monospace: a run of
+ * narrow glyphs is exactly as wide as a run of wide ones (it is not the
+ * proportional default), and the typeface the text resolves to is bold or
+ * italic as asked. The nodes go through MobJson.parseNode, the path
+ * setRootJson uses.
+ */
+class SystemFontWeightTest {
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    private fun text(text: String, extraProps: String) =
+        """{"type": "text", "props": {"text": "$text", "font": "monospace"$extraProps}, "children": []}"""
+
+    private fun render(vararg texts: String) {
+        val node = MobJson.parseNode(
+            """{"type": "column", "props": {}, "children": [${texts.joinToString(",")}]}""",
+        )
+        composeTestRule.setContent { Column { RenderNode(node) } }
+    }
+
+    private fun assertMonospaced(extraProps: String) {
+        render(text("iiiiiiii", extraProps), text("WWWWWWWW", extraProps))
+
+        val narrow = composeTestRule.onNodeWithText("iiiiiiii").getBoundsInRoot()
+        val wide = composeTestRule.onNodeWithText("WWWWWWWW").getBoundsInRoot()
+        assertEquals(
+            "monospace$extraProps: narrow and wide runs differ in width",
+            wide.width.value,
+            narrow.width.value,
+            0.5f,
+        )
+    }
+
+    /** The platform typeface a text node's family, weight and style resolve to. */
+    private fun typeface(id: String): Typeface {
+        val layouts = mutableListOf<TextLayoutResult>()
+        composeTestRule.onNodeWithTag(id)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        val input = layouts.single().layoutInput
+        return input.fontFamilyResolver.resolve(
+            input.style.fontFamily,
+            input.style.fontWeight ?: FontWeight.Normal,
+            input.style.fontStyle ?: FontStyle.Normal,
+        ).value as Typeface
+    }
+
+    private fun tagged(id: String, extraProps: String) =
+        text("WWWWiiii", """, "id": "$id"$extraProps""")
+
+    @Test
+    fun monospaceRegular() = assertMonospaced("")
+
+    @Test
+    fun monospaceBold() = assertMonospaced(""", "font_weight": "bold"""")
+
+    @Test
+    fun monospaceItalic() = assertMonospaced(""", "italic": true""")
+
+    @Test
+    fun monospaceBoldItalic() = assertMonospaced(""", "font_weight": "bold", "italic": true""")
+
+    @Test
+    fun monospaceBoldResolvesToABoldFace() {
+        render(tagged("bold", """, "font_weight": "bold""""))
+
+        val face = typeface("bold")
+        assertTrue("bold monospace resolved to weight ${face.weight}", face.weight >= 700)
+    }
+
+    @Test
+    fun monospaceItalicResolvesToAnItalicFace() {
+        render(tagged("italic", """, "italic": true"""))
+
+        assertTrue("italic monospace resolved to an upright face", typeface("italic").isItalic)
+    }
+}

@@ -2261,14 +2261,14 @@ defmodule MobNew.ProjectGeneratorTest do
         {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
         content = File.read!(Path.join(dir, @path))
 
-        # Find the project_rust_libs loop body. The block is bounded by the
-        # opening conditional and the next `run.addArgs` (a stable marker —
-        # follows the rust-libs loop on all three templates). Strip line
-        # comments so the assertion isn't fooled by the comment text we add.
+        # Find the project_rust_libs block: from its opening conditional to
+        # the conditional's closing brace (4-space indent on all three
+        # templates). Strip line comments so the assertion isn't fooled by
+        # the comment text we add.
         [_preamble, after_marker] =
           String.split(content, "opts.project_rust_libs.len > 0", parts: 2)
 
-        [loop_body, _rest] = String.split(after_marker, "run.addArgs", parts: 2)
+        [loop_body, _rest] = String.split(after_marker, "\n    }\n", parts: 2)
 
         loop_code =
           loop_body

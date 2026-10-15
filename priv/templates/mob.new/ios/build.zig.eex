@@ -88,14 +88,11 @@ pub fn build(b: *std.Build) void {
     // fails to compile with "struct 'options' has no member named 'tflite_static'".
     const tflite_static = b.option(bool, "tflite_static", "TFLite NIF statically linked (-DMOB_STATIC_TFLITE_NIF on driver_tab)") orelse false;
     // mob_dev's MobDev.NativeBuild.tflite_zig_args_ios/1 emits these
-    // alongside -Dtflite_static. Declared as accepted b.option values so
-    // the zig invocation doesn't reject them as unknown. Currently a
-    // placeholder for iOS TFLite link-side wiring (mirrors how the Android
-    // template declares tflite_static without yet using a per-arch tflite_lib).
+    // alongside -Dtflite_static; addLink links libtflite_nif.a plus
+    // TensorFlowLiteC and its Core ML delegate, whose xcframework slices are
+    // static objects (MOB-394).
     const tflite_dir = b.option([]const u8, "tflite_dir", "Absolute path to dir containing libtflite_nif.a (iOS, when TFLite enabled)") orelse "";
     const tflite_framework_dir = b.option([]const u8, "tflite_framework_dir", "Absolute path to TensorFlowLiteC.framework Frameworks/ dir (iOS, when TFLite enabled)") orelse "";
-    _ = tflite_dir;
-    _ = tflite_framework_dir;
 
     const objects_step = b.step(
         "objects",
@@ -364,6 +361,10 @@ pub fn build(b: *std.Build) void {
         .mlx_dir = mlx_dir,
         .nxeigen_static = nxeigen_static,
         .nxeigen_dir = nxeigen_dir,
+        .tflite_static = tflite_static,
+        .tflite_dir = tflite_dir,
+        .tflite_framework_dir = tflite_framework_dir,
+        .tflite_slice = "ios-arm64_x86_64-simulator",
         .project_rust_libs = project_rust_libs,
         .plugin_static_libs = plugin_static_libs,
         .plugin_frameworks = plugin_frameworks,
@@ -525,6 +526,12 @@ const LinkOptions = struct {
     // NxEigen. Empty nxeigen_dir / false nxeigen_static = NxEigen not in this build.
     nxeigen_static: bool = false,
     nxeigen_dir: []const u8 = "",
+    // TFLite (nx_tflite_mob). Empty tflite_dir / false tflite_static = not
+    // in this build. tflite_slice: the xcframework slice for this SDK.
+    tflite_static: bool = false,
+    tflite_dir: []const u8 = "",
+    tflite_framework_dir: []const u8 = "",
+    tflite_slice: []const u8 = "",
     // Comma-separated absolute paths to project-side Rust NIF .a files
     // (pre-built by mob_dev with `cargo rustc --target
     // aarch64-apple-ios-sim --crate-type staticlib`). Empty if none.
@@ -586,6 +593,19 @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
     // library (Eigen is header-only).
     if (opts.nxeigen_static and opts.nxeigen_dir.len > 0) {
         run.addArg(b.fmt("{s}/libnx_eigen.a", .{opts.nxeigen_dir}));
+    }
+
+    // TFLite (nx_tflite_mob's NIF; tflite_nif_nif_init is referenced from the
+    // driver tab) and the TensorFlowLiteC runtime with its Core ML delegate.
+    if (opts.tflite_static and opts.tflite_dir.len > 0 and opts.tflite_framework_dir.len > 0) {
+        run.addFileArg(.{ .cwd_relative = b.fmt("{s}/libtflite_nif.a", .{opts.tflite_dir}) });
+        for ([_][]const u8{ "TensorFlowLiteC", "TensorFlowLiteCCoreML" }) |fw| {
+            run.addArgs(&.{ "-F", b.fmt("{s}/{s}.xcframework/{s}", .{ opts.tflite_framework_dir, fw, opts.tflite_slice }) });
+            run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", fw });
+        }
+        for ([_][]const u8{ "CoreML", "Metal" }) |fw| {
+            run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", fw });
+        }
     }
 
     // Project-side Rust NIF static archives (auto-wired from mob.exs

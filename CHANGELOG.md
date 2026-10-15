@@ -10,6 +10,100 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Upgrading
+- **MOB-394** changes `android/app/src/main/jni/build.zig`,
+  `ios/build.zig` and `ios/build_device.zig`, and existing apps own those
+  files. Only apps with `nx_tflite_mob` in deps need it: without it, once
+  mob_dev 0.7.27 generates the app's driver table, the Android app crashes
+  at launch (`cannot locate symbol "tflite_nif_nif_init"`) and the iOS link
+  fails (`Undefined symbols: _tflite_nif_nif_init`).
+  Also update mob_dev to 0.7.27 or later, which generates the app's
+  `priv/generated/driver_tab_*.zig` with the TFLite entry (the next
+  `mix mob.deploy --native` does it, or run `mix mob.regen_driver_tab`
+  once; commit the result). Without that table `NxTfliteMob` doesn't load
+  on either platform.
+
+  Android `build.zig`: remove the line `_ = tflite_lib;` and apply:
+
+  ```diff
+  @@ const main_link_cp = addLink(b, native_lib_step, .{
+           .nxeigen_static = nxeigen_static,
+           .nxeigen_lib = nxeigen_lib,
+  +        .tflite_static = tflite_static,
+  +        .tflite_lib = tflite_lib,
+       });
+  @@ const LinkOptions = struct {
+       nxeigen_static: bool = false,
+       nxeigen_lib: []const u8 = "",
+  +    tflite_static: bool = false,
+  +    tflite_lib: []const u8 = "",
+   };
+  @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) *std.Build.Step {
+       if (opts.nxeigen_static and opts.nxeigen_lib.len > 0) {
+           const lp: std.Build.LazyPath = .{ .cwd_relative = opts.nxeigen_lib };
+           run.addFileArg(lp);
+       }
+  +
+  +    if (opts.tflite_static and opts.tflite_lib.len > 0) {
+  +        const lp: std.Build.LazyPath = .{ .cwd_relative = opts.tflite_lib };
+  +        run.addFileArg(lp);
+  +        run.addArg(b.fmt("-L{s}/android/app/src/main/jniLibs/{s}", .{ opts.project_root, opts.abi }));
+  +        run.addArg("-ltensorflowlite_jni");
+  +    }
+  ```
+
+  `ios/build.zig` and `ios/build_device.zig`: remove the lines
+  `_ = tflite_dir;` and `_ = tflite_framework_dir;` and apply the same hunks
+  to both, with `.tflite_slice = "ios-arm64_x86_64-simulator"` in
+  `build.zig` and `.tflite_slice = "ios-arm64"` in `build_device.zig`:
+
+  ```diff
+  @@ addLink(b, binary_step, .{
+           .nxeigen_static = nxeigen_static,
+           .nxeigen_dir = nxeigen_dir,
+  +        .tflite_static = tflite_static,
+  +        .tflite_dir = tflite_dir,
+  +        .tflite_framework_dir = tflite_framework_dir,
+  +        .tflite_slice = "ios-arm64_x86_64-simulator",
+  @@ const LinkOptions = struct {
+       nxeigen_static: bool = false,
+       nxeigen_dir: []const u8 = "",
+  +    tflite_static: bool = false,
+  +    tflite_dir: []const u8 = "",
+  +    tflite_framework_dir: []const u8 = "",
+  +    tflite_slice: []const u8 = "",
+  @@ fn addLink(b: *std.Build, step: *std.Build.Step, opts: LinkOptions) void {
+       if (opts.nxeigen_static and opts.nxeigen_dir.len > 0) {
+           run.addArg(b.fmt("{s}/libnx_eigen.a", .{opts.nxeigen_dir}));
+       }
+  +
+  +    if (opts.tflite_static and opts.tflite_dir.len > 0 and opts.tflite_framework_dir.len > 0) {
+  +        run.addFileArg(.{ .cwd_relative = b.fmt("{s}/libtflite_nif.a", .{opts.tflite_dir}) });
+  +        for ([_][]const u8{ "TensorFlowLiteC", "TensorFlowLiteCCoreML" }) |fw| {
+  +            run.addArgs(&.{ "-F", b.fmt("{s}/{s}.xcframework/{s}", .{ opts.tflite_framework_dir, fw, opts.tflite_slice }) });
+  +            run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", fw });
+  +        }
+  +        for ([_][]const u8{ "CoreML", "Metal" }) |fw| {
+  +            run.addArgs(&.{ "-Xlinker", "-framework", "-Xlinker", fw });
+  +        }
+  +    }
+  ```
+
+### Fixed
+- **Apps with `nx_tflite_mob` link TFLite on Android and iOS (MOB-394).**
+  mob_dev builds `libtflite_nif.a` and passes it to the native build
+  (`-Dtflite_lib` on Android; `-Dtflite_dir` and `-Dtflite_framework_dir` on
+  iOS), and the driver table references `tflite_nif_nif_init`, but the
+  generated build files accepted those options and threw them away. On
+  Android the app's `.so` failed to load at launch:
+  `dlopen failed: cannot locate symbol "tflite_nif_nif_init"`. The Android
+  link now takes the archive plus `libtensorflowlite_jni.so` (the TFLite C
+  API it calls), which mob_dev copies into `jniLibs/<abi>/` before the link.
+  The iOS links take the archive plus the `TensorFlowLiteC` and
+  `TensorFlowLiteCCoreML` frameworks from the xcframework slice for the SDK,
+  and Core ML and Metal. `AndroidTfliteLinkTest` and `IosTfliteLinkTest` run
+  the generated build files and check the link line with TFLite on and off.
+
 ## [0.6.11] - 2026-10-15
 
 ### Upgrading

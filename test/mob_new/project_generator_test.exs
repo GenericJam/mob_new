@@ -2219,6 +2219,40 @@ defmodule MobNew.ProjectGeneratorTest do
       refute content =~ "/Users/"
     end
 
+    # ── SQLite compiled with exqlite's own defines (MOB-487) ────────────────────
+    #
+    # With only -DSQLITE_THREADSAFE=1 the phone's SQLite had no FTS5 (`no such
+    # module: fts5`) while host builds, compiled by exqlite's Makefile, did.
+    # Both Android builds (build.zig, and CMake when zig didn't run) must compile
+    # sqlite3.c with exqlite's set. mob_dev's MobDev.ExqliteTest pins this list
+    # against exqlite's Makefile and MobDev.Exqlite.
+
+    test "build.zig and CMakeLists.txt compile SQLite with exqlite's defines, incl. FTS5",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      jni = Path.join(dir, "android/app/src/main/jni")
+
+      zig_defines =
+        jni
+        |> Path.join("build.zig")
+        |> File.read!()
+        |> sqlite_define_block()
+        |> Enum.map(&(Regex.run(Regex.compile!(~S{^"-D(.+)",$}), &1) |> List.last()))
+
+      cmake_defines =
+        jni
+        |> Path.join("CMakeLists.txt")
+        |> File.read!()
+        |> sqlite_define_block()
+
+      assert "SQLITE_THREADSAFE=1" in zig_defines
+      assert "SQLITE_ENABLE_FTS5=1" in zig_defines
+      assert "SQLITE_ENABLE_FTS4=1" in zig_defines
+      assert "SQLITE_ENABLE_RTREE=1" in zig_defines
+      assert "SQLITE_ENABLE_MATH_FUNCTIONS=1" in zig_defines
+      assert cmake_defines == zig_defines
+    end
+
     # ── CMake PRIVATE keyword — ERTS atom table isolation ────────────────────────
     #
     # target_link_libraries without the PRIVATE keyword defaults to PUBLIC in
@@ -3881,6 +3915,14 @@ defmodule MobNew.ProjectGeneratorTest do
         {k, v} -> System.put_env(k, v)
       end)
     end
+  end
+
+  # The lines between the template's `exqlite SQLite defines (begin)` and
+  # `(end)` marker comments (`//` in build.zig, `#` in CMakeLists.txt), trimmed.
+  defp sqlite_define_block(content) do
+    marker = Regex.compile!(~S{^\s*(?://|#) exqlite SQLite defines \((?:begin|end)\)$}, "m")
+    [_, block, _] = Regex.split(marker, content)
+    block |> String.split("\n", trim: true) |> Enum.map(&String.trim/1)
   end
 
   # Asks git itself whether `rel` is ignored in the generated project, so the

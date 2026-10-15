@@ -10,6 +10,88 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Upgrading
+- **MOB-487** changes `android/app/src/main/jni/build.zig` and
+  `CMakeLists.txt`, and existing apps own those files. Without it the
+  Android app's SQLite has no FTS5 (`no such module: fts5`), R*Tree, math
+  functions or the rest of exqlite's features, though host tests pass.
+  (iOS needs no app edits: mob_dev compiles it, see mob_dev's CHANGELOG.)
+
+  `build.zig`, in `const sqlite_flags`: replace the line
+  `"-DSQLITE_THREADSAFE=1",` with
+
+  ```zig
+          "-DSQLITE_THREADSAFE=1",
+          "-DSQLITE_USE_URI=1",
+          "-DSQLITE_LIKE_DOESNT_MATCH_BLOBS=1",
+          "-DSQLITE_DQS=0",
+          "-DHAVE_USLEEP=1",
+          "-DALLOW_COVERING_INDEX_SCAN=1",
+          "-DENABLE_FTS3_PARENTHESIS=1",
+          "-DENABLE_LOAD_EXTENSION=1",
+          "-DENABLE_SOUNDEX=1",
+          "-DENABLE_STAT4=1",
+          "-DENABLE_UPDATE_DELETE_LIMIT=1",
+          "-DSQLITE_ENABLE_FTS3=1",
+          "-DSQLITE_ENABLE_FTS4=1",
+          "-DSQLITE_ENABLE_FTS5=1",
+          "-DSQLITE_ENABLE_GEOPOLY=1",
+          "-DSQLITE_ENABLE_MATH_FUNCTIONS=1",
+          "-DSQLITE_ENABLE_RBU=1",
+          "-DSQLITE_ENABLE_RTREE=1",
+          "-DSQLITE_OMIT_DEPRECATED=1",
+          "-DSQLITE_ENABLE_DBSTAT_VTAB=1",
+  ```
+
+  `CMakeLists.txt`, in the `if(NOT EXISTS "${ZIG_SQLITE_SO}")` block:
+
+  ```diff
+       target_compile_definitions(sqlite3_nif PRIVATE
+           SQLITE_THREADSAFE=1
+  +        SQLITE_USE_URI=1
+  +        SQLITE_LIKE_DOESNT_MATCH_BLOBS=1
+  +        SQLITE_DQS=0
+  +        HAVE_USLEEP=1
+  +        ALLOW_COVERING_INDEX_SCAN=1
+  +        ENABLE_FTS3_PARENTHESIS=1
+  +        ENABLE_LOAD_EXTENSION=1
+  +        ENABLE_SOUNDEX=1
+  +        ENABLE_STAT4=1
+  +        ENABLE_UPDATE_DELETE_LIMIT=1
+  +        SQLITE_ENABLE_FTS3=1
+  +        SQLITE_ENABLE_FTS4=1
+  +        SQLITE_ENABLE_FTS5=1
+  +        SQLITE_ENABLE_GEOPOLY=1
+  +        SQLITE_ENABLE_MATH_FUNCTIONS=1
+  +        SQLITE_ENABLE_RBU=1
+  +        SQLITE_ENABLE_RTREE=1
+  +        SQLITE_OMIT_DEPRECATED=1
+  +        SQLITE_ENABLE_DBSTAT_VTAB=1
+       )
+
+       target_link_libraries(sqlite3_nif
+           <app_name>
+           android
+           log
+  +        m
+       )
+  ```
+
+  Then `mix mob.deploy --native`.
+
+### Fixed
+- **The Android SQLite is compiled with exqlite's own defines, so it has
+  FTS5 (MOB-487).** The generated `build.zig` and `CMakeLists.txt` compiled
+  exqlite's SQLite amalgamation with only `-DSQLITE_THREADSAFE=1`, while the
+  host NIF (exqlite's Makefile) also enables FTS3/4/5, R*Tree, Geopoly, math
+  functions, RBU and dbstat: a query on an FTS5 table passed host tests and
+  failed on the phone with `no such module: fts5`. Both now use exqlite's
+  Makefile set, the list mob_dev's iOS builds use (`MobDev.Exqlite`), and
+  the CMake fallback links libm for the math functions. The set includes
+  `SQLITE_DQS=0`, so the device, like the host, rejects double-quoted string
+  literals. mob_dev's `MobDev.ExqliteTest` keeps the templates' list equal
+  to exqlite's Makefile and to mob_dev's.
+
 ## [0.6.12] - 2026-10-15
 
 ### Upgrading

@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.12] - 2026-10-15
+
 ### Upgrading
 - **MOB-394** changes `android/app/src/main/jni/build.zig`,
   `ios/build.zig` and `ios/build_device.zig`, and existing apps own those

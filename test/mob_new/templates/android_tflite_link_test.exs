@@ -81,6 +81,7 @@ defmodule MobNew.Templates.AndroidTfliteLinkTest do
     |> String.split("---\n", trim: true)
     |> Enum.map(&String.split(&1, "\n", trim: true))
     |> Enum.find(&("-Wl,-soname,libtfl_app.so" in &1))
+    |> Kernel.||(flunk("no lib<app>.so link call in the clang log"))
   end
 
   # Minimal stand-ins: tiny sources the build compiles for real, an empty OTP

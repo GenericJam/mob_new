@@ -13,12 +13,15 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ### Upgrading
 - **MOB-394** changes `android/app/src/main/jni/build.zig`,
   `ios/build.zig` and `ios/build_device.zig`, and existing apps own those
-  files. Only apps with `nx_tflite_mob` in deps need it (on Android they
-  crash at launch without it; on iOS the TFLite NIF is missing from the
-  binary). Also update mob_dev to 0.7.27 or later, which generates the app's
+  files. Only apps with `nx_tflite_mob` in deps need it: without it, once
+  mob_dev 0.7.27 generates the app's driver table, the Android app crashes
+  at launch (`cannot locate symbol "tflite_nif_nif_init"`) and the iOS link
+  fails (`Undefined symbols: _tflite_nif_nif_init`).
+  Also update mob_dev to 0.7.27 or later, which generates the app's
   `priv/generated/driver_tab_*.zig` with the TFLite entry (the next
   `mix mob.deploy --native` does it, or run `mix mob.regen_driver_tab`
-  once; commit the result).
+  once; commit the result). Without that table `NxTfliteMob` doesn't load
+  on either platform.
 
   Android `build.zig`: remove the line `_ = tflite_lib;` and apply:
 

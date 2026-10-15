@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.11] - 2026-10-15
+
 ### Upgrading
 - **MOB-120** changes `MainActivity.kt` and `MobBridge.kt`, and existing apps
   own both files. In `MainActivity.kt`, inside

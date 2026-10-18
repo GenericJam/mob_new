@@ -29,7 +29,9 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `// ── Text-to-speech` block of `MobBridge.kt` (from the comment through
   `fun ttsStop()`) with this release's
   `priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex`
-  block, and add to `<queries>`:
+  block, add `ttsAppContext = activity.applicationContext` after
+  `activityRef = WeakReference(activity)` in `MobBridge.init`, and add to
+  `<queries>`:
 
   ```xml
   <intent>

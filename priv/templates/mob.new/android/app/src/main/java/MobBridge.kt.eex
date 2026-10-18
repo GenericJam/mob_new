@@ -1470,6 +1470,7 @@ object MobBridge {
     @JvmStatic
     fun init(activity: Activity) {
         activityRef = WeakReference(activity)
+        ttsAppContext = activity.applicationContext
         // Thread-local and throws off a Looper thread, so it has to be taken
         // here rather than lazily from whichever thread samples first.
         mainHandler.post { mainChoreographer = android.view.Choreographer.getInstance() }
@@ -3013,9 +3014,8 @@ object MobBridge {
     /** Starts the engine if there isn't one. Main thread. False when it can't start. */
     private fun ttsEnsure(): Boolean {
         if (tts != null) return true
-        val context = ttsAppContext
-            ?: activityRef?.get()?.applicationContext?.also { ttsAppContext = it }
-            ?: return false
+        // Set by init(); the application context outlives every Activity.
+        val context = ttsAppContext ?: return false
         val gen = Any()
         val latch = java.util.concurrent.CountDownLatch(1)
         ttsGen = gen

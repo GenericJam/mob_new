@@ -2978,8 +2978,10 @@ object MobBridge {
     private val ttsSeq = java.util.concurrent.atomic.AtomicLong()
     private val ttsVoiceCode = Regex("-x-([a-z0-9]+)")
 
-    // Utterance callbacks arrive on a binder thread. Each utterance ends in
-    // exactly one of these; the caller gets {:speech, :done | :cancelled | :failed}.
+    // Utterance callbacks arrive on a binder thread. While the engine runs, each
+    // utterance ends in exactly one of these; the caller gets
+    // {:speech, :done | :cancelled | :failed}. An engine process that dies
+    // mid-utterance sends nothing.
     private val ttsProgress = object : android.speech.tts.UtteranceProgressListener() {
         override fun onStart(utteranceId: String) {}
 
@@ -3060,15 +3062,22 @@ object MobBridge {
             org.json.JSONObject()
         }
         // The engine keeps its settings between calls; set each one so the
-        // options apply to this utterance only, as on iOS.
-        engine.setSpeechRate(opts.optDouble("rate", 1.0).toFloat())
-        engine.setPitch(opts.optDouble("pitch", 1.0).toFloat())
+        // options apply to this utterance only, as on iOS. Absent ones go back
+        // to the user's system defaults (Settings > Text-to-speech output).
+        engine.setSpeechRate(opts.optDouble("rate", ttsSystemDefault("tts_default_rate")).toFloat())
+        engine.setPitch(opts.optDouble("pitch", ttsSystemDefault("tts_default_pitch")).toFloat())
         ttsSelectVoice(engine, opts.optString("voice", ""))
         val id = "mob_tts_${ttsSeq.incrementAndGet()}"
         if (u.pid != 0L) ttsCallers[id] = u.pid
         if (engine.speak(u.text, TextToSpeech.QUEUE_ADD, null, id) != TextToSpeech.SUCCESS) {
             ttsFinish(id, "failed")
         }
+    }
+
+    // Settings.Secure.TTS_DEFAULT_RATE / TTS_DEFAULT_PITCH: percentages, 100 = normal.
+    private fun ttsSystemDefault(setting: String): Double {
+        val resolver = activityRef?.get()?.contentResolver ?: return 1.0
+        return android.provider.Settings.Secure.getInt(resolver, setting, 100) / 100.0
     }
 
     // A voice id from ttsVoices first, then a BCP-47 language tag. Neither (or
@@ -3107,8 +3116,14 @@ object MobBridge {
             ensured.countDown()
         }
         val ns = java.util.concurrent.TimeUnit.NANOSECONDS
-        if (!ensured.await(deadline - System.nanoTime(), ns) || !started) return null
-        if (!ttsInit.await(deadline - System.nanoTime(), ns) || !ttsReady) return null
+        // An exception escaping here would stay pending in the calling JNI thread.
+        try {
+            if (!ensured.await(deadline - System.nanoTime(), ns) || !started) return null
+            if (!ttsInit.await(deadline - System.nanoTime(), ns) || !ttsReady) return null
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return null
+        }
         val engine = tts ?: return null
         return try {
             val out = org.json.JSONArray()
@@ -3133,14 +3148,17 @@ object MobBridge {
         }
     }
 
-    /** Called from nif_tts_stop via JNI — stops any in-progress speech immediately. */
+    /** Called from nif_tts_stop via JNI — stops any in-progress speech. Runs on the UI
+     *  thread after any ttsSpeakFor posted before it, so speak-then-stop stops. */
     @JvmStatic
     fun ttsStop() {
-        activityRef?.get()?.runOnUiThread {
+        val activity = activityRef?.get() ?: return
+        activity.runOnUiThread {
             ttsPending.forEach { ttsNotify(it, "cancelled") }
             ttsPending.clear()
+            // A failed stop leaves no onStop to come; end the callers' utterances here.
+            if (tts?.stop() == TextToSpeech.ERROR) ttsCallers.keys.toList().forEach { ttsFinish(it, "cancelled") }
         }
-        tts?.stop()
     }
 
     /** Called from nif_clipboard_put via JNI — writes text to the system clipboard. */

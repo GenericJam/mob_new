@@ -1470,6 +1470,7 @@ object MobBridge {
     @JvmStatic
     fun init(activity: Activity) {
         activityRef = WeakReference(activity)
+        ttsAppContext = activity.applicationContext
         // Thread-local and throws off a Looper thread, so it has to be taken
         // here rather than lazily from whichever thread samples first.
         mainHandler.post { mainChoreographer = android.view.Choreographer.getInstance() }
@@ -2964,47 +2965,223 @@ object MobBridge {
     }
 
     // ── Text-to-speech ──────────────────────────────────────────────────────
-    // TextToSpeech initializes asynchronously; we keep one engine alive and
-    // queue the first utterance until onInit fires.
-    private var tts: TextToSpeech? = null
-    private var ttsReady = false
-    private var ttsPending: Pair<String, String>? = null
+    // TextToSpeech initializes asynchronously; we keep one engine alive, queue
+    // utterances until onInit fires, and let ttsVoices (called on a BEAM
+    // thread) wait on ttsInit. An engine that fails to start, or doesn't start
+    // within TTS_INIT_TIMEOUT_MS, is dropped so the next call tries again. All
+    // TTS work runs on mainHandler, not the Activity: the BEAM, and so speech,
+    // outlives it. tts, ttsGen and ttsPending change on the main thread only.
+    private class TtsUtterance(val pid: Long, val text: String, val optsJson: String)
 
-    /** Called from nif_tts_speak via JNI — speaks text via TextToSpeech.
-     *  optsJson may carry {"rate":Float,"pitch":Float,"voice":"en-US"} (all optional). */
-    @JvmStatic
-    fun ttsSpeak(text: String, optsJson: String) {
-        val activity = activityRef?.get() ?: return
-        activity.runOnUiThread {
-            if (tts == null) {
-                tts = TextToSpeech(activity.applicationContext) { status ->
-                    ttsReady = status == TextToSpeech.SUCCESS
-                    val pending = ttsPending
-                    ttsPending = null
-                    if (ttsReady && pending != null) speakNow(pending.first, pending.second)
-                }
+    @Volatile private var tts: TextToSpeech? = null
+    @Volatile private var ttsReady = false
+    @Volatile private var ttsInit = java.util.concurrent.CountDownLatch(1)
+    @Volatile private var ttsAppContext: android.content.Context? = null
+    private var ttsGen: Any? = null
+    private const val TTS_INIT_TIMEOUT_MS = 10_000L
+    private val ttsPending = ArrayList<TtsUtterance>()
+    private val ttsCallers = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private var ttsSeq = 0L
+    private val ttsVoiceCode = Regex("-x-([a-z0-9]+)")
+
+    // Utterance callbacks arrive on a binder thread. While the engine runs, each
+    // utterance ends in exactly one of these; the caller gets
+    // {:speech, :done | :cancelled | :failed}. An engine process that dies
+    // mid-utterance sends nothing.
+    private val ttsProgress = object : android.speech.tts.UtteranceProgressListener() {
+        override fun onStart(utteranceId: String) {}
+
+        override fun onDone(utteranceId: String) = ttsFinish(utteranceId, "done")
+
+        @Deprecated("Deprecated in Java")
+        override fun onError(utteranceId: String) = ttsFinish(utteranceId, "failed")
+
+        override fun onError(utteranceId: String, errorCode: Int) = ttsFinish(utteranceId, "failed")
+
+        override fun onStop(utteranceId: String, interrupted: Boolean) =
+            ttsFinish(utteranceId, "cancelled")
+    }
+
+    private fun ttsFinish(utteranceId: String, event: String) {
+        val pid = ttsCallers.remove(utteranceId) ?: return
+        nativeDeliverAtom2(pid, "speech", event)
+    }
+
+    private fun ttsNotify(u: TtsUtterance, event: String) {
+        if (u.pid != 0L) nativeDeliverAtom2(u.pid, "speech", event)
+    }
+
+    /** Starts the engine if there isn't one. Main thread. False when it can't start. */
+    private fun ttsEnsure(): Boolean {
+        if (tts != null) return true
+        // Set by init(); the application context outlives every Activity.
+        val context = ttsAppContext ?: return false
+        val gen = Any()
+        val latch = java.util.concurrent.CountDownLatch(1)
+        ttsGen = gen
+        ttsInit = latch
+        ttsReady = false
+        var engine: TextToSpeech? = null
+        val created = TextToSpeech(context) { status ->
+            if (ttsGen !== gen) return@TextToSpeech
+            if (status == TextToSpeech.SUCCESS) {
+                engine?.setOnUtteranceProgressListener(ttsProgress)
+                ttsReady = true
+                ttsPending.forEach { speakNow(it) }
+                ttsPending.clear()
+                latch.countDown()
+            } else {
+                ttsAbandon(gen)
             }
-            if (ttsReady) speakNow(text, optsJson) else ttsPending = text to optsJson
+        }
+        // With no engine installed, onInit(ERROR) runs inside the constructor.
+        if (ttsGen !== gen) {
+            created.shutdown()
+            return false
+        }
+        engine = created
+        tts = created
+        // An engine that never calls onInit would hold every utterance forever.
+        mainHandler.postDelayed({ if (ttsGen === gen && !ttsReady) ttsAbandon(gen) }, TTS_INIT_TIMEOUT_MS)
+        return true
+    }
+
+    // Drops the engine of generation gen, failing what waited on it. Main thread.
+    private fun ttsAbandon(gen: Any) {
+        if (ttsGen !== gen) return
+        val latch = ttsInit
+        ttsGen = null
+        ttsReady = false
+        tts?.shutdown()
+        tts = null
+        ttsPending.forEach { ttsNotify(it, "failed") }
+        ttsPending.clear()
+        latch.countDown()
+    }
+
+    /** Called from nif_tts_speak via JNI on mob older than 0.9.22: no caller to notify. */
+    @JvmStatic
+    fun ttsSpeak(text: String, optsJson: String) = ttsSpeakFor(0L, text, optsJson)
+
+    /** Called from nif_tts_speak via JNI — speaks text via TextToSpeech and tells pid
+     *  when it ends. optsJson may carry {"rate":Float,"pitch":Float,"voice":String}
+     *  (all optional); "voice" is a voice id from ttsVoices or a BCP-47 language tag. */
+    @JvmStatic
+    fun ttsSpeakFor(pid: Long, text: String, optsJson: String) {
+        val u = TtsUtterance(pid, text, optsJson)
+        mainHandler.post {
+            when {
+                !ttsEnsure() -> ttsNotify(u, "failed")
+                ttsReady -> speakNow(u)
+                else -> ttsPending.add(u)
+            }
         }
     }
 
-    private fun speakNow(text: String, optsJson: String) {
-        val engine = tts ?: return
+    private fun speakNow(u: TtsUtterance) {
+        val engine = tts ?: return ttsNotify(u, "failed")
+        val opts = try {
+            org.json.JSONObject(u.optsJson)
+        } catch (_: org.json.JSONException) {
+            org.json.JSONObject()
+        }
+        // The engine keeps its settings between calls; set each one so the
+        // options apply to this utterance only, as on iOS. Absent ones go back
+        // to the user's system defaults (Settings > Text-to-speech output).
+        engine.setSpeechRate(opts.optDouble("rate", ttsSystemDefault("tts_default_rate")).toFloat())
+        engine.setPitch(opts.optDouble("pitch", ttsSystemDefault("tts_default_pitch")).toFloat())
+        ttsSelectVoice(engine, opts.optString("voice", ""))
+        val id = "mob_tts_${++ttsSeq}"
+        if (u.pid != 0L) ttsCallers[id] = u.pid
+        if (engine.speak(u.text, TextToSpeech.QUEUE_ADD, null, id) != TextToSpeech.SUCCESS) {
+            ttsFinish(id, "failed")
+        }
+    }
+
+    // Settings.Secure.TTS_DEFAULT_RATE / TTS_DEFAULT_PITCH: percentages, 100 = normal.
+    private fun ttsSystemDefault(setting: String): Double {
+        val resolver = ttsAppContext?.contentResolver ?: return 1.0
+        return android.provider.Settings.Secure.getInt(resolver, setting, 100) / 100.0
+    }
+
+    // A voice id from ttsVoices first, then a BCP-47 language tag. Neither (or
+    // no "voice" at all) puts the engine back on its default voice.
+    private fun ttsSelectVoice(engine: TextToSpeech, voice: String) {
+        if (voice.isNotEmpty()) {
+            if (engine.voice?.name == voice) return
+            val byId = engine.voices?.firstOrNull { it.name == voice }
+            if (byId != null) {
+                engine.setVoice(byId)
+                return
+            }
+            val locale = java.util.Locale.forLanguageTag(voice)
+            if (locale.language.isNotEmpty() &&
+                engine.isLanguageAvailable(locale) >= TextToSpeech.LANG_AVAILABLE
+            ) {
+                engine.setLanguage(locale)
+                return
+            }
+        }
+        engine.defaultVoice?.let { engine.setVoice(it) }
+    }
+
+    /** Called from nif_tts_voices via JNI on a BEAM dirty thread. The installed
+     *  voices as a JSON array of {"id","name","language","quality","network"},
+     *  or null when the engine didn't start within 5 s. Voices whose data
+     *  isn't downloaded are left out. */
+    @JvmStatic
+    fun ttsVoices(): String? {
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+        val ensured = java.util.concurrent.CountDownLatch(1)
+        var started = false
+        mainHandler.post {
+            started = ttsEnsure()
+            ensured.countDown()
+        }
+        // An exception escaping here would stay pending in the calling JNI thread.
         try {
-            val opts = org.json.JSONObject(optsJson)
-            if (opts.has("rate")) engine.setSpeechRate(opts.getDouble("rate").toFloat())
-            if (opts.has("pitch")) engine.setPitch(opts.getDouble("pitch").toFloat())
-            if (opts.has("voice"))
-                engine.setLanguage(java.util.Locale.forLanguageTag(opts.getString("voice")))
-        } catch (_: Exception) {
+            val ensureLeft = deadline - System.nanoTime()
+            if (!ensured.await(ensureLeft, java.util.concurrent.TimeUnit.NANOSECONDS) || !started) return null
+            val initLeft = deadline - System.nanoTime()
+            if (!ttsInit.await(initLeft, java.util.concurrent.TimeUnit.NANOSECONDS) || !ttsReady) return null
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return null
         }
-        engine.speak(text, TextToSpeech.QUEUE_ADD, null, "mob_tts_${System.currentTimeMillis()}")
+        val engine = tts ?: return null
+        return try {
+            val out = org.json.JSONArray()
+            engine.voices.orEmpty()
+                .filter { TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in it.features }
+                .forEach { v ->
+                    val code = ttsVoiceCode.find(v.name)?.groupValues?.get(1)
+                    val language = v.locale.displayName
+                    out.put(
+                        org.json.JSONObject()
+                            .put("id", v.name)
+                            .put("name", if (code != null) "$language $code" else language)
+                            .put("language", v.locale.toLanguageTag())
+                            .put("quality", v.quality)
+                            .put("network", v.isNetworkConnectionRequired),
+                    )
+                }
+            out.toString()
+        } catch (e: RuntimeException) {
+            Log.w("MobBridge", "ttsVoices failed: ${e.message}")
+            null
+        }
     }
 
-    /** Called from nif_tts_stop via JNI — stops any in-progress speech immediately. */
+    /** Called from nif_tts_stop via JNI — stops any in-progress speech. Runs on the UI
+     *  thread after any ttsSpeakFor posted before it, so speak-then-stop stops. */
     @JvmStatic
     fun ttsStop() {
-        tts?.stop()
+        mainHandler.post {
+            ttsPending.forEach { ttsNotify(it, "cancelled") }
+            ttsPending.clear()
+            // A failed stop leaves no onStop to come; end the callers' utterances here.
+            if (tts?.stop() == TextToSpeech.ERROR) ttsCallers.keys.toList().forEach { ttsFinish(it, "cancelled") }
+        }
     }
 
     /** Called from nif_clipboard_put via JNI — writes text to the system clipboard. */

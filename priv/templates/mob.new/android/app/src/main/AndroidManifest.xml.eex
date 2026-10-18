@@ -64,6 +64,11 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="tel" />
         </intent>
+        <!-- Mob.Speech: TextToSpeech binds the system engine, which API 30+
+             hides from apps that don't declare it. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 
     <application

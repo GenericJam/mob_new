@@ -912,16 +912,32 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "dragged.clipToBounds()"
     end
 
-    test "MobBridge.kt declares ttsSpeak/ttsStop for text-to-speech", %{tmp: tmp} do
+    test "MobBridge.kt declares the Mob.Speech methods mob_nif.zig looks up", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 
       content =
         File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
 
-      # Android side of Mob.Speech — TextToSpeech driven via JNI-cached methods.
+      # Android side of Mob.Speech. mob_nif.zig caches these by name and JNI
+      # signature with cacheOptional, so a rename or a changed parameter list
+      # silently turns the feature off rather than failing the build:
+      #   ttsSpeak     (Ljava/lang/String;Ljava/lang/String;)V   mob < 0.9.22
+      #   ttsSpeakFor  (JLjava/lang/String;Ljava/lang/String;)V
+      #   ttsVoices    ()Ljava/lang/String;
+      #   ttsStop      ()V
       assert content =~ "import android.speech.tts.TextToSpeech"
       assert content =~ "fun ttsSpeak(text: String, optsJson: String)"
+      assert content =~ "fun ttsSpeakFor(pid: Long, text: String, optsJson: String)"
+      assert content =~ "fun ttsVoices(): String?"
       assert content =~ "fun ttsStop()"
+    end
+
+    test "the manifest lets TextToSpeech find the system engine on API 30+", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      manifest = File.read!(Path.join(dir, "android/app/src/main/AndroidManifest.xml"))
+
+      [queries] = Regex.run(~r{<queries>.*</queries>}s, manifest)
+      assert queries =~ ~s(<action android:name="android.intent.action.TTS_SERVICE" />)
     end
 
     test "MobBridge.kt declares uiViewTree — the Android side of Mob.Test.view_tree/1 (MOB-157)",

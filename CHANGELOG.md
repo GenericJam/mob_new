@@ -10,6 +10,37 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **Text-to-speech voices, voice ids and end-of-speech events** in
+  `MobBridge.kt`, the Android half of mob 0.9.22's `Mob.Speech.voices/0`,
+  `speak/3` with `voice: <id>` and `{:speech, :done | :cancelled | :failed}`
+  (part of MOB-453). New `ttsVoices()` and `ttsSpeakFor(pid, text, opts)`;
+  `ttsSpeak`/`ttsStop` reworked. Options now apply to one utterance (the
+  engine kept rate, pitch and voice between calls), and two `speak/3` calls
+  before the engine starts no longer drop the first.
+
+### Fixed
+- **The manifest declares `android.intent.action.TTS_SERVICE` in
+  `<queries>`.** API 30+ hides the system TTS engine from apps that don't, so
+  `Mob.Speech` could fail to bind it.
+
+### Upgrading
+- Existing apps own `MobBridge.kt` and `AndroidManifest.xml`. Replace the
+  `// ── Text-to-speech` block of `MobBridge.kt` (from the comment through
+  `fun ttsStop()`) with this release's
+  `priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex`
+  block, and add to `<queries>`:
+
+  ```xml
+  <intent>
+      <action android:name="android.intent.action.TTS_SERVICE" />
+  </intent>
+  ```
+
+  Without the bridge block, mob 0.9.22 still speaks but `Mob.Speech.voices/0`
+  returns `{:error, :unsupported}`, `:voice` is a language tag only and no
+  events arrive.
+
 ## [0.6.13] - 2026-10-15
 
 ### Upgrading

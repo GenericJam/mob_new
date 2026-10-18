@@ -2981,7 +2981,7 @@ object MobBridge {
     private const val TTS_INIT_TIMEOUT_MS = 10_000L
     private val ttsPending = ArrayList<TtsUtterance>()
     private val ttsCallers = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val ttsSeq = java.util.concurrent.atomic.AtomicLong()
+    private var ttsSeq = 0L
     private val ttsVoiceCode = Regex("-x-([a-z0-9]+)")
 
     // Utterance callbacks arrive on a binder thread. While the engine runs, each
@@ -3091,7 +3091,7 @@ object MobBridge {
         engine.setSpeechRate(opts.optDouble("rate", ttsSystemDefault("tts_default_rate")).toFloat())
         engine.setPitch(opts.optDouble("pitch", ttsSystemDefault("tts_default_pitch")).toFloat())
         ttsSelectVoice(engine, opts.optString("voice", ""))
-        val id = "mob_tts_${ttsSeq.incrementAndGet()}"
+        val id = "mob_tts_${++ttsSeq}"
         if (u.pid != 0L) ttsCallers[id] = u.pid
         if (engine.speak(u.text, TextToSpeech.QUEUE_ADD, null, id) != TextToSpeech.SUCCESS) {
             ttsFinish(id, "failed")
@@ -3138,11 +3138,12 @@ object MobBridge {
             started = ttsEnsure()
             ensured.countDown()
         }
-        val ns = java.util.concurrent.TimeUnit.NANOSECONDS
         // An exception escaping here would stay pending in the calling JNI thread.
         try {
-            if (!ensured.await(deadline - System.nanoTime(), ns) || !started) return null
-            if (!ttsInit.await(deadline - System.nanoTime(), ns) || !ttsReady) return null
+            val ensureLeft = deadline - System.nanoTime()
+            if (!ensured.await(ensureLeft, java.util.concurrent.TimeUnit.NANOSECONDS) || !started) return null
+            val initLeft = deadline - System.nanoTime()
+            if (!ttsInit.await(initLeft, java.util.concurrent.TimeUnit.NANOSECONDS) || !ttsReady) return null
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             return null

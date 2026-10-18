@@ -2966,13 +2966,18 @@ object MobBridge {
     // ── Text-to-speech ──────────────────────────────────────────────────────
     // TextToSpeech initializes asynchronously; we keep one engine alive, queue
     // utterances until onInit fires, and let ttsVoices (called on a BEAM
-    // thread) wait on ttsInit. An engine that fails to start is dropped so the
-    // next call tries again. tts and ttsPending change on the UI thread only.
+    // thread) wait on ttsInit. An engine that fails to start, or doesn't start
+    // within TTS_INIT_TIMEOUT_MS, is dropped so the next call tries again. All
+    // TTS work runs on mainHandler, not the Activity: the BEAM, and so speech,
+    // outlives it. tts, ttsGen and ttsPending change on the main thread only.
     private class TtsUtterance(val pid: Long, val text: String, val optsJson: String)
 
     @Volatile private var tts: TextToSpeech? = null
     @Volatile private var ttsReady = false
     @Volatile private var ttsInit = java.util.concurrent.CountDownLatch(1)
+    @Volatile private var ttsAppContext: android.content.Context? = null
+    private var ttsGen: Any? = null
+    private const val TTS_INIT_TIMEOUT_MS = 10_000L
     private val ttsPending = ArrayList<TtsUtterance>()
     private val ttsCallers = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val ttsSeq = java.util.concurrent.atomic.AtomicLong()
@@ -3005,33 +3010,53 @@ object MobBridge {
         if (u.pid != 0L) nativeDeliverAtom2(u.pid, "speech", event)
     }
 
-    /** Starts the engine if there isn't one. UI thread. False when it failed to start. */
-    private fun ttsEnsure(activity: Activity): Boolean {
+    /** Starts the engine if there isn't one. Main thread. False when it can't start. */
+    private fun ttsEnsure(): Boolean {
         if (tts != null) return true
+        val context = ttsAppContext
+            ?: activityRef?.get()?.applicationContext?.also { ttsAppContext = it }
+            ?: return false
+        val gen = Any()
         val latch = java.util.concurrent.CountDownLatch(1)
+        ttsGen = gen
         ttsInit = latch
+        ttsReady = false
         var engine: TextToSpeech? = null
-        val created = TextToSpeech(activity.applicationContext) { status ->
-            ttsReady = status == TextToSpeech.SUCCESS
-            if (ttsReady) {
+        val created = TextToSpeech(context) { status ->
+            if (ttsGen !== gen) return@TextToSpeech
+            if (status == TextToSpeech.SUCCESS) {
                 engine?.setOnUtteranceProgressListener(ttsProgress)
+                ttsReady = true
                 ttsPending.forEach { speakNow(it) }
+                ttsPending.clear()
+                latch.countDown()
             } else {
-                engine?.shutdown()
-                tts = null
-                ttsPending.forEach { ttsNotify(it, "failed") }
+                ttsAbandon(gen)
             }
-            ttsPending.clear()
-            latch.countDown()
         }
         // With no engine installed, onInit(ERROR) runs inside the constructor.
-        if (latch.count == 0L && !ttsReady) {
+        if (ttsGen !== gen) {
             created.shutdown()
             return false
         }
         engine = created
         tts = created
+        // An engine that never calls onInit would hold every utterance forever.
+        mainHandler.postDelayed({ if (ttsGen === gen && !ttsReady) ttsAbandon(gen) }, TTS_INIT_TIMEOUT_MS)
         return true
+    }
+
+    // Drops the engine of generation gen, failing what waited on it. Main thread.
+    private fun ttsAbandon(gen: Any) {
+        if (ttsGen !== gen) return
+        val latch = ttsInit
+        ttsGen = null
+        ttsReady = false
+        tts?.shutdown()
+        tts = null
+        ttsPending.forEach { ttsNotify(it, "failed") }
+        ttsPending.clear()
+        latch.countDown()
     }
 
     /** Called from nif_tts_speak via JNI on mob older than 0.9.22: no caller to notify. */
@@ -3044,10 +3069,9 @@ object MobBridge {
     @JvmStatic
     fun ttsSpeakFor(pid: Long, text: String, optsJson: String) {
         val u = TtsUtterance(pid, text, optsJson)
-        val activity = activityRef?.get() ?: return ttsNotify(u, "failed")
-        activity.runOnUiThread {
+        mainHandler.post {
             when {
-                !ttsEnsure(activity) -> ttsNotify(u, "failed")
+                !ttsEnsure() -> ttsNotify(u, "failed")
                 ttsReady -> speakNow(u)
                 else -> ttsPending.add(u)
             }
@@ -3076,7 +3100,7 @@ object MobBridge {
 
     // Settings.Secure.TTS_DEFAULT_RATE / TTS_DEFAULT_PITCH: percentages, 100 = normal.
     private fun ttsSystemDefault(setting: String): Double {
-        val resolver = activityRef?.get()?.contentResolver ?: return 1.0
+        val resolver = ttsAppContext?.contentResolver ?: return 1.0
         return android.provider.Settings.Secure.getInt(resolver, setting, 100) / 100.0
     }
 
@@ -3107,12 +3131,11 @@ object MobBridge {
      *  isn't downloaded are left out. */
     @JvmStatic
     fun ttsVoices(): String? {
-        val activity = activityRef?.get() ?: return null
         val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
         val ensured = java.util.concurrent.CountDownLatch(1)
         var started = false
-        activity.runOnUiThread {
-            started = ttsEnsure(activity)
+        mainHandler.post {
+            started = ttsEnsure()
             ensured.countDown()
         }
         val ns = java.util.concurrent.TimeUnit.NANOSECONDS
@@ -3152,8 +3175,7 @@ object MobBridge {
      *  thread after any ttsSpeakFor posted before it, so speak-then-stop stops. */
     @JvmStatic
     fun ttsStop() {
-        val activity = activityRef?.get() ?: return
-        activity.runOnUiThread {
+        mainHandler.post {
             ttsPending.forEach { ttsNotify(it, "cancelled") }
             ttsPending.clear()
             // A failed stop leaves no onStop to come; end the callers' utterances here.

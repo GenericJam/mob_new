@@ -256,6 +256,16 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Precision
+import androidx.compose.animation.core.animate
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.layout.onSizeChanged
 import org.json.JSONObject
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview as CameraPreview
@@ -5568,11 +5578,177 @@ private fun MobImage(node: MobNode, modifier: Modifier) {
     if (fixedHeight != null) m = m.height(fixedHeight.dp)
     if (cornerRadius > 0f)   m = m.clip(RoundedCornerShape(cornerRadius.dp))
 
+    if (boolProp(node.props, "zoomable") == true) {
+        val maxZoom = (floatProp(node.props, "max_zoom") ?: 4f).coerceAtLeast(1f)
+        val doubleTapZoom = (floatProp(node.props, "double_tap_zoom") ?: 2.5f).coerceIn(1f, maxZoom)
+        MobZoomableImage(model, src, maxZoom, doubleTapZoom, m)
+        return
+    }
+
     AsyncImage(
         model              = model,
         contentDescription = null,
         contentScale       = contentScale,
         modifier           = m,
+    )
+}
+
+/**
+ * `zoomable: true` on :image. Pinch zooms about the pinch (1x..maxZoom), a
+ * double tap zooms to doubleTapZoom about the tapped point and a second one
+ * goes back to 1x, one finger pans while zoomed in. All native: a gesture that
+ * waited on the BEAM for every frame could not track a finger.
+ *
+ * The frame is the zoom viewport, so it fills the space it is offered (an
+ * unbounded axis follows the picture's aspect ratio, as AsyncImage's own
+ * sizing does); the picture is aspect-fitted inside it. The gesture detector
+ * sits BEFORE graphicsLayer in the chain, so pointer positions are in the
+ * frame's untransformed coordinates, and clipToBounds keeps the zoomed picture
+ * inside the frame.
+ *
+ * Contract with a parent scroll or pager: one-finger moves are consumed only
+ * while zoomed in, and only past touch slop, so at 1x a drag reaches the
+ * parent untouched. Downs and ups are never consumed, so an on_tap on the
+ * node or an ancestor (a clickable outside this one) still sees every tap,
+ * both taps of a double tap included.
+ */
+@Composable
+private fun MobZoomableImage(
+    model: Any?,
+    src: String?,
+    maxZoom: Float,
+    doubleTapZoom: Float,
+    modifier: Modifier,
+) {
+    // Zoom belongs to one picture: a new src starts again at 1x.
+    var scale by remember(src) { mutableStateOf(1f) }
+    var offset by remember(src) { mutableStateOf(Offset.Zero) }
+    // The decoded picture's size, for its aspect ratio. Unspecified until loaded.
+    var picture by remember(src) { mutableStateOf(ComposeSize.Unspecified) }
+    var frame by remember { mutableStateOf(IntSize.Zero) }
+    var zoomAnimation by remember { mutableStateOf<Job?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // Panning limit at zoom s: half of however far the zoomed, aspect-fitted
+    // picture overhangs the frame on each axis, so its edge never comes inside
+    // the frame's edge. Where it does not overhang, it stays centred.
+    fun clamp(o: Offset, s: Float): Offset {
+        val fw = frame.width.toFloat()
+        val fh = frame.height.toFloat()
+        if (fw <= 0f || fh <= 0f) return Offset.Zero
+        // Size.width throws on Unspecified, so test that first. A picture not
+        // loaded yet (or with no intrinsic size) clamps against the frame.
+        val known = picture != ComposeSize.Unspecified && picture.width > 0f && picture.height > 0f
+        val fit = if (known) minOf(fw / picture.width, fh / picture.height) else null
+        val cw = if (fit != null) picture.width * fit else fw
+        val ch = if (fit != null) picture.height * fit else fh
+        val maxX = ((cw * s - fw) / 2f).coerceAtLeast(0f)
+        val maxY = ((ch * s - fh) / 2f).coerceAtLeast(0f)
+        return Offset(o.x.coerceIn(-maxX, maxX), o.y.coerceIn(-maxY, maxY))
+    }
+
+    // graphicsLayer scales about the frame's centre c, so a frame point p is
+    // drawn at c + s * (p - c) + offset. Keeping the content under `focus`
+    // fixed while going from scale s to s' = s * z gives
+    // offset' = (focus - c) * (1 - z) + offset * z.
+    fun offsetFor(focus: Offset, newScale: Float): Offset {
+        val z = newScale / scale
+        val c = Offset(frame.width / 2f, frame.height / 2f)
+        return (focus - c) * (1f - z) + offset * z
+    }
+
+    fun toggleZoom(focus: Offset) {
+        val fromScale = scale
+        val fromOffset = offset
+        val toScale = if (scale > 1f) 1f else doubleTapZoom
+        val toOffset = if (toScale == 1f) Offset.Zero else clamp(offsetFor(focus, toScale), toScale)
+        zoomAnimation?.cancel()
+        zoomAnimation = scope.launch {
+            animate(0f, 1f) { f, _ ->
+                scale = fromScale + (toScale - fromScale) * f
+                offset = fromOffset + (toOffset - fromOffset) * f
+            }
+        }
+    }
+
+    // Up to 4096 px on the long side, never upscaled (INEXACT): zooming in
+    // needs more pixels than the frame, which is all AsyncImage would otherwise
+    // decode, and 4096 x 4096 ARGB stays under the 100 MB a Canvas will draw.
+    val request = remember(model) {
+        ImageRequest.Builder(context)
+            .data(model)
+            .size(4096)
+            .precision(Precision.INEXACT)
+            .build()
+    }
+
+    AsyncImage(
+        model              = request,
+        contentDescription = null,
+        contentScale       = ContentScale.Fit,
+        onSuccess          = { picture = it.painter.intrinsicSize },
+        modifier           = modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .onSizeChanged {
+                frame = it
+                offset = clamp(offset, scale)
+            }
+            .pointerInput(src, maxZoom, doubleTapZoom) {
+                // Uptime of the previous tap's up; 0 when the next tap cannot
+                // be the second of a double tap.
+                var lastTapUp = 0L
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    zoomAnimation?.cancel()
+                    var travel = Offset.Zero
+                    var panning = false
+                    var tap = true
+                    var upTime = down.uptimeMillis
+                    do {
+                        val event = awaitPointerEvent()
+                        val fingers = event.changes.count { it.pressed }
+                        if (fingers >= 2) {
+                            tap = false
+                            val newScale = (scale * event.calculateZoom()).coerceIn(1f, maxZoom)
+                            val focus = event.calculateCentroid(useCurrent = false)
+                            offset = clamp(offsetFor(focus, newScale) + event.calculatePan(), newScale)
+                            scale = newScale
+                            event.changes.forEach { if (it.positionChanged()) it.consume() }
+                        } else if (fingers == 1) {
+                            val pan = event.calculatePan()
+                            if (!panning) {
+                                travel += pan
+                                panning = travel.getDistance() > viewConfiguration.touchSlop
+                            }
+                            if (panning) tap = false
+                            if (panning && scale > 1f) {
+                                offset = clamp(offset + pan, scale)
+                                event.changes.forEach { if (it.positionChanged()) it.consume() }
+                            }
+                        }
+                        upTime = event.changes.firstOrNull()?.uptimeMillis ?: upTime
+                    } while (event.changes.any { it.pressed })
+
+                    val quick = upTime - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis
+                    lastTapUp = when {
+                        !tap || !quick -> 0L
+                        lastTapUp != 0L &&
+                            down.uptimeMillis - lastTapUp <= viewConfiguration.doubleTapTimeoutMillis -> {
+                            toggleZoom(down.position)
+                            0L
+                        }
+                        else -> upTime
+                    }
+                }
+            }
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationX = offset.x
+                translationY = offset.y
+            },
     )
 }
 

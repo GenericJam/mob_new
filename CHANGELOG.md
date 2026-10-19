@@ -10,6 +10,29 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **Zoomable images** in `MobBridge.kt`, the Android half of mob 0.9.24's
+  `zoomable: true` on `:image`: pinch zoom about the pinch (clamped to
+  `max_zoom`), double-tap zoom in to `double_tap_zoom` about the tap point and
+  back to 1×, one-finger pan while zoomed in, translation clamped so the
+  picture's edge never comes inside the frame's, zoom clipped to the frame and
+  reset when `src` changes. One-finger moves are consumed only while zoomed in
+  and past touch slop, so at 1× a parent scroll or pager still gets the drag;
+  downs and ups are never consumed, so an `on_tap` still fires. The picture is
+  decoded at up to 4096 px on its long side (never upscaled) so zooming in
+  shows detail rather than a magnified screen-sized bitmap.
+
+### Upgrading
+- Existing apps own `MobBridge.kt`. Replace its `MobImage` function with the
+  template's `MobImage` and `MobZoomableImage`, and add the new imports
+  (`coil.request.ImageRequest`, `coil.size.Precision`,
+  `androidx.compose.animation.core.animate`,
+  `androidx.compose.foundation.gestures.calculateCentroid` / `calculatePan` /
+  `calculateZoom`, `androidx.compose.runtime.rememberCoroutineScope`,
+  `androidx.compose.ui.graphics.graphicsLayer`,
+  `androidx.compose.ui.input.pointer.positionChanged`,
+  `androidx.compose.ui.layout.onSizeChanged`).
+
 ## [0.6.14] - 2026-10-18
 
 ### Added

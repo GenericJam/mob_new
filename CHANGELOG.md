@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.15] - 2026-10-19
+
 ### Added
 - **Zoomable images** in `MobBridge.kt`, the Android half of mob 0.9.24's
   `zoomable: true` on `:image`: pinch zoom about the pinch (clamped to

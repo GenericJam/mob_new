@@ -5667,7 +5667,10 @@ private fun MobZoomableImage(
         zoomAnimation = scope.launch {
             animate(0f, 1f) { f, _ ->
                 scale = fromScale + (toScale - fromScale) * f
-                offset = fromOffset + (toOffset - fromOffset) * f
+                // Clamped at every step: the bound is not linear in the scale,
+                // and an animation cut short by a new touch must leave the
+                // picture in range.
+                offset = clamp(fromOffset + (toOffset - fromOffset) * f, scale)
             }
         }
     }
@@ -5687,7 +5690,10 @@ private fun MobZoomableImage(
         model              = request,
         contentDescription = null,
         contentScale       = ContentScale.Fit,
-        onSuccess          = { picture = it.painter.intrinsicSize },
+        onSuccess          = {
+            picture = it.painter.intrinsicSize
+            offset = clamp(offset, scale)
+        },
         modifier           = modifier
             .fillMaxSize()
             .clipToBounds()
@@ -5729,6 +5735,9 @@ private fun MobZoomableImage(
                             }
                         }
                         upTime = event.changes.firstOrNull()?.uptimeMillis ?: upTime
+                        // An up something else consumed, or the one Compose makes
+                        // up for a cancelled gesture, is not a tap.
+                        if (event.changes.any { !it.pressed && it.previousPressed && it.isConsumed }) tap = false
                     } while (event.changes.any { it.pressed })
 
                     val quick = upTime - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis

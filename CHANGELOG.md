@@ -31,7 +31,14 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `calculateZoom`, `androidx.compose.runtime.rememberCoroutineScope`,
   `androidx.compose.ui.graphics.graphicsLayer`,
   `androidx.compose.ui.input.pointer.positionChanged`,
-  `androidx.compose.ui.layout.onSizeChanged`).
+  `androidx.compose.ui.layout.onSizeChanged`). An app generated before
+  0.6.5 also needs whichever of these it lacks:
+  `androidx.compose.foundation.gestures.awaitEachGesture` /
+  `awaitFirstDown`, `androidx.compose.ui.input.pointer.pointerInput`,
+  `kotlinx.coroutines.Job` / `launch`, `androidx.compose.ui.unit.IntSize`,
+  `androidx.compose.ui.draw.clipToBounds`,
+  `androidx.compose.ui.platform.LocalContext`; the Kotlin compiler names
+  any that are missing (`Unresolved reference`).
 
 ## [0.6.14] - 2026-10-18
 

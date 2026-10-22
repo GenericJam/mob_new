@@ -10,6 +10,18 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Changed
+- **Zig pin is 0.17.0.** Generated `.tool-versions` and `priv/zig-version`
+  replace `0.17.0-dev.269+ebff43698`. Companion to mob and mob_dev.
+- **iOS `build.zig` / `build_device.zig`: glob Swift sources with
+  `std.Io.Dir.openDirAbsolute`.** Zig 0.17.0 removed `Build.build_root`;
+  the old `b.build_root.handle.openDir` fails at configure.
+
+### Upgrading
+- New apps get the pin and the iOS glob fix. Existing apps: install Zig
+  0.17.0 and port the two iOS build files (or regenerate them). Android
+  `build.zig` from current templates needs no glob change.
+
 ## [0.6.16] - 2026-10-23
 
 ### Security

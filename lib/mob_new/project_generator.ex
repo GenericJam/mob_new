@@ -506,7 +506,7 @@ defmodule MobNew.ProjectGenerator do
     #
     # OTP 29 matches the device runtime tarballs. Java 17 LTS is required for Gradle.
     # The exact Zig dev version is deliberate: generated native build files track it.
-    erlang 29.0
+    erlang 29.1.2
     elixir 1.20.0-otp-29
     java temurin-17.0.18
     zig #{@required_zig_version}

@@ -27,6 +27,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   covers 9.4. The template does not force versions under AGP. See
   `decisions/2026-10-22-agp-build-time-advisories-accepted.md` for the
   per-advisory reachability table.
+- **CI runs osv-scanner over `mix.lock` (MOB-496)**, next to `mix_audit`, whose
+  advisory feed lags OSV.dev.
 
 ### Fixed
 - **Android shows boot progress and boot failures.** The generated
@@ -52,6 +54,10 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   by default in the Kotlin 2 Compose compiler, is turned off so recomposition
   behaves as before; enabling it is MOB-162. Gradle-9-deprecated
   `prop value` assignments now use `prop = value`.
+- **Generated apps' `.tool-versions` pins erlang 29.1.2** (was 29.0), the OTP
+  the device runtime is now built from (MOB-493). 29.0 is missing 47 OTP
+  security fixes, including two critical TLS client bugs; host and device
+  should match. This repo's own `.tool-versions` moves to 29.1.2 too.
 
 ### Upgrading
 - Existing apps own their Gradle files. The mob_dev release that carries

@@ -1364,7 +1364,8 @@ defmodule MobNew.ProjectGenerator do
       #
       #   * The mob_dev floor below ships the OTP 29.1.2 runtime, whose ERTS
       #     directory is erts-17.1.1. mob finds it at runtime from 0.9.25
-      #     (MOB-493); older mob hard-codes erts-17.0 and the app dies at boot.
+      #     (MOB-493); older mob hard-codes erts-17.0 on Android and the iOS
+      #     simulator, so those apps die at boot.
       #   * MobBridge.kt renders `<Scroll anchor="bottom">` (MOB-481); the iOS
       #     half is mob's native renderer from 0.9.18. On an older mob the
       #     prop works on Android and is silently ignored on iOS.

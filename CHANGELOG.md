@@ -17,6 +17,17 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   Gradle build-cache metadata, fixed only in 2.4.20+. The build is exposed,
   not the shipped app, wherever a shared or remote build cache is used.
 
+### Fixed
+- **Android shows boot progress and boot failures.** The generated
+  `MobBridge` now defines the `@JvmStatic setStartupPhase(String)` and
+  `setStartupError(String)` that mob's NIF calls during boot. Without them
+  the calls were silent no-ops, so a failed boot (for example a missing OTP
+  runtime) left a blank screen. Until the first render `MainActivity` shows
+  the phase with a spinner, or "Startup Error" and the message in the theme's
+  error colour, as iOS does. Existing apps: copy both methods and the
+  `StartupStatus` composable from a freshly generated app; `mix mob.doctor`
+  warns when they're missing.
+
 ### Changed
 - Android toolchain: Kotlin 2.4.21 (with the
   `org.jetbrains.kotlin.plugin.compose` Gradle plugin at the same version),

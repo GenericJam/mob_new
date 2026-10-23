@@ -422,6 +422,16 @@ defmodule MobNew.ProjectGeneratorTest do
       assert read.("android/app/src/main/java/com/example/test_app/MobBridge.kt") =~
                "fun orientationLock("
 
+      # mob_nif.zig looks these up by exact name and JNI signature
+      # "(Ljava/lang/String;)V" on the bridge class and silently skips the call
+      # when absent, so a boot failure would leave a blank screen.
+      mob_bridge = read.("android/app/src/main/java/com/example/test_app/MobBridge.kt")
+
+      for name <- ~w(setStartupPhase setStartupError) do
+        assert mob_bridge =~
+                 Regex.compile!("@JvmStatic\\s+fun #{name}\\(\\w+: String\\)")
+      end
+
       main_activity = read.("android/app/src/main/java/com/example/test_app/MainActivity.kt")
       assert main_activity =~ "external fun nativeNotifyOrientation"
       assert main_activity =~ "landscape_left"

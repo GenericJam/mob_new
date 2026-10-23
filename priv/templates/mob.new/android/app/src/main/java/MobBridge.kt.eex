@@ -398,6 +398,28 @@ object MobBridge {
     private val _themeColors = mutableStateOf<Map<String, Long>?>(null)
     val themeColors: State<Map<String, Long>?> get() = _themeColors
 
+    // Boot status shown until the first render (see StartupStatus in
+    // MainActivity), the counterpart of iOS MobViewModel.startupPhase/Error.
+    // mob_nif.zig caches setStartupPhase/setStartupError by name and signature
+    // in mob_ui_cache_class and skips the call when either is missing, so a
+    // rename here makes a boot failure invisible again, with nothing raised.
+    private val _startupPhase = mutableStateOf("Starting…")
+    val startupPhase: State<String> get() = _startupPhase
+    private val _startupError = mutableStateOf<String?>(null)
+    val startupError: State<String?> get() = _startupError
+
+    /** Called from mob_nif.zig (mob_set_startup_phase) on the BEAM's boot thread. */
+    @JvmStatic
+    fun setStartupPhase(phase: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post { _startupPhase.value = phase }
+    }
+
+    /** Called from mob_nif.zig (mob_set_startup_error) when boot fails. */
+    @JvmStatic
+    fun setStartupError(error: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post { _startupError.value = error }
+    }
+
     // Ordered fallback font names from the last Mob.Theme.set/1 (already
     // resolved to this platform's names — see Mob.Theme.notify_native/1 in
     // mob core). Read by the top-level fontFamilyProp() when a node's own

@@ -11,6 +11,13 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Security
+- **New projects depend on mob `~> 0.9.25` and mob_dev `~> 0.7.30` (MOB-493).**
+  mob_dev 0.7.30 ships the device runtime on OTP 29.1.2 with OpenSSL 3.5.9.
+  Earlier releases ship OTP 29.0, which lacks the fixes for critical TLS
+  advisories CVE-2026-89422 and CVE-2026-55953, and push the host's ssl over
+  the runtime's. The new runtime's ERTS directory is `erts-17.1.1`; mob
+  before 0.9.25 hard-codes `erts-17.0` on Android and the iOS simulator. The
+  generated `.tool-versions` already pins erlang 29.1.2 to match.
 - **Android template moves to Kotlin 2.4.21 (MOB-497).** The template pinned
   `kotlin-gradle-plugin:1.9.22`, which has CVE-2026-53914
   (GHSA-r937-wjx7-w2jp): code execution through unsafe deserialization of
@@ -60,6 +67,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   should match. This repo's own `.tool-versions` moves to 29.1.2 too.
 
 ### Upgrading
+- **Existing apps: move to mob 0.9.25 and mob_dev 0.7.30 (MOB-493).** Their
+  `mix.exs` already allows both. Run `mix deps.update mob mob_dev` (mob_dev
+  0.7.30 requires mob 0.9.25, so both move), set `erlang 29.1.2` in
+  `.tool-versions`, then `mix mob.deploy --native`. mob_dev's 0.7.30
+  CHANGELOG has the details.
 - Existing apps own their Gradle files. The mob_dev release that carries
   MOB-497 makes `mix mob.doctor` warn while they still pin Kotlin below
   2.4.20. To migrate, copy from a freshly generated app:

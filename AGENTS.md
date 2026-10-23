@@ -113,7 +113,7 @@ reaches, and say which rung you stopped at.
    reaches its first screen. Templates compile as text at every rung above this
    one; this is the first that compiles them as code.
 5. **The generated project on a physical device, release variant.** Debug
-   defaults hide release packaging bugs. `useLegacyPackaging true` exists in
+   defaults hide release packaging bugs. `useLegacyPackaging = true` exists in
    `build.gradle.eex` because AGP leaves native libs packed in a release App
    Bundle while the BEAM needs them on the filesystem — debug defaulted to
    `true`, which masked it until a Play install crashed on launch.

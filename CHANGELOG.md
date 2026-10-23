@@ -25,7 +25,7 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   patch releases past that, for the AGP 9.3.2 fix to lint crashing on JDK 17.
   JDK 17 and compileSdk 35 are unchanged.
 - `app/build.gradle` uses AGP 9's built-in Kotlin: no `kotlin-android`
-  plugin, no `composeOptions`, and `kotlinOptions { jvmTarget '1.8' }` is now
+  plugin, no `composeOptions`, and `kotlinOptions { jvmTarget = '1.8' }` is now
   `compileOptions` at the same Java 8 target. Compose strong skipping, on
   by default in the Kotlin 2 Compose compiler, is turned off so recomposition
   behaves as before; enabling it is MOB-162. Gradle-9-deprecated

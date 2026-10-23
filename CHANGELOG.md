@@ -10,6 +10,54 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Security
+- **Android template moves to Kotlin 2.4.21 (MOB-497).** The template pinned
+  `kotlin-gradle-plugin:1.9.22`, which has CVE-2026-53914
+  (GHSA-r937-wjx7-w2jp): code execution through unsafe deserialization of
+  Gradle build-cache metadata, fixed only in 2.4.20+. The build is exposed,
+  not the shipped app, wherever a shared or remote build cache is used.
+
+### Changed
+- Android toolchain: Kotlin 2.4.21 (with the
+  `org.jetbrains.kotlin.plugin.compose` Gradle plugin at the same version),
+  AGP 9.3.3 and Gradle 9.7.0 (wrapper jar and `gradlew` regenerated). JetBrains
+  tests KGP 2.4.21 with Gradle up to 9.7.0 and AGP up to 9.3.1; 9.3.3 is two
+  patch releases past that, for the AGP 9.3.2 fix to lint crashing on JDK 17.
+  JDK 17 and compileSdk 35 are unchanged.
+- `app/build.gradle` uses AGP 9's built-in Kotlin: no `kotlin-android`
+  plugin, no `composeOptions`, and `kotlinOptions { jvmTarget '1.8' }` is now
+  `compileOptions` at the same Java 8 target. Compose strong skipping, on
+  by default in the Kotlin 2 Compose compiler, is turned off so recomposition
+  behaves as before; enabling it is MOB-162. Gradle-9-deprecated
+  `prop value` assignments now use `prop = value`.
+
+### Upgrading
+- Existing apps own their Gradle files. The mob_dev release that carries
+  MOB-497 makes `mix mob.doctor` warn while they still pin Kotlin below
+  2.4.20. To migrate, copy from a freshly generated app:
+  - `android/build.gradle`: AGP `9.3.3`, and on the buildscript classpath
+    `org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.21` **and**
+    `org.jetbrains.kotlin:compose-compiler-gradle-plugin:2.4.21`. Keep the
+    KGP line: AGP 9's built-in Kotlin would otherwise fall back to KGP
+    2.2.10, which is still vulnerable.
+  - `android/app/build.gradle`: add
+    `import org.jetbrains.kotlin.compose.compiler.gradle.ComposeFeatureFlag`
+    at the top; in `plugins { }` replace `id 'kotlin-android'` with
+    `id 'org.jetbrains.kotlin.plugin.compose'`; delete `composeOptions { }`;
+    replace `kotlinOptions { jvmTarget = '1.8' }` with
+    `compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }`;
+    after the `android { }` block add
+    `composeCompiler { featureFlags = [ComposeFeatureFlag.StrongSkipping.disabled()] }`.
+  - `android/gradle/wrapper/` and `android/gradlew`: copy
+    `gradle-wrapper.jar`, `gradle-wrapper.properties` and `gradlew` from a new
+    app. Or, before editing the build files, run
+    `cd android && ./gradlew wrapper --gradle-version 9.7.0` (this updates
+    only the properties), make the edits above, then run
+    `./gradlew wrapper --gradle-version 9.7.0` again under 9.7.0 to update
+    the jar and scripts.
+  - A build script or plugin that uses the old AGP variant API
+    (`applicationVariants`) needs porting to AGP 9's new DSL.
+
 ## [0.6.15] - 2026-10-19
 
 ### Added

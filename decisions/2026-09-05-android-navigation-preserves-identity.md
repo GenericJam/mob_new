@@ -40,6 +40,12 @@ and the slot-table teardown and rebuild, not the node building. That is why
 navigation still costs about three times a re-render after this change, as it
 did before it. Making the rest of the gap available is MOB-162.
 
+(Note, 2026-10-22, MOB-497: the template is now on Kotlin 2.4.21, whose
+Compose compiler enables strong skipping by default. The template turns it
+back off with `ComposeFeatureFlag.StrongSkipping.disabled()`, so the "no
+strong skipping" premise above still holds; see
+`2026-10-22-kotlin-2-agp-9-toolchain.md`.)
+
 The slide is driven by an animated offset on that mount point rather than by
 an enter/exit transition, because those only fire on insert/remove and
 insert/remove is precisely what cost the time.

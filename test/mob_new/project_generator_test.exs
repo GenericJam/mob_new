@@ -1819,6 +1819,32 @@ defmodule MobNew.ProjectGeneratorTest do
       assert File.read!(props) =~ "distributionUrl"
     end
 
+    # MOB-497: KGP below 2.4.20 has CVE-2026-53914 (build-cache
+    # deserialization RCE). Under AGP 9 the explicit KGP classpath line is the
+    # only thing lifting Kotlin above AGP's own 2.2.10, and the Compose
+    # compiler plugin must match Kotlin exactly or the build fails.
+    test "Android build pins a KGP at or above the CVE-2026-53914 fix", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      root = File.read!(Path.join(dir, "android/build.gradle"))
+      app = File.read!(Path.join(dir, "android/app/build.gradle"))
+
+      classpath = fn artifact ->
+        case Regex.run(~r/'org\.jetbrains\.kotlin:#{artifact}:([^']+)'/, root,
+               capture: :all_but_first
+             ) do
+          [vsn] -> Version.parse!(vsn)
+          nil -> flunk("android/build.gradle declares no #{artifact}")
+        end
+      end
+
+      kgp = classpath.("kotlin-gradle-plugin")
+      assert Version.compare(kgp, Version.parse!("2.4.20")) != :lt
+      assert classpath.("compose-compiler-gradle-plugin") == kgp
+
+      assert app =~ "id 'org.jetbrains.kotlin.plugin.compose'"
+      refute app =~ "kotlinCompilerExtensionVersion"
+    end
+
     # ── Erlang bootstrap ───────────────────────────────────────────────────────
 
     test "generates src/test_app.erl bootstrap", %{tmp: tmp} do

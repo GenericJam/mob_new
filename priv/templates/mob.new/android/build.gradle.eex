@@ -1,8 +1,13 @@
 buildscript {
     repositories { google(); mavenCentral() }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.2.0'
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22'
+        classpath 'com.android.tools.build:gradle:9.3.3'
+        // AGP 9 compiles Kotlin itself, but its built-in KGP is only a 2.2.10
+        // floor. Declaring KGP here raises it: anything below 2.4.20 carries
+        // CVE-2026-53914 (build-cache metadata deserialization RCE). The
+        // Compose compiler plugin ships with Kotlin and must match it exactly.
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.21'
+        classpath 'org.jetbrains.kotlin:compose-compiler-gradle-plugin:2.4.21'
     }
 }
 allprojects { repositories { google(); mavenCentral() } }

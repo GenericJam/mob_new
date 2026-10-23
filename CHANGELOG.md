@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.16] - 2026-10-23
+
 ### Security
 - **New projects depend on mob `~> 0.9.25` and mob_dev `~> 0.7.30` (MOB-493).**
   mob_dev 0.7.30 ships the device runtime on OTP 29.1.2 with OpenSSL 3.5.9.

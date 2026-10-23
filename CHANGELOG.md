@@ -11,6 +11,13 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Security
+- **New projects depend on mob `~> 0.9.25` and mob_dev `~> 0.7.30` (MOB-493).**
+  mob_dev 0.7.30 ships the device runtime on OTP 29.1.2 with OpenSSL 3.5.9.
+  Earlier releases ship OTP 29.0, which lacks the fixes for critical TLS
+  advisories CVE-2026-89422 and CVE-2026-55953, and push the host's ssl over
+  the runtime's. The new runtime's ERTS directory is `erts-17.1.1`, which mob
+  finds at boot only from 0.9.25. The generated `.tool-versions` already pins
+  erlang 29.1.2 to match.
 - **Android template moves to Kotlin 2.4.21 (MOB-497).** The template pinned
   `kotlin-gradle-plugin:1.9.22`, which has CVE-2026-53914
   (GHSA-r937-wjx7-w2jp): code execution through unsafe deserialization of

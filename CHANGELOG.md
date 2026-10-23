@@ -16,6 +16,17 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   (GHSA-r937-wjx7-w2jp): code execution through unsafe deserialization of
   Gradle build-cache metadata, fixed only in 2.4.20+. The build is exposed,
   not the shipped app, wherever a shared or remote build cache is used.
+- **Known build-time advisories in AGP 9.3.3's own tooling are accepted.**
+  osv-scanner over a locked generated project reports Bouncy Castle 1.79,
+  commons-lang3 3.16.0, jdom2 2.0.6, jose4j 0.9.5, httpclient 4.5.6 and
+  netty 4.1.93/4.1.110. All of them come in through AGP's signing, lint,
+  Jetifier, bundletool and test-platform dependencies, and none is in the
+  shipped app. 9.3.3 is the newest 9.3.x. AGP 9.4.1 would drop netty and
+  the Bouncy Castle GOST advisory, leaving 8 of the 49, but KGP 2.4.21 is
+  tested only up to AGP 9.3.1, so the template waits for a Kotlin release that
+  covers 9.4. The template does not force versions under AGP. See
+  `decisions/2026-10-22-agp-build-time-advisories-accepted.md` for the
+  per-advisory reachability table.
 
 ### Changed
 - Android toolchain: Kotlin 2.4.21 (with the

@@ -19,6 +19,9 @@ defmodule MobNew.Templates.IosTfliteLinkTest do
     true -> :ok
   end
 
+  # A cold zig cache (CI) compiles compiler_rt for each target first.
+  @moduletag timeout: :timer.minutes(5)
+
   setup do
     tmp = Path.join(System.tmp_dir!(), "ios_link_#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp)
@@ -63,6 +66,18 @@ defmodule MobNew.Templates.IosTfliteLinkTest do
       refute Enum.any?(link, &String.ends_with?(&1, "libtflite_nif.a"))
       refute Enum.any?(link, &String.contains?(&1, "TensorFlowLite"))
     end
+
+    # Zig 0.17 caches the configure phase that globs mob/ios/*.swift. Without
+    # b.dependOnDirectoryContents a Swift file added to mob after the first
+    # build never reached swiftc until the zig cache was cleared.
+    test "#{template}: a Swift file added to mob/ios reaches the next build's swiftc", ctx do
+      ios_dir = Path.join(ctx.stubs.mob, "ios")
+      File.write!(Path.join(ios_dir, "MobFirst.swift"), "")
+      assert swift_compiled?(build_calls(ctx, unquote(template), [], "first"), "MobFirst.swift")
+
+      File.write!(Path.join(ios_dir, "MobAdded.swift"), "")
+      assert swift_compiled?(build_calls(ctx, unquote(template), [], "second"), "MobAdded.swift")
+    end
   end
 
   defp framework_linked?(args, name) do
@@ -71,13 +86,34 @@ defmodule MobNew.Templates.IosTfliteLinkTest do
     |> Enum.any?(&(&1 == ["-Xlinker", "-framework", "-Xlinker", name]))
   end
 
+  defp swift_compiled?(calls, name) do
+    Enum.any?(calls, fn call ->
+      "swiftc" in call and Enum.any?(call, &(Path.basename(&1) == name))
+    end)
+  end
+
   # Runs `zig build binary` against the generated iOS build file and returns the
   # argument list of the xcrun call that links the app binary (the one whose
   # `-o` is the module name).
   defp link_args(ctx, template, extra) do
+    ctx
+    |> build_calls(template, extra, "link")
+    |> Enum.find(fn call ->
+      call |> Enum.chunk_every(2, 1, :discard) |> Enum.any?(&match?(["-o", "TflApp" <> _], &1)) or
+        Enum.any?(call, &String.ends_with?(&1, "/TflApp"))
+    end)
+    |> Kernel.||(flunk("no link call in the xcrun log"))
+  end
+
+  # Runs `zig build binary` (the zig cache is shared by every build of a
+  # template in one test) and returns each xcrun call's arguments.
+  defp build_calls(ctx, template, extra, run) do
     s = ctx.stubs
     ios = Path.join(ctx.project, "ios")
-    log = Path.join(ctx.tmp, "xcrun-#{template}.log")
+    # One file per xcrun call: zig runs them in parallel, and lines appended
+    # to a shared log interleave.
+    log = Path.join(ctx.tmp, "xcrun-#{template}-#{run}")
+    File.mkdir_p!(log)
 
     # build_device.zig also compiles epmd and the errno shim.
     device_args =
@@ -117,14 +153,9 @@ defmodule MobNew.Templates.IosTfliteLinkTest do
     assert status == 0, "zig build (#{template}) failed:\n#{out}"
 
     log
-    |> File.read!()
-    |> String.split("---\n", trim: true)
-    |> Enum.map(&String.split(&1, "\n", trim: true))
-    |> Enum.find(fn call ->
-      call |> Enum.chunk_every(2, 1, :discard) |> Enum.any?(&match?(["-o", "TflApp" <> _], &1)) or
-        Enum.any?(call, &String.ends_with?(&1, "/TflApp"))
-    end)
-    |> Kernel.||(flunk("no link call in the xcrun log"))
+    |> Path.join("call.*")
+    |> Path.wildcard()
+    |> Enum.map(&(&1 |> File.read!() |> String.split("\n", trim: true)))
   end
 
   # Minimal stand-ins: tiny sources zig compiles for real, an empty OTP and SDK
@@ -171,8 +202,7 @@ defmodule MobNew.Templates.IosTfliteLinkTest do
     case " $* " in
       *" --show-sdk-path "*|*" --show-sdk-version "*) exec #{System.find_executable("xcrun")} "$@" ;;
     esac
-    printf '%s\\n' "$@" >> "$XCRUN_LOG"
-    printf -- '---\\n' >> "$XCRUN_LOG"
+    printf '%s\\n' "$@" > "$(mktemp "$XCRUN_LOG/call.XXXXXX")"
     prev=
     for a in "$@"; do
       case "$prev" in

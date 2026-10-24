@@ -2417,8 +2417,12 @@ defmodule MobNew.ProjectGeneratorTest do
         # mob Swift sources are globbed from $mob_dir/ios at build time so a
         # newly-added file (e.g. MobGpuView.swift, referenced by MobRootView)
         # compiles without a template edit — listing files by name is how a new
-        # mob Swift file broke iOS builds.
-        assert content =~ ~s|b.build_root.handle.openDir(glob_io, b.fmt("{s}/ios", .{mob_dir})|
+        # mob Swift file broke iOS builds. Zig 0.17.0 removed Build.build_root;
+        # glob via openDirAbsolute on the absolute mob_dir/ios path.
+        assert content =~
+                 ~s|std.Io.Dir.openDirAbsolute(glob_io, b.fmt("{s}/ios", .{mob_dir})|
+
+        refute content =~ "b.build_root"
         assert content =~ ~s|std.mem.endsWith(u8, entry.name, ".swift")|
 
         refute content =~ ~s|b.fmt("{s}/ios/MobGpuView.swift", .{mob_dir})|,
@@ -3785,7 +3789,10 @@ defmodule MobNew.ProjectGeneratorTest do
 
     @tag :integration
     @tag timeout: :timer.minutes(15)
-    test "the app's boot registration keeps an ejected override", %{tmp_dir: tmp} do
+    # No apostrophe in the name: it becomes the tmp_dir path, and exqlite's
+    # source build (when its precompiled NIF can't be fetched) breaks on a
+    # quote in the path.
+    test "the app boot registration keeps an ejected override", %{tmp_dir: tmp} do
       siblings =
         Map.new(
           [{"MOB_DIR", "mob"}, {"MOB_DEV_DIR", "mob_dev"}],

@@ -88,6 +88,47 @@ jobs:
         run: mix test
         timeout-minutes: 10
 
+  # The template link tests run the generated build.zig files for real with
+  # the pinned Zig (priv/zig-version, kept equal to .tool-versions by a test).
+  # macOS, because the iOS templates resolve the SDK through Xcode's xcrun.
+  templates:
+    name: Generated build.zig (Zig + Xcode)
+    runs-on: macos-26
+    env:
+      MIX_ENV: test
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Elixir
+        run: |
+          brew install elixir
+          mix local.hex --force
+          mix local.rebar --force
+
+      - name: Zig version from priv/zig-version
+        id: zig
+        run: echo "version=$(tr -d '[:space:]' < priv/zig-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ steps.zig.outputs.version }}
+          # A cached .zig-cache holds configure results that name the zig
+          # binary by its absolute path, which changes every run.
+          use-cache: false
+
+      - name: Cache deps + _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-templates-macos-26-${{ hashFiles('**/mix.lock') }}
+          restore-keys: mix-templates-macos-26-
+
+      - run: mix deps.get
+      - run: mix test test/mob_new/templates/android_tflite_link_test.exs test/mob_new/templates/ios_tflite_link_test.exs
+
   security_scan:
     name: Security scan (mix_audit + osv-scanner)
     needs: test

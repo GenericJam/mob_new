@@ -499,13 +499,12 @@ defmodule MobNew.ProjectGenerator do
     """,
     ".tool-versions" => """
     # Pinned toolchain versions for Mob development.
-    # Both mise and asdf read this file automatically, but the zig pin needs
-    # mise: asdf cannot fetch historical Zig dev nightlies.
+    # Both mise and asdf read this file automatically.
     #
     #   mise install    https://mise.jdx.dev  (recommended — brew install mise)
     #
     # OTP 29 matches the device runtime tarballs. Java 17 LTS is required for Gradle.
-    # The exact Zig dev version is deliberate: generated native build files track it.
+    # The exact Zig version is deliberate: generated native build files track it.
     erlang 29.1.2
     elixir 1.20.0-otp-29
     java temurin-17.0.18

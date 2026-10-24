@@ -14,6 +14,9 @@ defmodule MobNew.Templates.AndroidTfliteLinkTest do
     @moduletag skip: "zig not on PATH"
   end
 
+  # A cold zig cache (CI) compiles the target's libc and compiler_rt first.
+  @moduletag timeout: :timer.minutes(5)
+
   @abi "arm64-v8a"
 
   setup do

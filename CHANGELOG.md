@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.17] - 2026-10-24
+
 ### Added
 - **Android `MobBridge.dismissKeyboard()` — the Android half of
   `Mob.Keyboard.dismiss/1` (mob#173).** Hides the soft keyboard
@@ -19,6 +21,12 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   no-op on Android.
 
 ### Changed
+- **New projects depend on mob `~> 0.9.26` and mob_dev `~> 0.7.31`.** The
+  generated `.tool-versions` pins Zig 0.17.0: mob_dev 0.7.31 is the first
+  to accept it (older ones require the 0.17.0-dev nightly exactly), and
+  mob's Android NIF compiles under it from 0.9.26. mob 0.9.26 also has
+  `Mob.Keyboard.dismiss/1`, which the template's `MobBridge.dismissKeyboard`
+  serves.
 - **Zig pin is 0.17.0.** Generated `.tool-versions` and `priv/zig-version`
   replace `0.17.0-dev.269+ebff43698`. Companion to mob and mob_dev.
 - **iOS `build.zig` / `build_device.zig`: glob Swift sources with
@@ -29,7 +37,10 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   zig cache was cleared.
 
 ### Upgrading
-- New apps get the pin and the iOS glob fix. Existing apps: set `zig 0.17.0`
+- **Existing apps: update mob and mob_dev first.** Run `mix deps.update mob
+  mob_dev` (to mob 0.9.26 and mob_dev 0.7.31, which your `~>` constraints
+  already allow): mob_dev 0.7.30 accepts only the Zig nightly, and mob
+  0.9.25's Android NIF doesn't compile on 0.17.0. Then set `zig 0.17.0`
   in `.tool-versions` (`mise use zig@0.17.0` installs it and edits the file;
   `mise install zig@0.17.0` alone leaves the app on the nightly) and port
   the Swift glob block in the two iOS build files (or regenerate them);
@@ -39,8 +50,9 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 - Existing Android apps that want `Mob.Keyboard.dismiss/1`: copy
   `dismissKeyboard()`, `focusedFieldHost`, the
   `android.view.inputmethod.InputMethodManager` and `LocalView` imports, and
-  the `hostView` and `focusedFieldHost` lines in `MobTextField` from a freshly generated
-  `MobBridge.kt`. It needs a mob release with `Mob.Keyboard`.
+  the `hostView` and `focusedFieldHost` lines in `MobTextField` from a freshly
+  generated `MobBridge.kt`. mob 0.9.26 has `Mob.Keyboard.dismiss/1`; without
+  these the call is a no-op on Android.
 
 ## [0.6.16] - 2026-10-23
 

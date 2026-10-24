@@ -442,9 +442,10 @@ git config core.hooksPath .githooks
   front of Phoenix's file. Its doc pointers (`deps/mob/guides`,
   `usage-rules.md`, `start_async`) need mob 0.9.17, and the Android
   `anchor="bottom"` scroll needs mob 0.9.18 for its iOS half. The generated
-  mob_dev floor, 0.7.30, ships the OTP 29.1.2 runtime (erts-17.1.1), which
-  mob finds at boot on Android and the iOS simulator only from 0.9.25, so the
-  generated mob floor is 0.9.25;
+  `.tool-versions` pins Zig 0.17.0, which mob_dev requires exactly from
+  0.7.31 and mob's Android NIF compiles under from 0.9.26 (mob_dev 0.7.30
+  also ships the OTP 29.1.2 runtime that mob finds at boot only from
+  0.9.25), so the generated floors are mob 0.9.26 and mob_dev 0.7.31;
   don't lower either pin below a release that ships what the app needs.
 
 - **Archive compile-time resources must ship in the Hex package.** The exact

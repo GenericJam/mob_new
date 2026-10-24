@@ -37,9 +37,10 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `dependOnDirectoryContents`. Android `build.zig` from current templates
   needs no change.
 - Existing Android apps that want `Mob.Keyboard.dismiss/1`: copy
-  `dismissKeyboard()` and the `android.view.inputmethod.InputMethodManager`
-  import from a freshly generated `MobBridge.kt`. It needs a mob release
-  with `Mob.Keyboard`.
+  `dismissKeyboard()`, `focusedFieldHost`, the
+  `android.view.inputmethod.InputMethodManager` and `LocalView` imports, and
+  the two `focusedFieldHost` lines in `MobTextField` from a freshly generated
+  `MobBridge.kt`. It needs a mob release with `Mob.Keyboard`.
 
 ## [0.6.16] - 2026-10-23
 

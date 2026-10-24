@@ -129,6 +129,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -2977,6 +2978,14 @@ object MobBridge {
     }
 
     /**
+     * The view hosting the text field that last took focus: the activity's
+     * compose view, or the separate window a `Mob.UI.sheet` or anchored popup
+     * renders into. Set by MobTextField on the UI thread; read by
+     * [dismissKeyboard] there.
+     */
+    internal var focusedFieldHost: WeakReference<View>? = null
+
+    /**
      * Called from nif_dismiss_keyboard via JNI (`Mob.Keyboard.dismiss/1`) —
      * hides the soft keyboard and clears focus on the UI thread.
      * Fire-and-forget, like [haptic]. The NIF caches this with `cacheOptional`
@@ -2987,13 +2996,18 @@ object MobBridge {
      * responder: the field's on_blur fires, and the next tap on it is a new
      * focus. Hiding the IME alone left the field focused, with no blur, and
      * a later tap on it sent no on_focus.
+     *
+     * Targets the focused field's own window. A field in a sheet lives in
+     * another window than `activity.currentFocus`, and the IME ignores a hide
+     * request carrying the wrong window's token.
      */
     @JvmStatic
     fun dismissKeyboard() {
         activityRef?.get()?.let { activity ->
             activity.runOnUiThread {
                 val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-                val focused = activity.currentFocus
+                val focused = focusedFieldHost?.get()?.takeIf { it.isAttachedToWindow && it.hasFocus() }
+                    ?: activity.currentFocus
                 imm?.hideSoftInputFromWindow((focused ?: activity.window.decorView).windowToken, 0)
                 focused?.clearFocus()
             }
@@ -5086,6 +5100,8 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
     val submitHandle  = intProp(node.props, "on_submit")
     val placeholder   = node.props["placeholder"] as? String ?: ""
     val keyboardController = LocalSoftwareKeyboardController.current
+    // The window this field renders in, for MobBridge.dismissKeyboard().
+    val hostView = LocalView.current
 
     val isSecure = boolProp(node.props, "secure") ?: false
     // `secure: true` overrides any explicit `keyboard:` choice — Compose's
@@ -5289,6 +5305,7 @@ private fun MobTextField(node: MobNode, modifier: Modifier) {
                 if (state.isFocused) {
                     // The tap that focused the field placed the caret too.
                     if (caretAtEnd) field = field.copy(selection = TextRange(field.text.length))
+                    MobBridge.focusedFieldHost = WeakReference(hostView)
                     focusHandle?.let { MobBridge.nativeSendFocus(it) }
                 } else {
                     blurHandle?.let { MobBridge.nativeSendBlur(it) }

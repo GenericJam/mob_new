@@ -10,6 +10,14 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Security
+- **New projects depend on mob `~> 0.9.26` and mob_dev `~> 0.7.31`.** The
+  generated `.tool-versions` pins Zig 0.17.0: mob_dev 0.7.31 is the first
+  to accept it (older ones require the 0.17.0-dev nightly exactly), and
+  mob's Android NIF compiles under it from 0.9.26. mob 0.9.26 also has
+  `Mob.Keyboard.dismiss/1`, which the template's `MobBridge.dismissKeyboard`
+  serves.
+
 ### Added
 - **Android `MobBridge.dismissKeyboard()` — the Android half of
   `Mob.Keyboard.dismiss/1` (mob#173).** Hides the soft keyboard

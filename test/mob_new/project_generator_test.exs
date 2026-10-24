@@ -333,8 +333,10 @@ defmodule MobNew.ProjectGeneratorTest do
     test "mix.exs floors mob at the release the generated app relies on", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "mix.exs"))
-      # mob_dev 0.7.30 ships the OTP 29.1.2 runtime (erts-17.1.1), which only
-      # mob 0.9.25 finds at boot (MOB-493). 0.9.18 renders Scroll
+      # The generated .tool-versions pins Zig 0.17.0: mob 0.9.26's Android NIF
+      # compiles under it and mob_dev 0.7.31 requires it. mob_dev 0.7.30
+      # ships the OTP 29.1.2 runtime (erts-17.1.1), which only
+      # mob 0.9.25+ finds at boot (MOB-493). 0.9.18 renders Scroll
       # anchor="bottom" on iOS, matching MobBridge.kt (MOB-481); 0.9.17 ships
       # guides/ and usage-rules.md in the Hex package and adds
       # start_async/handle_async, all of which the generated AGENTS.md names;
@@ -343,8 +345,8 @@ defmodule MobNew.ProjectGeneratorTest do
       # call (MOB-379); mob_dev 0.7.12 turns mob.exs's url_schemes into the
       # native URL registrations. 0.9.8 already required the notification
       # envelope (MOB-316) and the private dist cookie (MOB-49).
-      assert content =~ ~s({:mob,     "~> 0.9.25"})
-      assert content =~ ~s({:mob_dev, "~> 0.7.30", only: :dev, runtime: false})
+      assert content =~ ~s({:mob,     "~> 0.9.26"})
+      assert content =~ ~s({:mob_dev, "~> 0.7.31", only: :dev, runtime: false})
       assert content =~ ~s({:mob_mishka, "~> 0.1.3"})
     end
 

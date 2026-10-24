@@ -1357,10 +1357,14 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
     else
-      # Floor at 0.9.25, not "~> 0.9". Generated code depends on a specific
+      # Floor at 0.9.26, not "~> 0.9". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
+      #   * The generated .tool-versions pins Zig 0.17.0, and mob's Android
+      #     NIF compiles under it from 0.9.26 (0.9.25 calls the removed
+      #     std.fmt.bufPrintZ). `Mob.Keyboard.dismiss/1`, which the
+      #     template's MobBridge.dismissKeyboard serves, is new in 0.9.26.
       #   * The mob_dev floor below ships the OTP 29.1.2 runtime, whose ERTS
       #     directory is erts-17.1.1. mob finds it at runtime from 0.9.25
       #     (MOB-493); older mob hard-codes erts-17.0 on Android and the iOS
@@ -1410,8 +1414,12 @@ defmodule MobNew.ProjectGenerator do
       #     Box accessibility props are validated and encoded from 0.7.32.
       #
       # `~>` still allows the whole 0.9.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.9.25"})
-      # mob_dev 0.7.30 ships the OTP 29.1.2 / OpenSSL 3.5.9 runtime
+      mob_dep = ~s({:mob,     "~> 0.9.26"})
+      # mob_dev 0.7.31 requires exactly the Zig 0.17.0 the generated
+      # .tool-versions pins (older ones require the 0.17.0-dev.269 nightly,
+      # so their native build rejects it), and it is the first to accept the
+      # templates' iOS Swift glob. mob_dev 0.7.30 ships the OTP 29.1.2 /
+      # OpenSSL 3.5.9 runtime
       # (otp-d199a49a, MOB-493/494): older ones ship OTP 29.0, which misses
       # critical TLS fixes (CVE-2026-89422, CVE-2026-55953), and push the
       # host's ssl over the runtime's. The generated .tool-versions pins the
@@ -1421,7 +1429,7 @@ defmodule MobNew.ProjectGenerator do
       # mob 0.9.8 also accepts only the private per-app distribution cookie
       # that mob_dev 0.7.7 hands over (MOB-49), and 0.7.4 is where mob_dev
       # builds config/*.exs into `mob_app_config`, which mob loads on device.
-      mob_dev_dep = ~s({:mob_dev, "~> 0.7.30", only: :dev, runtime: false})
+      mob_dev_dep = ~s({:mob_dev, "~> 0.7.31", only: :dev, runtime: false})
       # 0.1.3 is the first release signed with a v2 envelope (0.1.2's v1
       # signature is refused by current mob_dev); mob.exs activates the
       # plugin, and the trust gate refuses an unsigned or v1-signed one.

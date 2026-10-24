@@ -15,14 +15,19 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   replace `0.17.0-dev.269+ebff43698`. Companion to mob and mob_dev.
 - **iOS `build.zig` / `build_device.zig`: glob Swift sources with
   `std.Io.Dir.openDirAbsolute`.** Zig 0.17.0 removed `Build.build_root`;
-  the old `b.build_root.handle.openDir` fails at configure.
+  the old `b.build_root.handle.openDir` fails at configure. The glob also
+  declares `mob/ios` with `b.dependOnDirectoryContents`: 0.17.0 caches the
+  configure phase, and without it a Swift file mob adds was missed until the
+  zig cache was cleared.
 
 ### Upgrading
 - New apps get the pin and the iOS glob fix. Existing apps: set `zig 0.17.0`
   in `.tool-versions` (`mise use zig@0.17.0` installs it and edits the file;
   `mise install zig@0.17.0` alone leaves the app on the nightly) and port
-  the two iOS build files (or regenerate them). Android `build.zig` from
-  current templates needs no glob change.
+  the Swift glob block in the two iOS build files (or regenerate them);
+  `mix mob.doctor` flags both the old form and a glob without
+  `dependOnDirectoryContents`. Android `build.zig` from current templates
+  needs no change.
 
 ## [0.6.16] - 2026-10-23
 

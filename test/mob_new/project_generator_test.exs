@@ -1298,6 +1298,11 @@ defmodule MobNew.ProjectGeneratorTest do
       assert kt =~ "import android.view.inputmethod.InputMethodManager"
       assert kt =~ "hideSoftInputFromWindow("
       assert kt =~ "focused?.clearFocus()"
+
+      # A sheet's field renders in another window; dismissKeyboard targets the
+      # host view MobTextField records on focus.
+      assert kt =~ "val hostView = LocalView.current"
+      assert kt =~ "MobBridge.focusedFieldHost = WeakReference(hostView)"
     end
 
     test "generates the keep-awake / idle-timer bridge (MOB-20)", %{tmp: tmp} do

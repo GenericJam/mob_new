@@ -107,8 +107,10 @@ defmodule MobNew.Templates.IosTfliteLinkTest do
   defp build_calls(ctx, template, extra, run) do
     s = ctx.stubs
     ios = Path.join(ctx.project, "ios")
-    log = Path.join(ctx.tmp, "xcrun-#{template}-#{run}.log")
-    File.write!(log, "")
+    # One file per xcrun call: zig runs them in parallel, and lines appended
+    # to a shared log interleave.
+    log = Path.join(ctx.tmp, "xcrun-#{template}-#{run}")
+    File.mkdir_p!(log)
 
     # build_device.zig also compiles epmd and the errno shim.
     device_args =
@@ -148,9 +150,9 @@ defmodule MobNew.Templates.IosTfliteLinkTest do
     assert status == 0, "zig build (#{template}) failed:\n#{out}"
 
     log
-    |> File.read!()
-    |> String.split("---\n", trim: true)
-    |> Enum.map(&String.split(&1, "\n", trim: true))
+    |> Path.join("call.*")
+    |> Path.wildcard()
+    |> Enum.map(&(&1 |> File.read!() |> String.split("\n", trim: true)))
   end
 
   # Minimal stand-ins: tiny sources zig compiles for real, an empty OTP and SDK
@@ -197,8 +199,7 @@ defmodule MobNew.Templates.IosTfliteLinkTest do
     case " $* " in
       *" --show-sdk-path "*|*" --show-sdk-version "*) exec #{System.find_executable("xcrun")} "$@" ;;
     esac
-    printf '%s\\n' "$@" >> "$XCRUN_LOG"
-    printf -- '---\\n' >> "$XCRUN_LOG"
+    printf '%s\\n' "$@" > "$(mktemp "$XCRUN_LOG/call.XXXXXX")"
     prev=
     for a in "$@"; do
       case "$prev" in

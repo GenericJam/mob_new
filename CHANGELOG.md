@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.17] - 2026-10-24
+
 ### Added
 - **Android `MobBridge.dismissKeyboard()` — the Android half of
   `Mob.Keyboard.dismiss/1` (mob#173).** Hides the soft keyboard

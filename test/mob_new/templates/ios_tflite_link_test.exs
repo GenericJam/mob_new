@@ -19,6 +19,9 @@ defmodule MobNew.Templates.IosTfliteLinkTest do
     true -> :ok
   end
 
+  # A cold zig cache (CI) compiles compiler_rt for each target first.
+  @moduletag timeout: :timer.minutes(5)
+
   setup do
     tmp = Path.join(System.tmp_dir!(), "ios_link_#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp)

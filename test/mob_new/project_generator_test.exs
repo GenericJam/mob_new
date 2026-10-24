@@ -3789,7 +3789,10 @@ defmodule MobNew.ProjectGeneratorTest do
 
     @tag :integration
     @tag timeout: :timer.minutes(15)
-    test "the app's boot registration keeps an ejected override", %{tmp_dir: tmp} do
+    # No apostrophe in the name: it becomes the tmp_dir path, and exqlite's
+    # source build (when its precompiled NIF can't be fetched) breaks on a
+    # quote in the path.
+    test "the app boot registration keeps an ejected override", %{tmp_dir: tmp} do
       siblings =
         Map.new(
           [{"MOB_DIR", "mob"}, {"MOB_DEV_DIR", "mob_dev"}],

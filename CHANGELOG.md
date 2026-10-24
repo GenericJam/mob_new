@@ -10,6 +10,14 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **Android `MobBridge.dismissKeyboard()` — the Android half of
+  `Mob.Keyboard.dismiss/1` (mob#173).** Hides the soft keyboard
+  (`InputMethodManager.hideSoftInputFromWindow`) and clears focus on the UI
+  thread, so the field's `on_blur` fires as it does on iOS. mob's NIF looks
+  it up by name and `()V` with `cacheOptional`; without it `dismiss/1` is a
+  no-op on Android.
+
 ### Changed
 - **Zig pin is 0.17.0.** Generated `.tool-versions` and `priv/zig-version`
   replace `0.17.0-dev.269+ebff43698`. Companion to mob and mob_dev.
@@ -28,6 +36,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `mix mob.doctor` flags both the old form and a glob without
   `dependOnDirectoryContents`. Android `build.zig` from current templates
   needs no change.
+- Existing Android apps that want `Mob.Keyboard.dismiss/1`: copy
+  `dismissKeyboard()`, `focusedFieldHost`, the
+  `android.view.inputmethod.InputMethodManager` and `LocalView` imports, and
+  the `hostView` and `focusedFieldHost` lines in `MobTextField` from a freshly generated
+  `MobBridge.kt`. It needs a mob release with `Mob.Keyboard`.
 
 ## [0.6.16] - 2026-10-23
 

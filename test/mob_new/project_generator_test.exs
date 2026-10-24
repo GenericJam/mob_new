@@ -1282,6 +1282,29 @@ defmodule MobNew.ProjectGeneratorTest do
                ~s|<uses-feature android:name="android.hardware.camera.flash" android:required="false" />|
     end
 
+    test "MobBridge.kt declares dismissKeyboard — the Android side of Mob.Keyboard.dismiss/1",
+         %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+
+      kt =
+        File.read!(Path.join(dir, "android/app/src/main/java/com/example/test_app/MobBridge.kt"))
+
+      # mob_nif.zig caches it with `cacheOptional(..., "dismissKeyboard", "()V", ...)`:
+      # a rename, an instance method or a parameter turns Mob.Keyboard.dismiss/1
+      # into a silent no-op rather than a build failure.
+      assert kt =~ ~r/@JvmStatic\s+fun dismissKeyboard\(\) \{/
+
+      # Hides the IME and drops focus, so on_blur fires as on iOS.
+      assert kt =~ "import android.view.inputmethod.InputMethodManager"
+      assert kt =~ "hideSoftInputFromWindow("
+      assert kt =~ "focused?.clearFocus()"
+
+      # A sheet's field renders in another window; dismissKeyboard targets the
+      # host view MobTextField records on focus.
+      assert kt =~ "val hostView = LocalView.current"
+      assert kt =~ "MobBridge.focusedFieldHost = WeakReference(hostView)"
+    end
+
     test "generates the keep-awake / idle-timer bridge (MOB-20)", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
 

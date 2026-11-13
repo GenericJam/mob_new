@@ -113,6 +113,31 @@ Java_<%= jni_package %>_MobBridge_nativePressEnd(JNIEnv* env, jclass cls, jint t
     mob_press_end((int)token);
 }
 
+// on_touch (MOB-518). Down copies the node's routing and sends {:touch, tag,
+// %{phase: :down}}, returning the token Move and End send from (-1: nothing
+// sent). Move is throttled per pointer natively; End sends :up or :cancel once.
+JNIEXPORT jint JNICALL
+Java_<%= jni_package %>_MobBridge_nativeTouchDown(JNIEnv* env, jclass cls, jint handle,
+                                                  jlong pointer_id, jdouble x, jdouble y,
+                                                  jdouble w, jdouble h, jlong ts,
+                                                  jint move_throttle_ms, jdouble move_delta) {
+    return (jint)mob_touch_down((int)handle, (int64_t)pointer_id, x, y, w, h, (int64_t)ts,
+                                (int)move_throttle_ms, move_delta);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeTouchMove(JNIEnv* env, jclass cls, jint token, jdouble x,
+                                                  jdouble y, jdouble w, jdouble h, jlong ts) {
+    mob_touch_move((int)token, x, y, w, h, (int64_t)ts);
+}
+
+JNIEXPORT void JNICALL
+Java_<%= jni_package %>_MobBridge_nativeTouchEnd(JNIEnv* env, jclass cls, jint token,
+                                                 jboolean cancelled, jdouble x, jdouble y,
+                                                 jdouble w, jdouble h, jlong ts) {
+    mob_touch_end((int)token, cancelled ? 1 : 0, x, y, w, h, (int64_t)ts);
+}
+
 // Swipe. nativeSendSwipe carries the direction string through to
 // mob_send_swipe_with_direction, which emits {:swipe, tag, direction_atom};
 // the four fixed senders emit {:swipe_left, tag} and friends. A node can

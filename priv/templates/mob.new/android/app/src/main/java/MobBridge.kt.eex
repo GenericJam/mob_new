@@ -1918,6 +1918,30 @@ object MobBridge {
     external fun nativePressEnd(token: Int)
 
     /**
+     * `on_touch` (MOB-518), one pointer at a time. Down resolves the node's
+     * handle, copies its routing natively, sends `{:touch, tag, %{phase:
+     * :down}}` and returns a token (-1 when nothing was sent). Move and End
+     * send from that copy, so the rest of the pointer's stream survives the
+     * re-render its down usually causes; Move is dropped natively unless the
+     * pointer's move throttle lets it through (`moveThrottleMs` < 0: moves
+     * off), and End sends `:up` or `:cancel` once. Positions and sizes are dp,
+     * `ts` the pointer change's `uptimeMillis`.
+     */
+    @JvmStatic
+    external fun nativeTouchDown(
+        handle: Int, pointerId: Long, x: Double, y: Double, w: Double, h: Double, ts: Long,
+        moveThrottleMs: Int, moveDelta: Double,
+    ): Int
+
+    @JvmStatic
+    external fun nativeTouchMove(token: Int, x: Double, y: Double, w: Double, h: Double, ts: Long)
+
+    @JvmStatic
+    external fun nativeTouchEnd(
+        token: Int, cancelled: Boolean, x: Double, y: Double, w: Double, h: Double, ts: Long,
+    )
+
+    /**
      * Swipe. `nativeSendSwipe` carries the direction so a single handler can
      * branch on it; the four fixed-direction senders exist because iOS fires
      * both — a node may declare `on_swipe` and `on_swipe_left` at once and
@@ -3914,9 +3938,41 @@ private data class MobPressHandles(val long: Int?, val double: Int?)
 /** on_press_in / on_press_out handles for one node, re-read each composition. */
 private data class MobPressInOutHandles(val pressIn: Int?, val pressOut: Int?)
 
-/** True when the node observes press in/out, so its tap uses nativeSendPressTap. */
+/**
+ * True when the node observes press in/out or on_touch (MOB-518), so its tap
+ * uses nativeSendPressTap: such a node re-renders between the finger's down
+ * and up, and its tap handle is from the render before.
+ */
 private fun mobIsPressNode(props: Map<String, Any?>): Boolean =
-    intProp(props, "on_press_in") != null || intProp(props, "on_press_out") != null
+    intProp(props, "on_press_in") != null || intProp(props, "on_press_out") != null ||
+        intProp(props, "on_touch") != null
+
+/**
+ * One node's on_touch handle and move rule (MOB-518), re-read each composition.
+ * Without a "touch_moves" prop moves are off, which the native side reads as a
+ * negative throttle.
+ */
+private data class MobTouchConfig(val handle: Int?, val moveThrottleMs: Int, val moveDelta: Double)
+
+private fun mobTouchConfig(props: Map<String, Any?>): MobTouchConfig {
+    // Nested props stay org.json objects — see MobJson's compatibility contract.
+    val moves = props["touch_moves"] as? JSONObject
+    return MobTouchConfig(
+        intProp(props, "on_touch"),
+        moves?.optInt("throttle_ms", 16) ?: -1,
+        moves?.optDouble("delta", 1.0) ?: 0.0,
+    )
+}
+
+/** A pointer down on an on_touch node: its native token and last position in dp. */
+private class MobTouchPointer(val token: Int, var x: Double, var y: Double)
+
+/**
+ * The touch observer's pointerInput key. Distinct from the press observer's
+ * `Unit`, so a node that swaps one prop for the other gets a fresh detector
+ * (and the old one's finally) rather than Compose reusing the old node.
+ */
+private object MobTouchKey
 
 /** Swipe handles for one node, re-read each composition. See MobScrollHandlers. */
 private data class MobSwipeHandlers(
@@ -4409,6 +4465,73 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         }
     }
 
+    // ── Per-pointer touch (MOB-518) ─────────────────────────────────────────
+    // Every pointer that lands on the node, with its position inside it, each
+    // its own down → moves → up/cancel. Observes without consuming on the
+    // Initial pass, like press in/out below, so on_tap, long press, swipe and
+    // an ancestor's scroll keep working and the down isn't delayed by any
+    // detector's slop or double-tap wait.
+    //
+    // Compose hit-tests a pointer once, at its down, and keeps sending that
+    // pointer's changes down the same path: a finger that slides onto another
+    // on_touch node stays this node's pointer, and the other node never hears
+    // of it. A plain loop rather than awaitEachGesture, which would ignore a new
+    // finger's down until every pointer had lifted.
+    //
+    // A lift that arrives already consumed is Compose's synthesised cancel
+    // (onCancelPointerInput marks every pointer up and consumed); nothing
+    // upstream of a node's Initial pass consumes a real lift. The finally
+    // cancels whatever is still down when the detector is torn down.
+    val touch = mobTouchConfig(node.props)
+    val liveTouch by rememberUpdatedState(touch)
+    val touchModifier =
+        if (touch.handle == null) gestureModifier
+        else gestureModifier.pointerInput(MobTouchKey) {
+            val pointers = HashMap<Long, MobTouchPointer>()
+            try {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val w = size.width.toDp().value.toDouble()
+                        val h = size.height.toDp().value.toDouble()
+                        for (change in event.changes) {
+                            val id = change.id.value
+                            val x = change.position.x.toDp().value.toDouble()
+                            val y = change.position.y.toDp().value.toDouble()
+                            if (change.pressed && !change.previousPressed) {
+                                val cfg = liveTouch
+                                val handle = cfg.handle ?: continue
+                                val token = MobBridge.nativeTouchDown(
+                                    handle, id, x, y, w, h, change.uptimeMillis,
+                                    cfg.moveThrottleMs, cfg.moveDelta,
+                                )
+                                if (token >= 0) pointers[id] = MobTouchPointer(token, x, y)
+                            } else if (change.pressed) {
+                                val pointer = pointers[id] ?: continue
+                                if (change.position == change.previousPosition) continue
+                                pointer.x = x
+                                pointer.y = y
+                                MobBridge.nativeTouchMove(pointer.token, x, y, w, h, change.uptimeMillis)
+                            } else if (change.previousPressed) {
+                                val pointer = pointers.remove(id) ?: continue
+                                MobBridge.nativeTouchEnd(
+                                    pointer.token, change.isConsumed, x, y, w, h, change.uptimeMillis,
+                                )
+                            }
+                        }
+                    }
+                }
+            } finally {
+                val ts = SystemClock.uptimeMillis()
+                val w = size.width.toDp().value.toDouble()
+                val h = size.height.toDp().value.toDouble()
+                for (pointer in pointers.values) {
+                    MobBridge.nativeTouchEnd(pointer.token, true, pointer.x, pointer.y, w, h, ts)
+                }
+                pointers.clear()
+            }
+        }
+
     // ── Press in / out (MOB-380) ────────────────────────────────────────────
     // Observes the finger without consuming anything, on every node type
     // (button included): on_tap, long press, swipe and an ancestor's scroll
@@ -4427,8 +4550,8 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
     val pressOut = intProp(node.props, "on_press_out")
     val livePress by rememberUpdatedState(MobPressInOutHandles(pressIn, pressOut))
     val pressModifier =
-        if (pressIn == null && pressOut == null) gestureModifier
-        else gestureModifier.pointerInput(Unit) {
+        if (pressIn == null && pressOut == null) touchModifier
+        else touchModifier.pointerInput(Unit) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 val handles = livePress

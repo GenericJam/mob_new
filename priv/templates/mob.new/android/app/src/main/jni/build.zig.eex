@@ -109,6 +109,16 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .ReleaseSmall;
 
     const arch_triple = ndk_arch_triple(abi);
+    // Zig treats arm-linux-androideabi as a soft-float ABI, so clang lowers
+    // every float op to a compiler-rt call (__aeabi_fmul, __aeabi_dadd, ...).
+    // Android's armeabi-v7a is softfp: VFP instructions with the soft calling
+    // convention, so these objects still link with soft-float ones and with
+    // the NDK's libc/libm. Without it, a 30-voice audio mixer took 298 % of
+    // real time on a moto e (msm8953); with it, 53 % (MOB-522). Every C flag
+    // set below carries it. Zig's own codegen (the .zig objects) has no such
+    // switch and stays soft-float, which links fine for the same reason.
+    const float_abi_flags: []const []const u8 =
+        if (std.mem.eql(u8, abi, "armeabi-v7a")) &.{"-mfloat-abi=softfp"} else &.{};
     // Built as a mutable buffer so we can conditionally append static-NIF
     // guard defines (matches the iOS template pattern).
     var c_flags_buf = std.ArrayList([]const u8).empty;
@@ -125,6 +135,7 @@ pub fn build(b: *std.Build) void {
         b.fmt("{s}/usr/include/{s}", .{ ndk_sysroot, arch_triple }),
     };
     for (base_c_flags) |f| c_flags_buf.append(b.allocator, f) catch unreachable;
+    for (float_abi_flags) |f| c_flags_buf.append(b.allocator, f) catch unreachable;
     if (nxeigen_static) c_flags_buf.append(b.allocator, "-DMOB_STATIC_NX_EIGEN_NIF") catch unreachable;
     // Per-NIF compiles (project + plugin C NIFs) start from this snapshot and
     // add only -DSTATIC_ERLANG_NIF_LIBNAME=<name>: erl_nif.h derives
@@ -384,7 +395,7 @@ pub fn build(b: *std.Build) void {
     // for compile. The -D set is exqlite's own (its Makefile's SQLite
     // defines, incl. FTS5), so the phone's SQLite has the features host
     // builds have; mob_dev's iOS builds and CMakeLists.txt use the same set.
-    const sqlite_flags = &[_][]const u8{
+    const sqlite_base_flags = [_][]const u8{
         "-Os",
         "-ffunction-sections",
         "-fdata-sections",
@@ -419,6 +430,7 @@ pub fn build(b: *std.Build) void {
         "-I",
         exqlite_src,
     };
+    const sqlite_flags = std.mem.concat(b.allocator, []const u8, &.{ &sqlite_base_flags, float_abi_flags }) catch @panic("OOM");
 
     const sqlite_sources = [_]CObjectSpec{
         .{ .name = "sqlite3_nif", .source = b.fmt("{s}/sqlite3_nif.c", .{exqlite_src}) },

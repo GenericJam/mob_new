@@ -143,7 +143,7 @@ jobs:
           restore-keys: mix-templates-macos-26-
 
       - run: mix deps.get
-      - run: mix test test/mob_new/templates/android_tflite_link_test.exs test/mob_new/templates/ios_tflite_link_test.exs
+      - run: mix test test/mob_new/templates/android_tflite_link_test.exs test/mob_new/templates/android_float_abi_test.exs test/mob_new/templates/ios_tflite_link_test.exs
 
   security_scan:
     name: Security scan (mix_audit + osv-scanner)

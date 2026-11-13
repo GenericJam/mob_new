@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.18] - 2026-11-13
+
 ### Added
 - **Android bridge for `on_touch` (mob MOB-518): every finger on a node,
   with its position inside it.** `RenderNodeInner` gains an Initial-pass

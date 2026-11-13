@@ -16,21 +16,24 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `pointerInput` that reports each pointer's down, moves, and up or cancel
   through three new JNI calls, without consuming anything, and a node that
   declares `on_touch` routes its tap through the identity-tolerant
-  `nativeSendPressTap` (its down usually re-renders the screen). Needs a
-  mob that exports `mob_touch_down` / `mob_touch_move` / `mob_touch_end`
-  (the mob release with MOB-518); the release of this template must pin it.
-  (MOB-518)
+  `nativeSendPressTap` (its down usually re-renders the screen). (MOB-518)
+
+### Changed
+- **New projects depend on mob `~> 0.9.29`**, the first release that
+  exports `mob_touch_down` / `mob_touch_move` / `mob_touch_end`, which the
+  generated `beam_jni.c` calls; on an older mob the Android build fails to
+  link. (MOB-518)
 
 ### Upgrading
 - **An app generated before this release** gets `on_touch` by porting:
   in `MobBridge.kt`, the `nativeTouchDown` / `nativeTouchMove` /
   `nativeTouchEnd` externals on `MobBridge`, `MobTouchConfig` /
-  `mobTouchConfig` / `MobTouchPointer`, the `on_touch` clause in
+  `mobTouchConfig` / `MobTouchPointer` / `MobTouchKey`, the `on_touch` clause in
   `mobIsPressNode`, and the "Per-pointer touch (MOB-518)" block in
   `RenderNodeInner` (it builds `touchModifier` on `gestureModifier`, and the
   press block then builds on `touchModifier`); in `beam_jni.c`, the three
   `Java_<pkg>_MobBridge_nativeTouch*` stubs. Without them the prop is
-  ignored on Android. (MOB-518)
+  ignored on Android. Then raise the app's mob to `~> 0.9.29`. (MOB-518)
 
 ## [0.6.17] - 2026-10-24
 

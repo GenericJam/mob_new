@@ -1357,10 +1357,14 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
     else
-      # Floor at 0.9.26, not "~> 0.9". Generated code depends on a specific
+      # Floor at 0.9.29, not "~> 0.9". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
+      #   * beam_jni.c's `nativeTouchDown` / `nativeTouchMove` /
+      #     `nativeTouchEnd` stubs call `mob_touch_down` / `mob_touch_move` /
+      #     `mob_touch_end`, new in 0.9.29 (MOB-518, `on_touch`). On an older
+      #     mob the Android native build fails to link.
       #   * The generated .tool-versions pins Zig 0.17.0, and mob's Android
       #     NIF compiles under it from 0.9.26 (0.9.25 calls the removed
       #     std.fmt.bufPrintZ). `Mob.Keyboard.dismiss/1`, which the
@@ -1414,7 +1418,7 @@ defmodule MobNew.ProjectGenerator do
       #     Box accessibility props are validated and encoded from 0.7.32.
       #
       # `~>` still allows the whole 0.9.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.9.26"})
+      mob_dep = ~s({:mob,     "~> 0.9.29"})
       # mob_dev 0.7.31 requires exactly the Zig 0.17.0 the generated
       # .tool-versions pins (older ones require the 0.17.0-dev.269 nightly,
       # so their native build rejects it), and it is the first to accept the

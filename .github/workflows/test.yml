@@ -32,10 +32,26 @@ jobs:
       # `MOB_DEV_DIR` / `./mob` / `../mob` for in-tree path deps — we
       # check the sister repos into the workspace so those resolutions
       # land in CI without a sibling on the host filesystem.
+      #
+      # A template change that calls a new mob symbol is paired with a mob
+      # branch of the same name (case-insensitive) until mob releases it;
+      # check that branch out when it exists, so beam_jni.c's syntax check
+      # sees the matching mob_beam.h. Otherwise mob master.
+      - name: Resolve paired mob branch
+        id: mobref
+        run: |
+          branch="${{ github.head_ref || github.ref_name }}"
+          ref=$(git ls-remote --heads https://github.com/GenericJam/mob.git \
+            | awk '{sub("refs/heads/", "", $2); print $2}' \
+            | grep -ix -- "$branch" | head -1 || true)
+          echo "ref=${ref:-master}" >> "$GITHUB_OUTPUT"
+          echo "mob ref: ${ref:-master}"
+
       - name: Checkout mob (for --local path resolution)
         uses: actions/checkout@v4
         with:
           repository: GenericJam/mob
+          ref: ${{ steps.mobref.outputs.ref }}
           path: mob-checkout
 
       - name: Checkout mob_dev (for --local path resolution)

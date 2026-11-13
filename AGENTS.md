@@ -541,6 +541,16 @@ git config core.hooksPath .githooks
   only the low-byte slot. Using the full handle resets scroll and leaks one
   `LazyListState` per render.
 
+- **Every armeabi-v7a C flag set needs `-mfloat-abi=softfp`.** Zig treats
+  `arm-linux-androideabi` as soft-float and lowers every float op to a
+  compiler-rt call; softfp (Android's real armeabi-v7a ABI) keeps the soft
+  calling convention but uses VFP. Android `build.zig.eex` adds it through
+  `float_abi_flags`; a new C flag list must include it too, and only for
+  armeabi-v7a (clang rejects `-mfloat-abi` on arm64 and x86_64). Zig's own
+  codegen has no equivalent switch, so `.zig` objects stay soft-float.
+  `android_float_abi_test.exs` builds the template and checks the objects
+  (MOB-522).
+
 - **Kotlin imports: no comments or blank lines inside the import block.**
   The ktlint test runs `--format` first and then checks; `import-ordering`
   refuses to autocorrect when the import list carries a comment, so the

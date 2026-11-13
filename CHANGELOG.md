@@ -10,6 +10,31 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Fixed
+- **Android armeabi-v7a: C now does float math on the FPU.** Zig treats
+  `arm-linux-androideabi` as a soft-float ABI, so the generated
+  `android/app/src/main/jni/build.zig` compiled every 32-bit ARM C object
+  (`beam_jni.c`, project and plugin C NIFs, SQLite) with float and double ops
+  lowered to compiler-rt calls (`__aeabi_fmul`, `__aeabi_dadd`, ...). Its C
+  flags and SQLite flags now carry `-mfloat-abi=softfp` for armeabi-v7a: VFP
+  instructions with the soft calling convention, which is Android's
+  armeabi-v7a ABI, so the objects still link with the soft-float ones and
+  with the NDK's libc and libm. An audio mixer went from 298 % to 53 % of
+  real time on a moto e. arm64-v8a and x86_64 are unchanged. Zig's own
+  codegen (`mob_nif.zig`, `mob_beam.zig`, Zig NIFs) has no such switch and
+  stays soft-float; those objects do little float work. (MOB-522)
+
+### Upgrading
+- **An app generated before this release** gets FPU float math on
+  armeabi-v7a by adding this line to `android/app/src/main/jni/build.zig`,
+  right after `for (base_c_flags) |f| c_flags_buf.append(b.allocator, f) catch unreachable;`
+  (so before the `nif_c_flags` snapshot, which C NIFs copy):
+  `if (std.mem.eql(u8, abi, "armeabi-v7a")) c_flags_buf.append(b.allocator, "-mfloat-abi=softfp") catch unreachable;`.
+  That covers `beam_jni.c` and every C NIF. SQLite has its own flag list; to
+  cover it too, port the template's `float_abi_flags` and the
+  `sqlite_base_flags` / `std.mem.concat` pair. Don't add the flag
+  unconditionally: clang rejects `-mfloat-abi` for arm64 and x86_64. (MOB-522)
+
 ## [0.6.18] - 2026-11-13
 
 ### Added

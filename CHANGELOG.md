@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.19] - 2026-11-13
+
 ### Fixed
 - **Android armeabi-v7a: C now does float math on the FPU.** Zig treats
   `arm-linux-androideabi` as a soft-float ABI, so the generated

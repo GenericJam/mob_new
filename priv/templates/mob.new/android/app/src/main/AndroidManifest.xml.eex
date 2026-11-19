@@ -108,7 +108,7 @@
         <receiver android:name=".NotificationReceiver"
             android:exported="false" />
 
-        <!-- FileProvider for camera temp files (photo / video capture) -->
+        <!-- FileProvider for camera temp files (photo / video capture) and Mob.Share.file/3 -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

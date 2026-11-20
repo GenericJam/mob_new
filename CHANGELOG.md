@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.20] - 2026-11-19
+
 ### Added
 - **Android `MobBridge.shareFile(pid, path, mime, title)` — the Android half of
   `Mob.Share.file/3`.** Resolves a `content://` URI through `FileProvider`
@@ -18,15 +20,27 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `FLAG_GRANT_READ_URI_PERMISSION`, reporting setup errors back via
   `nativeDeliverAtom3(pid, "mob_share", "error", reason)`.
 
+### Changed
+- New projects depend on `{:mob, "~> 0.9.31"}`, the first mob with
+  `Mob.Share.file/3`.
+
 ### Fixed
-- **Android file picker (`MobBridge.handleFilesResult`) temp-file hardening.**
-  Queries `OpenableColumns.DISPLAY_NAME` (falling back to `"file_$i"`), writes
-  each picked file into a `File.createTempFile("mob_file_", ".tmp", activity.cacheDir)`
-  temp file with both streams closed via `use`, throws `IOException` when
-  `openInputStream` returns null, builds JSON with `org.json.JSONArray` /
-  `org.json.JSONObject`, deletes all copied temp files on failure, and delivers
-  `nativeDeliverAtom2(pid, "files", "cancelled")` when `activityRef` is gone.
+- **Android file picker (`MobBridge.handleFilesResult`): picking from Downloads
+  no longer comes back `{:files, :cancelled}`.** A Downloads document id is a
+  path, so using `uri.lastPathSegment` as the cache file name failed the copy.
+  Each picked document now goes to a `File.createTempFile("mob_file_", ...)`
+  copy in the cache that keeps a plain extension from the display name (else
+  `.tmp`), the name comes from `OpenableColumns.DISPLAY_NAME` (falling back to
+  `"file_$i"`), the JSON is built with `org.json`, both streams are closed, a
+  null stream is an error, and every copy is deleted if any file fails.
   (MOB-525)
+
+### Upgrading
+- Existing apps: `Mob.Share.file/3` answers `{:mob_share, :error, :unsupported}`
+  on Android until their `android/.../MobBridge.kt` has `shareFile`. Copy the
+  `shareFile` method (and the `android.content.ActivityNotFoundException`
+  import) from a freshly generated app, and replace `handleFilesResult` the same
+  way for the MOB-525 fix.
 
 ## [0.6.19] - 2026-11-13
 

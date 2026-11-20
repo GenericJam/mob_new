@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- Camera capture temp files (mob_cam_*.jpg / mob_cam_*.mp4) -->
+    <!-- Camera capture temp files (mob_cam_*.jpg / mob_cam_*.mp4). Because path="."
+         covers the whole cache directory, this tree is also what Mob.Share.file/3
+         can share via FileProvider; paths outside deliver {:mob_share, :error, :failed}. -->
     <cache-path name="mob_camera" path="." />
     <!-- Audio recording temp files -->
     <cache-path name="mob_audio" path="." />

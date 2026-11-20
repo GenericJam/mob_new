@@ -219,6 +219,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -2116,21 +2117,51 @@ object MobBridge {
     @JvmStatic
     fun handleFilesResult(uris: List<Uri>) {
         val pid = pendingFilesPid
-        if (uris.isEmpty()) { nativeDeliverAtom2(pid, "files", "cancelled"); return }
-        val activity = activityRef?.get() ?: return
+        if (uris.isEmpty()) {
+            nativeDeliverAtom2(pid, "files", "cancelled")
+            return
+        }
+        val activity = activityRef?.get() ?: run {
+            nativeDeliverAtom2(pid, "files", "cancelled")
+            return
+        }
         Thread {
+            val copied = mutableListOf<File>()
             try {
-                val items = uris.mapIndexed { i, uri ->
-                    val name = uri.lastPathSegment ?: "file_$i"
-                    val tmp = File(activity.cacheDir, "mob_file_${System.currentTimeMillis()}_$name")
-                    activity.contentResolver.openInputStream(uri)?.use { it.copyTo(tmp.outputStream()) }
-                    val size = tmp.length()
+                val items = org.json.JSONArray()
+                uris.forEachIndexed { i, uri ->
+                    val name = activity.contentResolver.query(
+                        uri,
+                        arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                        null,
+                        null,
+                        null,
+                    )?.use { cursor ->
+                        val column = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
+                    } ?: "file_$i"
+                    // Document IDs can contain a whole path; never use one as a cache
+                    // filename. Keep a plain extension so the path still says its type.
+                    val ext = name.substringAfterLast('.', "")
+                        .takeIf { it.matches(Regex("[A-Za-z0-9]{1,10}")) }
+                    val tmp = File.createTempFile("mob_file_", if (ext != null) ".$ext" else ".tmp", activity.cacheDir)
+                    copied.add(tmp)
+                    val input = activity.contentResolver.openInputStream(uri)
+                        ?: throw java.io.IOException("The selected file could not be opened")
+                    input.use { source -> tmp.outputStream().use { source.copyTo(it) } }
                     val mime = activity.contentResolver.getType(uri) ?: "application/octet-stream"
-                    """{"path":"${tmp.absolutePath}","name":"$name","mime":"$mime","size":$size}"""
+                    items.put(
+                        org.json.JSONObject()
+                            .put("path", tmp.absolutePath)
+                            .put("name", name)
+                            .put("mime", mime)
+                            .put("size", tmp.length()),
+                    )
                 }
-                val json = "[${items.joinToString(",")}]"
+                val json = items.toString()
                 nativeDeliverFileResult(pid, "files", "picked", json)
             } catch (e: Exception) {
+                copied.forEach { it.delete() }
                 nativeDeliverAtom2(pid, "files", "cancelled")
             }
         }.start()
@@ -3341,6 +3372,54 @@ object MobBridge {
                     putExtra(Intent.EXTRA_TEXT, text)
                 }
                 activity.startActivity(Intent.createChooser(intent, null))
+            }
+        }
+    }
+
+    /** Called from nif_share_file via JNI — opens the system share sheet for a local file. */
+    @JvmStatic
+    fun shareFile(pid: Long, path: String, mime: String, title: String) {
+        val activity = activityRef?.get()?.takeUnless { it.isFinishing || it.isDestroyed }
+            ?: run {
+                nativeDeliverAtom3(pid, "mob_share", "error", "no_activity")
+                return
+            }
+        activity.runOnUiThread {
+            if (activity.isFinishing || activity.isDestroyed) {
+                nativeDeliverAtom3(pid, "mob_share", "error", "no_activity")
+                return@runOnUiThread
+            }
+            val file = File(path)
+            if (!file.isFile || !file.canRead()) {
+                nativeDeliverAtom3(pid, "mob_share", "error", "not_found")
+                return@runOnUiThread
+            }
+            val uri = try {
+                FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
+            } catch (e: IllegalArgumentException) {
+                Log.w("MobBridge", "shareFile failed to resolve FileProvider URI for $path", e)
+                nativeDeliverAtom3(pid, "mob_share", "error", "failed")
+                return@runOnUiThread
+            }
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TITLE, title)
+                putExtra(Intent.EXTRA_SUBJECT, title)
+                clipData = ClipData.newUri(activity.contentResolver, title, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(send, title).apply {
+                clipData = send.clipData
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            try {
+                activity.startActivity(chooser)
+            } catch (e: ActivityNotFoundException) {
+                nativeDeliverAtom3(pid, "mob_share", "error", "no_app")
+            } catch (e: Exception) {
+                Log.w("MobBridge", "shareFile failed", e)
+                nativeDeliverAtom3(pid, "mob_share", "error", "failed")
             }
         }
     }

@@ -10,6 +10,24 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **Android `MobBridge.shareFile(pid, path, mime, title)` — the Android half of
+  `Mob.Share.file/3`.** Resolves a `content://` URI through `FileProvider`
+  (`${activity.packageName}.fileprovider`, covering the cache directory) and
+  launches an `Intent.ACTION_SEND` chooser with `ClipData` and
+  `FLAG_GRANT_READ_URI_PERMISSION`, reporting setup errors back via
+  `nativeDeliverAtom3(pid, "mob_share", "error", reason)`.
+
+### Fixed
+- **Android file picker (`MobBridge.handleFilesResult`) temp-file hardening.**
+  Queries `OpenableColumns.DISPLAY_NAME` (falling back to `"file_$i"`), writes
+  each picked file into a `File.createTempFile("mob_file_", ".tmp", activity.cacheDir)`
+  temp file with both streams closed via `use`, throws `IOException` when
+  `openInputStream` returns null, builds JSON with `org.json.JSONArray` /
+  `org.json.JSONObject`, deletes all copied temp files on failure, and delivers
+  `nativeDeliverAtom2(pid, "files", "cancelled")` when `activityRef` is gone.
+  (MOB-525)
+
 ## [0.6.19] - 2026-11-13
 
 ### Fixed

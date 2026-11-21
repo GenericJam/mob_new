@@ -10,6 +10,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.21] - 2026-11-21
+
 ### Added
 - **Android `clip_width` / `clip_height` on every rendered node — the Android
   half of mob's `clip_width` / `clip_height`.** Each is the fraction f (0..1)
@@ -26,7 +28,12 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   prop is set. This is what draws the half star in `MishkaRating` (MOB-536).
   Not cut: a `sheet`'s container (its content is), an `anchored` panel (a
   separate popup window) and a `gpu_view`'s GLSurfaceView (composited outside
-  the canvas).
+  the canvas). A `native_view` remounts when its clip crosses 1 (the wrapper
+  `Box` comes and goes), so its native view is recreated.
+
+### Changed
+- New projects depend on `{:mob, "~> 0.9.32"}`, the first mob that draws
+  `clip_width` / `clip_height` on iOS.
 
 ### Upgrading
 - Existing apps ignore both props on Android until their

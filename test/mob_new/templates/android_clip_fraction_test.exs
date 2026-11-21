@@ -1,8 +1,9 @@
 # Template-assertion test: `clip_width` / `clip_height` on the generated
 # Android bridge (the Android half of mob's props). The clip is Compose draw
 # code the host suite cannot run, so these pin the lines whose loss would break
-# the contract silently: the props are read, the clip is a draw-time clipRect,
-# it wraps everything nodeModifier draws, and clip_width keeps the leading side.
+# the contract silently: the props are read, the clip is a draw-time clipRect
+# cut at one line per prop, clip_width keeps the leading side, and the clip
+# wraps everything nodeModifier draws and native views.
 defmodule MobNew.Templates.AndroidClipFractionTest do
   use ExUnit.Case, async: true
 
@@ -15,6 +16,7 @@ defmodule MobNew.Templates.AndroidClipFractionTest do
     source = File.read!(@bridge)
 
     %{
+      source: source,
       clip:
         source
         |> region("private fun mobFractionClip(", "\n}\n")
@@ -57,33 +59,41 @@ defmodule MobNew.Templates.AndroidClipFractionTest do
     assert clip =~ "return Modifier.drawWithContent {"
 
     assert clip =~
-             "clipRect(left = left, top = top, right = right, bottom = bottom) " <>
+             "clipRect(left = left, top = -MOB_CLIP_UNBOUNDED, right = right, bottom = bottom) " <>
                "{ this@drawWithContent.drawContent() }"
 
     # A size modifier would change what the parent lays out.
     refute clip =~ ~r/\.(width|height|size|requiredSize|layout|clip)\(/
   end
 
-  test "each prop cuts only its own axis; the other stays open for overflow", %{clip: clip} do
-    # Horizontal band is open unless clip_width cuts it.
+  test "each prop cuts at its trailing or bottom line only; the rest stays open", %{clip: clip} do
+    # Open on every side until a prop closes one.
     assert clip =~
              "var left = -MOB_CLIP_UNBOUNDED var right = MOB_CLIP_UNBOUNDED if (keepWidth < 1f) {"
 
-    assert clip =~ "right = left + visibleWidth"
-
-    # Vertical band is open unless clip_height cuts it; it keeps the top.
-    assert clip =~ "val top = if (keepHeight < 1f) 0f else -MOB_CLIP_UNBOUNDED"
-
+    # clip_height closes the bottom only: the top bound is open in the clipRect.
     assert clip =~
              "val bottom = if (keepHeight < 1f) size.height * keepHeight else MOB_CLIP_UNBOUNDED"
   end
 
-  test "clip_width keeps the leading side: the left in LTR, the right in RTL", %{clip: clip} do
-    assert clip =~ "val visibleWidth = size.width * keepWidth"
-
+  test "clip_width keeps the leading side: cuts the right in LTR, the left in RTL", %{
+    clip: clip
+  } do
     assert clip =~
-             "left = if (layoutDirection == LayoutDirection.Rtl) " <>
-               "size.width - visibleWidth else 0f"
+             "val visibleWidth = size.width * keepWidth " <>
+               "if (layoutDirection == LayoutDirection.Rtl) { left = size.width - visibleWidth } " <>
+               "else { right = visibleWidth }"
+  end
+
+  test "a native view, which gets no nodeModifier, is clipped by a wrapper Box", %{
+    source: source
+  } do
+    native = source |> region(~s|"native_view"    -> {|, ~s|"canvas"|) |> code_only() |> squish()
+
+    assert native =~
+             "val clip = mobFractionClip(node.props) if (clip == Modifier) " <>
+               "MobNativeViewRegistry.render(node) else Box(modifier = clip, " <>
+               "propagateMinConstraints = true) { MobNativeViewRegistry.render(node) }"
   end
 
   test "the clip heads nodeModifier, so it wraps the background, border and children", %{

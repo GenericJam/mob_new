@@ -4878,7 +4878,15 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         "video"          -> MobVideoPlayer(node, m)
         "camera_preview" -> MobCameraPreview(node, m)
         "web_view"       -> MobWebView(node, m)
-        "native_view"    -> MobNativeViewRegistry.render(node)
+        // The registry's factories take no modifier, so a native view never
+        // gets `m`. clip_width / clip_height go on a wrapper Box instead, and
+        // only when one is set: an unclipped native view lays out as before.
+        // propagateMinConstraints hands the parent's minimums on unchanged.
+        "native_view"    -> {
+            val clip = mobFractionClip(node.props)
+            if (clip == Modifier) MobNativeViewRegistry.render(node)
+            else Box(modifier = clip, propagateMinConstraints = true) { MobNativeViewRegistry.render(node) }
+        }
         "canvas"         -> MobCanvas(node, m)
         "gpu_view"       -> MobGpuView(node, m)
         "sheet"          -> MobSheetSlot(node) { state -> MobSheet(node, state) }
@@ -7193,18 +7201,18 @@ private fun MobTabBar(node: MobNode, modifier: Modifier) {
 
 // ── Modifier helpers ──────────────────────────────────────────────────────────
 
-// Bounds of the axis a fraction clip does not cut: far enough out that a child
-// overflowing the node on that axis stays visible, finite so it survives the
-// canvas transforms (Float.MAX_VALUE times a layer scale is infinity).
+// The open side of a fraction clip: far enough out that whatever the node draws
+// past its bounds there stays visible, finite so it survives the canvas
+// transforms (Float.MAX_VALUE times a layer scale is infinity).
 private const val MOB_CLIP_UNBOUNDED = 1_000_000f
 
-// clip_width / clip_height: the fraction (0..1) of the node's own laid-out
-// width / height that stays visible. Each cuts only its own axis. clip_width
-// keeps the x-band [leading edge, leading edge + f * width] (leading = left in
-// LTR, right in RTL) and leaves overflow above and below visible; clip_height
-// keeps the y-band [top, top + f * height] and leaves the horizontal axis
-// uncut. Both set: the intersection. Absent or >= 1 adds nothing to the chain;
-// <= 0 draws nothing.
+// clip_width / clip_height: the fraction f (0..1) of the node's own laid-out
+// width / height that stays visible. Each cuts at one line only: clip_width at
+// leading edge + f * width (leading = left in LTR, right in RTL), keeping
+// everything on the leading side of it, including what the node draws past its
+// leading bound; clip_height at top + f * height, keeping everything above it.
+// An axis with no prop is open on both sides. Both set: the intersection.
+// Absent or >= 1 adds nothing to the chain; <= 0 draws nothing.
 //
 // A clipRect around drawContent, not a layout change: the node still measures
 // and places at full size, so its parent and siblings are unaffected, and only
@@ -7223,12 +7231,14 @@ private fun mobFractionClip(props: Map<String, Any?>): Modifier {
         var right = MOB_CLIP_UNBOUNDED
         if (keepWidth < 1f) {
             val visibleWidth = size.width * keepWidth
-            left = if (layoutDirection == LayoutDirection.Rtl) size.width - visibleWidth else 0f
-            right = left + visibleWidth
+            if (layoutDirection == LayoutDirection.Rtl) {
+                left = size.width - visibleWidth
+            } else {
+                right = visibleWidth
+            }
         }
-        val top = if (keepHeight < 1f) 0f else -MOB_CLIP_UNBOUNDED
         val bottom = if (keepHeight < 1f) size.height * keepHeight else MOB_CLIP_UNBOUNDED
-        clipRect(left = left, top = top, right = right, bottom = bottom) {
+        clipRect(left = left, top = -MOB_CLIP_UNBOUNDED, right = right, bottom = bottom) {
             this@drawWithContent.drawContent()
         }
     }

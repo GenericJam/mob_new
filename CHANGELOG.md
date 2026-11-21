@@ -11,25 +11,31 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Added
-- **Android `clip_width` / `clip_height` on every node — the Android half of
-  mob's `clip_width` / `clip_height`.** Each is the fraction (0..1) of the
-  node's own laid-out width / height that stays visible: `clip_width` keeps the
-  leading part (the left in LTR, the right in RTL), `clip_height` the top; each
-  cuts only its own axis, and both together keep the intersection. Absent or
-  `>= 1` clips nothing, `<= 0` draws nothing. `nodeModifier` now starts with a
-  `drawWithContent { clipRect { drawContent() } }`, so the cut covers the
-  node's background, border and children while its measured size, its
-  parent's layout and hit testing are unchanged. This is what draws the half
-  star in `MishkaRating` (MOB-536).
+- **Android `clip_width` / `clip_height` on every rendered node — the Android
+  half of mob's `clip_width` / `clip_height`.** Each is the fraction f (0..1)
+  of the node's own laid-out width / height that stays visible, and each cuts
+  at one line only: `clip_width` at the leading edge + f × width (leading is
+  the left in LTR, the right in RTL) and keeps everything on the leading side
+  of it, `clip_height` at the top + f × height and keeps everything above it.
+  An axis with no prop is not cut; both together keep the intersection. Absent
+  or `>= 1` clips nothing, `<= 0` draws nothing. `nodeModifier` now starts
+  with a `drawWithContent { clipRect { drawContent() } }`, so the cut covers
+  the node's background, border and children while its measured size, its
+  parent's layout and hit testing are unchanged; a `native_view`, which never
+  gets `nodeModifier`, is wrapped in a `Box` carrying the same clip when either
+  prop is set. This is what draws the half star in `MishkaRating` (MOB-536).
+  Not cut: a `sheet`'s container (its content is), an `anchored` panel (a
+  separate popup window) and a `gpu_view`'s GLSurfaceView (composited outside
+  the canvas).
 
 ### Upgrading
 - Existing apps ignore both props on Android until their
   `android/.../MobBridge.kt` has them: regenerate the app, or copy
   `MOB_CLIP_UNBOUNDED` and `mobFractionClip` from a freshly generated
   `MobBridge.kt`, make `nodeModifier` start with
-  `var m: Modifier = mobFractionClip(props)`, and add the
-  `androidx.compose.ui.draw.drawWithContent` and
-  `androidx.compose.ui.graphics.drawscope.clipRect` imports.
+  `var m: Modifier = mobFractionClip(props)`, replace the `"native_view"` arm
+  of `RenderNodeInner`, and add the `androidx.compose.ui.draw.drawWithContent`
+  and `androidx.compose.ui.graphics.drawscope.clipRect` imports.
 
 ## [0.6.20] - 2026-11-19
 

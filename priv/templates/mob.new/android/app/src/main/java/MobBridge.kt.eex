@@ -4882,6 +4882,8 @@ private fun RenderNodeInner(node: MobNode, modifier: Modifier) {
         // gets `m`. clip_width / clip_height go on a wrapper Box instead, and
         // only when one is set: an unclipped native view lays out as before.
         // propagateMinConstraints hands the parent's minimums on unchanged.
+        // The two calls are different composition groups, so a clip crossing 1
+        // remounts the native view, as on iOS (decisions/2026-11-20-clip-*).
         "native_view"    -> {
             val clip = mobFractionClip(node.props)
             if (clip == Modifier) MobNativeViewRegistry.render(node)

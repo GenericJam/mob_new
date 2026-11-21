@@ -54,3 +54,10 @@ carries the Android half.
   limits the hole punched for it).
 - On a `button`, the clipped frame is M3's 48dp minimum touch target, the same
   frame a `background` on a button paints, not the 40dp pill centred in it.
+- A `native_view` whose clip crosses 1 (set, or back to unclipped) moves
+  between the bare and the Box-wrapped call, which are different composition
+  groups: the factory's `remember` state is dropped and any `AndroidView` in it
+  is recreated. iOS remounts the same way (its clip is an `if`/`else`
+  `@ViewBuilder`). Always wrapping would avoid it but would stack a
+  multi-element factory's roots on top of each other in every app, clipped or
+  not, so the remount on a toggle is the cheaper cost.

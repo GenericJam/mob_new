@@ -1357,10 +1357,13 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
     else
-      # Floor at 0.9.31, not "~> 0.9". Generated code depends on a specific
+      # Floor at 0.9.32, not "~> 0.9". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
+      #   * The template's MobBridge draws `clip_width` / `clip_height`, which
+      #     mob encodes from 0.9.32 (MOB-536); on an older mob, iOS ignores
+      #     them and the two platforms disagree.
       #   * The template's MobBridge.shareFile serves `Mob.Share.file/3`, new
       #     in 0.9.31.
       #   * beam_jni.c's `nativeTouchDown` / `nativeTouchMove` /
@@ -1420,7 +1423,7 @@ defmodule MobNew.ProjectGenerator do
       #     Box accessibility props are validated and encoded from 0.7.32.
       #
       # `~>` still allows the whole 0.9.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.9.31"})
+      mob_dep = ~s({:mob,     "~> 0.9.32"})
       # mob_dev 0.7.31 requires exactly the Zig 0.17.0 the generated
       # .tool-versions pins (older ones require the 0.17.0-dev.269 nightly,
       # so their native build rejects it), and it is the first to accept the

@@ -333,7 +333,8 @@ defmodule MobNew.ProjectGeneratorTest do
     test "mix.exs floors mob at the release the generated app relies on", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "mix.exs"))
-      # mob 0.9.31 has Mob.Share.file/3, which the template's
+      # mob 0.9.32 draws clip_width/clip_height on iOS, as the template's
+      # MobBridge does on Android (MOB-536); 0.9.31 has Mob.Share.file/3, which the template's
       # MobBridge.shareFile serves; 0.9.29 exports mob_touch_down/move/end, which beam_jni.c's
       # nativeTouch* stubs call (MOB-518). The generated .tool-versions pins
       # Zig 0.17.0: mob 0.9.26's Android NIF
@@ -348,7 +349,7 @@ defmodule MobNew.ProjectGeneratorTest do
       # call (MOB-379); mob_dev 0.7.12 turns mob.exs's url_schemes into the
       # native URL registrations. 0.9.8 already required the notification
       # envelope (MOB-316) and the private dist cookie (MOB-49).
-      assert content =~ ~s({:mob,     "~> 0.9.31"})
+      assert content =~ ~s({:mob,     "~> 0.9.32"})
       assert content =~ ~s({:mob_dev, "~> 0.7.31", only: :dev, runtime: false})
       assert content =~ ~s({:mob_mishka, "~> 0.1.3"})
     end

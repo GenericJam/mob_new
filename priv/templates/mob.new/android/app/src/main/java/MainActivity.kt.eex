@@ -550,6 +550,21 @@ private fun MobNavHost(state: RootState) {
     var containerWidth by remember { mutableIntStateOf(0) }
     val offset = remember { Animatable(0f) }
 
+    // The navigation whose slide has been started. It trails state.navKey for
+    // the first frame of every navigation: set_root composes, lays out and
+    // DRAWS the incoming tree before the LaunchedEffect below gets to run, and
+    // `offset` is still at rest then, so that frame showed the incoming screen
+    // in place. The effect then snapped it off-canvas and slid it back in:
+    // on a pop, home flashed, vanished, and slid in from the left. Recorded
+    // with `adb screenrecord` on a moto g power 2021 and 2024, push and pop
+    // alike (reported in gitlab.com/MegaJ/mob-exploration#1).
+    //
+    // While the two differ, the start position is applied from composition,
+    // so the incoming tree's first frame is already drawn off-canvas.
+    var slidNavKey by remember { mutableIntStateOf(state.navKey) }
+    val pendingFrom =
+        if (slidNavKey != state.navKey) slideFrom(state.transition, containerWidth) else null
+
     // Keyed on navKey, NOT on `state`.
     //
     // `LaunchedEffect` cancels its coroutine when the key changes, and `state`
@@ -565,29 +580,15 @@ private fun MobNavHost(state: RootState) {
     // cannot cancel the slide, and a second navigation correctly interrupts
     // and restarts it.
     LaunchedEffect(state.navKey) {
-        // Recovery first, before any early exit: an interrupted slide must not
-        // be able to leave the screen displaced just because the width is not
-        // known yet.
-        if (containerWidth <= 0) {
-            offset.snapTo(0f)
-            return@LaunchedEffect
-        }
-
-        val width = containerWidth.toFloat()
-        val from = when (state.transition) {
-            "push" -> width
-            "pop" -> -width
-            else -> 0f
-        }
-
-        if (from == 0f) {
-            // No slide for a reset or a first mount, but the offset still has
-            // to be returned to rest in case a previous slide was interrupted.
-            offset.snapTo(0f)
-        } else {
-            offset.snapTo(from)
-            offset.animateTo(0f, tween(durationMillis = 300))
-        }
+        // Always snapped, even with no slide (a reset, a first mount, a width
+        // not known yet): an interrupted slide must not leave the screen
+        // displaced.
+        val from = slideFrom(state.transition, containerWidth)
+        offset.snapTo(from)
+        // Only after the snap, so the frame that stops using `pendingFrom`
+        // reads the same position from `offset`.
+        slidNavKey = state.navKey
+        if (from != 0f) offset.animateTo(0f, tween(durationMillis = 300))
     }
 
     Box(
@@ -611,7 +612,7 @@ private fun MobNavHost(state: RootState) {
         // A layer translation moves the same pixels in the draw phase with no
         // layout invalidation at all, which on a performance ticket is the
         // difference worth having.
-        Box(Modifier.fillMaxSize().graphicsLayer { translationX = offset.value }) {
+        Box(Modifier.fillMaxSize().graphicsLayer { translationX = pendingFrom ?: offset.value }) {
             // Rendered straight from `state`, exactly as the AnimatedContent
             // version was. Routing it through a state variable set by a
             // LaunchedEffect would leave the first frame after every set_root
@@ -648,6 +649,15 @@ private fun MobNavHost(state: RootState) {
             if (state.node == null) StartupStatus()
         }
     }
+}
+
+// Where a navigation's incoming screen starts its slide: 0 for none, or before
+// the width is known.
+private fun slideFrom(transition: String, width: Int): Float = when {
+    width <= 0 -> 0f
+    transition == "push" -> width.toFloat()
+    transition == "pop" -> -width.toFloat()
+    else -> 0f
 }
 
 // The boot screen, iOS MobRootView's startup ZStack: phase text and a spinner

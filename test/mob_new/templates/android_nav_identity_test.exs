@@ -58,16 +58,35 @@ defmodule MobNew.Templates.AndroidNavIdentityTest do
     # what decouples the animation from identity.
     assert has?(src, "Animatable(0f)")
 
-    # Both halves, adjacent. Asserting only animateTo lets the parking snap be
-    # deleted, which leaves a push animating 0 -> 0: no error, no slide.
-    assert has?(src, "offset.snapTo(from) offset.animateTo(0f, tween(durationMillis = 300))"),
+    # Both halves. Asserting only animateTo lets the parking snap be deleted,
+    # which leaves a push animating 0 -> 0: no error, no slide.
+    assert has?(src, "offset.snapTo(from)"),
            "the incoming screen must be parked before it is animated in"
+
+    assert has?(src, "offset.animateTo(0f, tween(durationMillis = 300))")
 
     # A layer translation moves pixels in the draw phase. Modifier.offset is a
     # layout modifier, so it re-runs placement through every mounted node on
     # each of the ~18 frames of the slide.
-    assert has?(src, "graphicsLayer { translationX = offset.value }"),
+    assert has?(src, "graphicsLayer { translationX = pendingFrom ?: offset.value }"),
            "the slide must translate in the draw phase, not re-place the tree"
+  end
+
+  test "the incoming screen's first frame is already parked", %{main: src} do
+    # set_root composes and draws the incoming tree one frame before any
+    # LaunchedEffect runs. With the offset only parked from the effect, that
+    # frame showed the incoming screen in place, which then vanished and slid
+    # back in: a one-frame flash on every push and pop, recorded on a moto g
+    # power 2021 and 2024. The start position has to come from composition.
+    assert has?(
+             src,
+             "if (slidNavKey != state.navKey) slideFrom(state.transition, containerWidth) else null"
+           ),
+           "the parked position must be applied in the composition that mounts the new tree"
+
+    # Handing back to `offset` before the snap would draw one frame at rest.
+    assert has?(src, "offset.snapTo(from) slidNavKey = state.navKey"),
+           "the effect must take over only once the offset is parked"
   end
 
   test "the slide animation is keyed on navKey, never on the whole state", %{main: src} do
@@ -88,9 +107,11 @@ defmodule MobNew.Templates.AndroidNavIdentityTest do
   end
 
   test "an interrupted slide still returns the offset to rest", %{main: src} do
-    # The zero-distance branch is not just a fast path for reset: it is what
-    # recovers the offset if a previous slide was interrupted before reaching 0.
-    assert has?(src, "offset.snapTo(0f)")
+    # The snap is unconditional, before any animation: with no slide (reset,
+    # first mount, width unknown) `from` is 0, and that snap is what recovers
+    # the offset if a previous slide was interrupted before reaching 0.
+    assert has?(src, "val from = slideFrom(state.transition, containerWidth) offset.snapTo(from)")
+    assert has?(src, "width <= 0 -> 0f")
   end
 
   test "navigation re-keys the frame trackers", %{main: main, bridge: bridge} do

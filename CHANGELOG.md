@@ -20,6 +20,16 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   test, failed with a `BadMapError`. It now finds the trigger by its
   `test_id` and checks the label. Generated apps require
   `{:mob_mishka, "~> 0.1.6"}`, the release the showcase relies on.
+- **Android: no one-frame flash at the start of a push or pop.** `MobNavHost`
+  parked the incoming screen off-canvas from a `LaunchedEffect`, which runs
+  only after the frame that first composes the new tree has been drawn, so
+  that frame showed the incoming screen in place before it vanished and slid
+  back in (on a pop, home flashed, went blank and slid in from the left). The
+  start position now comes from composition until the effect has parked
+  `offset`. Seen with `adb screenrecord` on a moto g power 2021 and 2024;
+  reported in gitlab.com/MegaJ/mob-exploration#1. Existing apps: copy
+  `MobNavHost` and `slideFrom` from the template into
+  `android/app/src/main/java/<package>/MainActivity.kt`.
 
 ## [0.6.21] - 2026-11-21
 

@@ -385,7 +385,14 @@ defmodule <%= module_name %>.ShowcaseTest do
 
     test "standalone example triggers are full-width, not weight (so they don't collapse)" do
       view = mount_screen(ComponentScreen, %{slug: :drawer})
-      open_sheet = find(view, :button, text: "Open the sheet")
+      # A string trigger is a tappable Box holding its label since mob_mishka
+      # 0.1.6, not a :button: Android's button adds its own Material padding,
+      # which left a trigger sharing a row no room for the label. Found by its
+      # test_id; the label is checked separately.
+      open_sheet = find(view, :box, id: "sheet-open")
+
+      assert open_sheet, "no :box with id \"sheet-open\": the drawer trigger changed shape"
+      assert text(open_sheet) == "Open the sheet"
 
       assert open_sheet.props.fill_width == true
       refute Map.has_key?(open_sheet.props, :weight)

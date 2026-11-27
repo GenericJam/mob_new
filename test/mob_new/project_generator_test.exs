@@ -491,6 +491,30 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ "test_app_android@127.0.0.1"
     end
 
+    test "generated projects embed no shared distribution cookie", %{tmp: tmp} do
+      # MOB-554: the managed per-app cookie is the only one mob accepts; a
+      # cookie written into the generated source reads as a shared default
+      # credential, so the template must leave `:cookie` out entirely.
+      for {name, opts} <- [
+            {"cookie_app", []},
+            {"cookie_blank", [blank: true]},
+            {"cookie_py", [python: true]},
+            {"cookie_deliver", [deliver: true]}
+          ] do
+        {:ok, dir} = ProjectGenerator.generate(name, tmp, opts)
+        app = File.read!(Path.join(dir, "lib/#{name}/app.ex"))
+
+        assert app =~ ~s[Mob.Dist.ensure_started(node: :"#{name}_android@127.0.0.1")\n]
+        refute app =~ "cookie:"
+
+        for file <- Path.wildcard(Path.join(dir, "**"), match_dot: true),
+            File.regular?(file) do
+          refute File.read!(file) =~ "mob_secret",
+                 "#{Path.relative_to(file, dir)} names mob_secret"
+        end
+      end
+    end
+
     test "generates home_screen.ex", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       assert File.exists?(Path.join(dir, "lib/test_app/home_screen.ex"))

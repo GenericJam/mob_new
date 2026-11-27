@@ -281,8 +281,11 @@ defmodule MobNew.LiveViewPatcherTest do
       assert live_app_content() =~ "Mob.NativeLogger.install()"
     end
 
-    test "starts Erlang distribution" do
-      assert live_app_content() =~ "Mob.Dist.ensure_started"
+    test "starts Erlang distribution without embedding a cookie" do
+      content = live_app_content()
+      # MOB-554: mob uses the managed per-app cookie; none in generated source.
+      assert content =~ ~s[Mob.Dist.ensure_started(node: :"my_app_android@127.0.0.1")\n]
+      refute content =~ "cookie:"
     end
 
     test "sets Application.put_env for :mob liveview_port" do

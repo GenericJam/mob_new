@@ -387,8 +387,10 @@ defmodule MobNew.LiveViewPatcher do
         # The WebView loads http://127.0.0.1:<liveview_port>/ (see mob.exs).
         Mob.Screen.start_root(#{module_name}.MobScreen)
 
-        # Start Erlang distribution so `mix mob.connect` can attach.
-        Mob.Dist.ensure_started(node: :"#{app_name}_android@127.0.0.1", cookie: :mob_secret)
+        # Start Erlang distribution so `mix mob.connect` can attach. No
+        # `:cookie`: the node uses the private per-app cookie that
+        # `mix mob.deploy` hands to the app.
+        Mob.Dist.ensure_started(node: :"#{app_name}_android@127.0.0.1")
       end
 
       defp migrations_dir do

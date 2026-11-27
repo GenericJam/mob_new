@@ -351,7 +351,7 @@ defmodule MobNew.ProjectGeneratorTest do
       # envelope (MOB-316) and the private dist cookie (MOB-49).
       assert content =~ ~s({:mob,     "~> 0.9.32"})
       assert content =~ ~s({:mob_dev, "~> 0.7.31", only: :dev, runtime: false})
-      assert content =~ ~s({:mob_mishka, "~> 0.1.3"})
+      assert content =~ ~s({:mob_mishka, "~> 0.1.6"})
     end
 
     test "AGENTS.md points an agent at version-matched Mob docs and the app rules",

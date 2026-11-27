@@ -1442,7 +1442,9 @@ defmodule MobNew.ProjectGenerator do
       # 0.1.3 is the first release signed with a v2 envelope (0.1.2's v1
       # signature is refused by current mob_dev); mob.exs activates the
       # plugin, and the trust gate refuses an unsigned or v1-signed one.
-      mob_mishka_dep = ~s({:mob_mishka, "~> 0.1.3"})
+      # 0.1.6 is where MishkaDrawer.trigger/2 draws a string trigger as a Box
+      # with a label, which the generated showcase and its test rely on.
+      mob_mishka_dep = ~s({:mob_mishka, "~> 0.1.6"})
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, nil}
     end
@@ -1483,7 +1485,7 @@ defmodule MobNew.ProjectGenerator do
         ~s({:mob_mishka, path: "#{sibling}"})
 
       true ->
-        ~s({:mob_mishka, "~> 0.1.3"})
+        ~s({:mob_mishka, "~> 0.1.6"})
     end
   end
 

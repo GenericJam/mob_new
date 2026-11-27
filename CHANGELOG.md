@@ -10,6 +10,17 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Fixed
+- **The generated showcase test passes against mob_mishka 0.1.6.** 0.1.6
+  draws a `MishkaDrawer.trigger/2` string trigger as a tappable Box holding
+  its label instead of a `:button` (Android's button padding left a trigger in
+  a shared row no room for its label), so the drawer test's
+  `find(view, :button, text: "Open the sheet")` found nothing and every
+  `mix test` of a generated app, and mob_new's ejected-composite end-to-end
+  test, failed with a `BadMapError`. It now finds the trigger by its
+  `test_id` and checks the label. Generated apps require
+  `{:mob_mishka, "~> 0.1.6"}`, the release the showcase relies on.
+
 ## [0.6.21] - 2026-11-21
 
 ### Added

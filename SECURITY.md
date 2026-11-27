@@ -70,4 +70,5 @@ as much as the generator in `lib/`.
 - An authenticated development peer running arbitrary code. That access is the
   point of distribution.
 - Bugs in Erlang/OTP, Elixir, Android, Xcode or a third-party library. Report
-  those upstream.
+  those upstream. Do tell me if a template pins an affected version, so new
+  projects stop getting it.

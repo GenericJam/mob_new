@@ -2618,7 +2618,7 @@ defmodule MobNew.ProjectGeneratorTest do
       # navKey survives, as the signal that a navigation happened rather than
       # as a composition key.
       assert code =~ "LaunchedEffect(state.navKey)"
-      assert code =~ "offset.animateTo(0f"
+      assert code =~ "animate(0f, 1f"
     end
 
     # ── Template linting ──────────────────────────────────────────────────────

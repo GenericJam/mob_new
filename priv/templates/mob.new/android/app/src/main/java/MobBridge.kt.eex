@@ -974,7 +974,7 @@ object MobBridge {
         return out
     }
 
-    private fun collectSurfaceViews(
+    internal fun collectSurfaceViews(
         view: android.view.View,
         out: MutableList<Pair<android.view.SurfaceView, IntArray>>,
     ) {
@@ -1805,6 +1805,37 @@ object MobBridge {
         }
     }
 
+    // A navigation is not rendered on the frame after its state write.
+    // MainActivity's MobNavHost holds the outgoing tree for that frame while it
+    // copies the window, and only then lets the incoming tree compose: a
+    // bracket armed in setRootJson would close after the held frame and report
+    // the cost of a copy, not of building the screen. That is the artifact the
+    // MOB-146 decision record warns about (navigation timed cheaper than a
+    // re-render of the same tree).
+    //
+    // So a navigation's sample is parked here, and armed by MobNavHost at the
+    // moment it lets the incoming tree compose, on the main thread: the frame
+    // callback then lands on the frame that builds it, and the post from
+    // inside closes after that frame's traversal, exactly as for a re-render.
+    // The bracket opens there too, so `apply_us` stays what MOB-146 measured
+    // (the incoming build) and the window copy is not in it; MobNavHost logs
+    // each copy's duration under the `MobNav` tag instead.
+    //
+    // A navigation superseded before it composed (a second one inside the
+    // copy) records no sample: its tree is never built.
+    private class PendingNav(val navKey: Int, val transition: String)
+
+    // Set on the NIF thread, taken on the main thread. A compare-and-set, so a
+    // navigation parked between the read and the clear is not wiped.
+    private val pendingNav = java.util.concurrent.atomic.AtomicReference<PendingNav?>(null)
+
+    @JvmStatic
+    fun navigationComposing(navKey: Int) {
+        val pending = pendingNav.get() ?: return
+        if (pending.navKey != navKey || !pendingNav.compareAndSet(pending, null)) return
+        measureApply(System.nanoTime(), pending.transition)
+    }
+
     /** Called from mob_nif.c's nif_set_root — updates Compose state. */
     @JvmStatic
     fun setRootJson(json: String, transition: String) {
@@ -1855,7 +1886,10 @@ object MobBridge {
 
         _rootState.value = RootState(newKey, transition, parsed, _rootState.value.epoch + 1)
 
-        if (measuring) measureApply(startNanos, transition)
+        if (measuring) {
+            if (transition != "none") pendingNav.set(PendingNav(newKey, transition))
+            else measureApply(startNanos, transition)
+        }
     }
 
     /** Called from Compose onClick — routes tap back to BEAM via C. */

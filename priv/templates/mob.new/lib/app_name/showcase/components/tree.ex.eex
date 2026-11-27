@@ -229,8 +229,9 @@ defmodule <%= module_name %>.Showcase.Components.Tree do
            |> Mob.Socket.assign(:anchor, value)}
         end
 
-        # The hold is Shift+click: the run goes from the last tap to here.
-        def handle_info({:tap, {:range, value}}, socket) do
+        # The hold is Shift+click: the run goes from the last tap to here. It
+        # arrives as {:long_press, _}, not as a tap.
+        def handle_info({:long_press, {:range, value}}, socket) do
           run = MishkaTree.select_range(@people, :all, socket.assigns.anchor, value)
           {:noreply, Mob.Socket.assign(socket, :picked, Enum.uniq(socket.assigns.picked ++ run))}
         end

@@ -92,8 +92,8 @@ defmodule <%= module_name %>.Showcase.Components.TagsInput do
             />
             <Spacer size={10} />
             <Text
-              text="Duplicates are still refused: add/3 trims and rejects a repeat, so a
-                    caller cannot forget to."
+              text={"Duplicates are still refused: add/3 trims and rejects a repeat, so a " <>
+                "caller cannot forget to."}
               text_size={:sm}
               text_color={:muted}
             />

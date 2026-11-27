@@ -32,8 +32,11 @@ defmodule <%= module_name %>.Showcase.Components.Tooltip do
     socket
     |> Mob.Socket.assign(:tip_hold, nil)
     |> Mob.Socket.assign(:tip_tapped, nil)
-    |> Mob.Socket.assign(:tip_soft, true)
-    |> Mob.Socket.assign(:tip_sticky, true)
+    # Both dismissal examples start shut. A dismissible hint takes taps outside
+    # its bubble, so two of them open at mount sat over the page catching taps
+    # meant for the controls around them before anyone had held a trigger.
+    |> Mob.Socket.assign(:tip_soft, false)
+    |> Mob.Socket.assign(:tip_sticky, false)
     |> Mob.Socket.assign(:tip_off, false)
   end
 
@@ -61,7 +64,10 @@ defmodule <%= module_name %>.Showcase.Components.Tooltip do
 
         # on_open_change carries the state the tooltip wants NEXT, so one clause
         # opens and closes, and a second hold on the same control puts it away.
-        def handle_info({:tap, {{:hold, which}, open?}}, socket) do
+        # The hold arrives as {:long_press, _}; a tap on the bubble, or outside
+        # it, as {:tap, _}. Both carry the same tag.
+        def handle_info({event, {{:hold, which}, open?}}, socket)
+            when event in [:long_press, :tap] do
           {:noreply, Mob.Socket.assign(socket, :tip, if(open?, do: which, else: nil))}
         end
 
@@ -87,8 +93,8 @@ defmodule <%= module_name %>.Showcase.Components.Tooltip do
         title: "Every side, with an arrow",
         description:
           "side puts the bubble above, below or beside the trigger and turns the arrow to " <>
-            "match. It displaces the layout rather than floating over it — nothing here can " <>
-            "measure a trigger's rectangle.",
+            "match. The bubble floats over the page in its own window, so opening one moves " <>
+            "nothing around it.",
         code: ~S"""
         <MishkaTooltip
           id="side-left"
@@ -150,39 +156,44 @@ defmodule <%= module_name %>.Showcase.Components.Tooltip do
           <MishkaActionIcon icon="📌" variant={:filled} />
         </MishkaTooltip>
 
-        # The same clause serves the bubble's tap and the trigger's hold: both
-        # report the state they want, so the screen only has to store it.
-        def handle_info({:tap, {:sticky, open?}}, socket) do
+        # One clause serves the trigger's hold and the bubble's tap: both report
+        # the state they want, so the screen only has to store it.
+        def handle_info({event, {:sticky, open?}}, socket)
+            when event in [:long_press, :tap] do
           {:noreply, Mob.Socket.assign(socket, :sticky?, open?)}
         end
         """,
         render: fn assigns ->
           ~MOB"""
-          <Row fill_width={true}>
-            <MishkaTooltip
-              id="dismiss-soft"
-              text="Tap me to close"
-              open={@tip_soft}
-              side={:bottom}
-              fill_width={false}
-              on_open_change={:tip_soft}
-            >
-              <MishkaActionIcon icon="✕" variant={:filled} />
-            </MishkaTooltip>
-            <Spacer size={20} />
-            <MishkaTooltip
-              id="dismiss-sticky"
-              text="Hold to close"
-              open={@tip_sticky}
-              side={:bottom}
-              fill_width={false}
-              close_on_tap={false}
-              on_open_change={:tip_sticky}
-            >
-              <MishkaActionIcon icon="📌" variant={:filled} />
-            </MishkaTooltip>
-            <Spacer weight={1} />
-          </Row>
+          <Column fill_width={true}>
+            <Row fill_width={true}>
+              <MishkaTooltip
+                id="dismiss-soft"
+                text="Tap me to close"
+                open={@tip_soft}
+                side={:bottom}
+                fill_width={false}
+                on_open_change={:tip_soft}
+              >
+                <MishkaActionIcon icon="✕" variant={:filled} />
+              </MishkaTooltip>
+              <Spacer size={20} />
+              <MishkaTooltip
+                id="dismiss-sticky"
+                text="Hold to close"
+                open={@tip_sticky}
+                side={:bottom}
+                fill_width={false}
+                close_on_tap={false}
+                on_open_change={:tip_sticky}
+              >
+                <MishkaActionIcon icon="📌" variant={:filled} />
+              </MishkaTooltip>
+              <Spacer weight={1} />
+            </Row>
+            <Spacer size={10} />
+            <Text text="Hold ✕ or 📌 to open its hint." text_size={:sm} text_color={:muted} />
+          </Column>
           """
         end
       },
@@ -204,7 +215,7 @@ defmodule <%= module_name %>.Showcase.Components.Tooltip do
 
         # Wired, and still never called — disabled drops the handler rather
         # than ignoring the event, so nothing arrives to ignore.
-        def handle_info({:tap, {:off, open?}}, socket) do
+        def handle_info({:long_press, {:off, open?}}, socket) do
           {:noreply, Mob.Socket.assign(socket, :off?, open?)}
         end
         """,
@@ -326,7 +337,7 @@ defmodule <%= module_name %>.Showcase.Components.Tooltip do
         name: "on_open_change",
         type: "event tag",
         default: "—",
-        description: "Sent as {:tap, {tag, next_open?}} on hold and on dismissal."
+        description: "{tag, next_open?}: as {:long_press, _} on hold, {:tap, _} on dismissal."
       },
       %{
         name: "on_tap",

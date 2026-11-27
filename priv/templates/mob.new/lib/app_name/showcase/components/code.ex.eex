@@ -59,7 +59,7 @@ defmodule <%= module_name %>.Showcase.Components.Code do
       },
       %Example{
         title: "Without the scroller",
-        description: "scroll: false lets a long line be clipped instead.",
+        description: "scroll: false drops the scroller, so a long line wraps instead.",
         code: ~S"""
         <MishkaCode text="…" block={true} scroll={false} />
         """,
@@ -69,7 +69,7 @@ defmodule <%= module_name %>.Showcase.Components.Code do
             <MishkaCode
               block={true}
               scroll={false}
-              text="a long line that will simply be clipped at the edge of the block"
+              text="a long line that wraps onto the next once it reaches the edge of the block"
             />
           </Column>
           """
@@ -130,7 +130,7 @@ defmodule <%= module_name %>.Showcase.Components.Code do
         name: "scroll",
         type: "boolean",
         default: "true (blocks)",
-        description: "Scroll a block horizontally instead of clipping."
+        description: "Scroll a block horizontally instead of wrapping."
       }
     ]
   end

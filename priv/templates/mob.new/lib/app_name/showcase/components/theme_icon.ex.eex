@@ -254,8 +254,9 @@ defmodule <%= module_name %>.Showcase.Components.ThemeIcon do
       code: ~S"""
       <MishkaThemeIcon id="ti-deploy" icon="🚀" label="Deploy" on_long_press={:explain} />
 
-      # The label rides the payload, so one clause serves every icon on the page.
-      def handle_info({:tap, {:explain, label}}, socket) do
+      # A hold arrives as {:long_press, _}, not as a tap. The label rides the
+      # payload, so one clause serves every icon on the page.
+      def handle_info({:long_press, {:explain, label}}, socket) do
         {:noreply, Mob.Socket.assign(socket, :held, label)}
       end
       """,
@@ -454,7 +455,7 @@ defmodule <%= module_name %>.Showcase.Components.ThemeIcon do
         name: "on_long_press",
         type: "event tag",
         default: "—",
-        description: "Sent as {:tap, {tag, label}} — the touch equivalent of hover."
+        description: "Sent as {:long_press, {tag, label}} — the touch equivalent of hover."
       },
       %{
         name: "Marquee: repeat / space / height / id",

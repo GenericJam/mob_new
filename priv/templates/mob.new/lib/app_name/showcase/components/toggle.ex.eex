@@ -122,6 +122,7 @@ defmodule <%= module_name %>.Showcase.Components.Toggle do
           label="Violet"
           pressed={true}
           color={0xFF7C3AED}
+          text_color={0xFFFFFFFF}
           corner_radius={20}
           padding={12}
           border_width={0}
@@ -135,6 +136,7 @@ defmodule <%= module_name %>.Showcase.Components.Toggle do
                 label="Pill"
                 pressed={true}
                 color={0xFF7C3AED}
+                text_color={0xFFFFFFFF}
                 corner_radius={20}
                 padding={12}
                 border_width={0}
@@ -148,6 +150,7 @@ defmodule <%= module_name %>.Showcase.Components.Toggle do
                 label="Square"
                 pressed={true}
                 color={0xFF111111}
+                text_color={0xFFFFFFFF}
                 corner_radius={2}
                 padding={10}
                 text_size={:sm}
@@ -159,6 +162,7 @@ defmodule <%= module_name %>.Showcase.Components.Toggle do
                 padding={10}
                 text_size={:sm}
                 background={0xFFEFEFF4}
+                label_color={0xFF111111}
                 border_width={0}
               />
             </Row>
@@ -195,8 +199,8 @@ defmodule <%= module_name %>.Showcase.Components.Toggle do
             </Row>
             <Spacer size={12} />
             <Text
-              text="A disabled toggle stays filled, greyed rather than accented — otherwise
-                    locked-on and locked-off look identical."
+              text={"A disabled toggle stays filled, greyed rather than accented — otherwise " <>
+                "locked-on and locked-off look identical."}
               text_size={:sm}
               text_color={:muted}
             />

@@ -90,8 +90,8 @@ defmodule <%= module_name %>.Showcase.Components.Autocomplete do
             />
             <Spacer size={10} />
             <Text
-              text="Tap the field to open it, ▾ to toggle, and anywhere in this card to close.
-                    Choosing a suggestion fills the field."
+              text={"Tap the field to open it, ▾ to toggle, and anywhere in this card " <>
+                "to close. Choosing a suggestion fills the field."}
               text_size={:sm}
               text_color={:muted}
             />
@@ -168,8 +168,8 @@ defmodule <%= module_name %>.Showcase.Components.Autocomplete do
             {recipient_menu(@ac_recipients, @ac_draft, @ac_pick_open)}
             <Spacer size={10} />
             <Text
-              text="A ✓ marks someone already added — tap them again to remove. Return still
-                    commits whatever you typed."
+              text={"A ✓ marks someone already added — tap them again to remove. Return still " <>
+                "commits whatever you typed."}
               text_size={:sm}
               text_color={:muted}
             />

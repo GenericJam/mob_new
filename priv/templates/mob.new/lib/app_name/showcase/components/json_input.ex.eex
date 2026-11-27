@@ -90,8 +90,8 @@ defmodule <%= module_name %>.Showcase.Components.JsonInput do
             <MishkaJsonInput value={@json} lines={3} disabled={true} id="json-off" />
             <Spacer size={8} />
             <Text
-              text="A disabled field used to withhold only its handler: it still took a
-                    caret and accepted typing, and threw every keystroke away."
+              text={"A disabled field used to withhold only its handler: it still took a " <>
+                "caret and accepted typing, and threw every keystroke away."}
               text_size={:sm}
               text_color={:muted}
             />

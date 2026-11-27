@@ -55,7 +55,7 @@ defmodule <%= module_name %>.Showcase.Components.Popover do
         </MishkaPopover>
 
         # The trigger sends the state it wants, so one clause serves the
-        # trigger, the long press and the footer's close button alike.
+        # trigger and the footer's close button alike.
         def handle_info({:tap, {:details, open?}}, socket) do
           {:noreply, Mob.Socket.assign(socket, :open?, open?)}
         end
@@ -86,8 +86,9 @@ defmodule <%= module_name %>.Showcase.Components.Popover do
           {content}
         </MishkaPopover>
 
-        # A hold always sends true; only the tap sends the opposite of now.
-        def handle_info({:tap, {:hint, open?}}, socket) do
+        # A hold arrives as {:long_press, _} and always asks for true; the tap
+        # arrives as {:tap, _} and asks for the opposite of now.
+        def handle_info({event, {:hint, open?}}, socket) when event in [:long_press, :tap] do
           {:noreply, Mob.Socket.assign(socket, :open?, open?)}
         end
         """,
@@ -321,7 +322,7 @@ defmodule <%= module_name %>.Showcase.Components.Popover do
         name: "on_open_change",
         type: "event tag",
         default: "—",
-        description: "Sent as {:tap, {tag, next_open?}} by trigger, hold and close alike."
+        description: "{tag, next_open?}: {:long_press, _} on hold, {:tap, _} on tap and close."
       },
       %{
         name: "open_on_hold",

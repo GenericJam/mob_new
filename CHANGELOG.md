@@ -20,6 +20,26 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   g power 2021, a screen re-rendering 2–20 ms after mount slid in on 13 of 20
   pushes before and 20 of 20 after. Existing apps: the `navTransition` line in
   `MobBridge.setRootJson`.
+- **Holding a control on a gallery page now does something (MOB-570).** A
+  hold arrives as `{:long_press, tag}`, and `ComponentScreen` had no clause
+  for it, so every `on_long_press` in the showcase (theme icon labels, tooltip
+  "hold to reveal", context-menu rows, popover, preview-card, toolbar and tree
+  holds) fell through to the catch-all. It now routes to the page's
+  `handle/2` like a tap. The code samples on those pages showed `{:tap, _}`
+  for the hold and now show `{:long_press, _}`. Existing apps: one
+  `handle_info/2` clause in `showcase/component_screen.ex`.
+- **`Kit.compact_button/2` no longer carries `weight: 1`.** A weight is read by
+  whichever Row or Column the button lands in, so outside `Kit.grid/1` it
+  squeezed its Row neighbours or grew tall in a Column. `grid/1` now puts the
+  weight on each cell itself.
+- **Gallery page fixes.** Captions on the autocomplete, combobox, json_input,
+  segmented_control, tags_input and toggle pages no longer carry their source
+  indentation mid-sentence. The code page says `scroll={false}` wraps a long
+  line (it never clipped). The tooltip page no longer opens two dismissible
+  hints at mount, which caught taps meant for the controls around them. The
+  "Styled by props" examples on segmented_control, toggle and toggle_group,
+  and the checkbox colour example, give every hex fill a hex label colour, so
+  labels and selections stay readable in the dark theme.
 
 ## [0.6.22] - 2026-11-27
 

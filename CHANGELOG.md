@@ -10,6 +10,17 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Fixed
+- **Android: a push no longer sometimes appears without its slide.** A
+  screen that re-renders a few ms after its mount, as one loading its data
+  does, sends a second tree with no transition; when both arrived before the
+  frame that starts the animation, `MobNavHost` saw only the second and showed
+  the screen in place. `RootState.transition` now carries the transition of
+  the navigation that set `navKey` through the re-renders after it. On a moto
+  g power 2021, a screen re-rendering 2–20 ms after mount slid in on 13 of 20
+  pushes before and 20 of 20 after. Existing apps: the `navTransition` line in
+  `MobBridge.setRootJson`.
+
 ## [0.6.22] - 2026-11-27
 
 ### Changed

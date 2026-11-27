@@ -102,7 +102,13 @@ defmodule <%= module_name %>.Showcase.Components.Checkbox do
         title: "Colour and size",
         description: "color fills the box when checked; size sets its edge.",
         code: ~S"""
-        <MishkaCheckbox label="Violet" checked={true} color={0xFF7C3AED} size={26} />
+        <MishkaCheckbox
+          label="Violet"
+          checked={true}
+          color={0xFF7C3AED}
+          text_color={0xFFFFFFFF}
+          size={26}
+        />
         """,
         render: fn _assigns ->
           ~MOB"""
@@ -111,6 +117,7 @@ defmodule <%= module_name %>.Showcase.Components.Checkbox do
               label="Violet, larger"
               checked={true}
               color={0xFF7C3AED}
+              text_color={0xFFFFFFFF}
               size={26}
               id="cb-large"
             />

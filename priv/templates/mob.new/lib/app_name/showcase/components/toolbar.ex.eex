@@ -212,9 +212,10 @@ defmodule <%= module_name %>.Showcase.Components.Toolbar do
         <MishkaToolbarButton id={:link} label="Insert link" icon="🔗" />
       </MishkaToolbar>
 
-      # A long press is the touch equivalent of a hover. The plain tap still
-      # does whatever the button does, so the hint costs the caller nothing.
-      def handle_info({:tap, {:hold, id}}, socket) do
+      # A long press is the touch equivalent of a hover, and arrives as
+      # {:long_press, _}. The plain tap still does whatever the button does, so
+      # the hint costs the caller nothing.
+      def handle_info({:long_press, {:hold, id}}, socket) do
         {:noreply, Mob.Socket.assign(socket, :hint, id)}
       end
       """,
@@ -252,7 +253,7 @@ defmodule <%= module_name %>.Showcase.Components.Toolbar do
       </MishkaToolbar>
 
       # focusable_when_disabled={false} takes the long press away as well.
-      def handle_info({:tap, {:hold, id}}, socket) do
+      def handle_info({:long_press, {:hold, id}}, socket) do
         {:noreply, Mob.Socket.assign(socket, :held, id)}
       end
       """,
@@ -478,7 +479,7 @@ defmodule <%= module_name %>.Showcase.Components.Toolbar do
         name: "on_hold",
         type: "event tag",
         default: "—",
-        description: "{:tap, {tag, item_id}} from a long press — the hover replacement."
+        description: "{:long_press, {tag, item_id}} from a hold — the hover replacement."
       },
       %{
         name: "on_input",

@@ -4,7 +4,7 @@ defmodule <%= module_name %>.ShowcaseTest do
 
   alias MobMishka.Components.MishkaMark
   alias <%= module_name %>.Showcase
-  alias <%= module_name %>.Showcase.{ComponentScreen, GalleryScreen}
+  alias <%= module_name %>.Showcase.{ComponentScreen, GalleryScreen, Kit}
 
   setup do
     # Exactly what the app registers at boot — one catalog, no drift.
@@ -14,6 +14,27 @@ defmodule <%= module_name %>.ShowcaseTest do
   end
 
   defp expanded(view), do: Mob.Composite.expand(tree(view), self())
+
+  # Every gallery page — the index plus one per catalog entry — as
+  # `{slug, tree}`, with the tree passed through `prepare` (`&tree/1` to see
+  # composite tags as written, `&expanded/1` to see what reaches native).
+  defp gallery_pages(prepare) do
+    pages =
+      for module <- Showcase.modules() do
+        slug = module.entry().slug
+        {slug, ComponentScreen |> mount_screen(%{slug: slug}) |> prepare.()}
+      end
+
+    [{:gallery, GalleryScreen |> mount_screen() |> prepare.()} | pages]
+  end
+
+  # The event tag of every node in the tree that registers a long press.
+  defp hold_tags(view) do
+    for node <- flatten(expanded(view)),
+        {_pid, tag} <- [Map.get(node.props, :on_long_press)],
+        do: tag
+  end
+
   defp short_name(module), do: module |> Module.split() |> List.last()
   # The drawer page now renders NINE drawers, one per example, so "the drawer"
   # has to be named. find/2 would hand back whichever comes first in the tree.
@@ -167,14 +188,8 @@ defmodule <%= module_name %>.ShowcaseTest do
       # `:semibold` serialises to "semibold" and is dropped there too: the prop
       # does nothing whatsoever, silently. That silence is why this is pinned
       # across the whole catalog rather than one component at a time.
-      pages =
-        for module <- Showcase.modules() do
-          slug = module.entry().slug
-          {slug, ComponentScreen |> mount_screen(%{slug: slug}) |> expanded()}
-        end
-
       offenders =
-        for {slug, tree} <- [{:gallery, GalleryScreen |> mount_screen() |> expanded()} | pages],
+        for {slug, tree} <- gallery_pages(&expanded/1),
             node <- find_all(tree, :text),
             Map.has_key?(node.props, :weight),
             do: {slug, node.props[:text], node.props[:weight]}
@@ -182,6 +197,51 @@ defmodule <%= module_name %>.ShowcaseTest do
       assert offenders == [],
              "a Text styles its font with `font_weight`; these carry a dead `weight`: " <>
                inspect(offenders)
+    end
+
+    test "no Text carries the indentation of the source it was written in" do
+      # A ~MOB attribute string that runs onto a second line keeps the newline
+      # AND the leading spaces of that line, so the caption drew a gap of a
+      # dozen spaces mid-sentence on both platforms. Long captions are joined
+      # with <> in an expression instead. Code samples keep their indentation
+      # on purpose, so they are the one exception.
+      code = MapSet.new(for module <- Showcase.modules(), ex <- module.examples(), do: ex.code)
+
+      offenders =
+        for {slug, tree} <- gallery_pages(&expanded/1),
+            node <- find_all(tree, :text),
+            is_binary(node.props[:text]),
+            node.props[:text] =~ ~r/\n[ \t]/,
+            not MapSet.member?(code, node.props[:text]),
+            do: {slug, node.props[:text]}
+
+      assert offenders == [], "captions carry source indentation: " <> inspect(offenders)
+    end
+
+    test "a hex fill on a toggle, segment or checkbox carries a hex ink too" do
+      # A literal ARGB fill is the same in both themes; a token label is not.
+      # The "Styled by props" examples put the default :on_surface label on a
+      # light hex track, and in the dark theme the words went near-white on
+      # near-white. Whichever fill is literal, the ink that sits on it must be.
+      styled = [
+        :mishka_toggle,
+        :mishka_toggle_group,
+        :mishka_segmented_control,
+        :mishka_checkbox
+      ]
+
+      ink_on = [color: :text_color, background: :label_color]
+
+      offenders =
+        for {slug, tree} <- gallery_pages(&tree/1),
+            node <- flatten(tree),
+            node.type in styled,
+            {fill, ink} <- ink_on,
+            is_integer(node.props[fill]),
+            not is_integer(node.props[ink]),
+            do: {slug, node.type, fill, ink}
+
+      assert offenders == [], "a hex fill under a theme-token label: " <> inspect(offenders)
     end
 
     test "focus and blur reach the component, and are NOT taps" do
@@ -720,6 +780,61 @@ defmodule <%= module_name %>.ShowcaseTest do
       assert text(expanded(twice)) =~ "Tapped 2 times"
     end
 
+    test "a long press reaches the page's handle/2" do
+      # A hold is delivered as {:long_press, tag}, not {:tap, tag}. Without a
+      # clause for that shape every on_long_press in the gallery fell through
+      # the catch-all and vanished: holding a theme icon, a tooltip trigger or a
+      # context-menu row did nothing. Each hold is read off the node the
+      # renderer registers, so this follows whatever the composite composes.
+      cases = [
+        {:theme_icon, {:ti_hold, "Deploy"}, &(&1.ti_held == "Deploy")},
+        {:tooltip, {{:tip_hold, :copy}, true}, &(&1.tip_hold == :copy)},
+        {:context_menu, {:cm_open, :report}, &(&1.cm_for == :report)}
+      ]
+
+      for {slug, hold, held?} <- cases do
+        view = mount_screen(ComponentScreen, %{slug: slug})
+
+        assert hold in hold_tags(view), "#{slug}: nothing registers a hold of #{inspect(hold)}"
+        refute held?.(assigns(view))
+        assert held?.(assigns(render_info(view, {:long_press, hold}))), "#{slug}: hold ignored"
+      end
+    end
+
+    test "every code sample that wires a hold handles it as {:long_press, _}" do
+      # The samples are what people copy. Several showed a hold handled as
+      # {:tap, _}, which never matches: the gallery itself only worked because
+      # ComponentScreen routes both shapes to handle/2.
+      wires_hold = ~r/on_long_press|on_hold|open_on_hold=\{true\}|on_range_select/
+
+      offenders =
+        for module <- Showcase.modules(),
+            ex <- module.examples(),
+            is_binary(ex.code),
+            ex.code =~ wires_hold,
+            ex.code =~ "def handle_info(",
+            not (ex.code =~ ":long_press"),
+            do: {module.entry().slug, ex.title}
+
+      assert offenders == [], "a hold handled as a tap: " <> inspect(offenders)
+    end
+
+    test "the tooltip page opens no dismissible hint until one is held" do
+      # Open at mount, both bubbles of the dismissal example floated over the
+      # page before anyone asked, and one sat on top of — and swallowed taps
+      # meant for — the "Hold to reveal" controls above it.
+      open_hints = fn view ->
+        ids = view |> expanded() |> flatten() |> Enum.map(&Map.get(&1.props, :id))
+        Enum.filter(["dismiss-soft-open", "dismiss-sticky-open"], &(&1 in ids))
+      end
+
+      view = mount_screen(ComponentScreen, %{slug: :tooltip})
+      assert open_hints.(view) == []
+
+      held = render_info(view, {:long_press, {:tip_sticky, true}})
+      assert open_hints.(held) == ["dismiss-sticky-open"]
+    end
+
     test "the disabled action icons wire no handler, even though one is given" do
       taps =
         ComponentScreen
@@ -952,6 +1067,25 @@ defmodule <%= module_name %>.ShowcaseTest do
       assert assigns(view).entry == nil
       assert_renderable(expanded(view))
       assert text(view) =~ "Not found"
+    end
+  end
+
+  describe "Kit" do
+    test "a compact button hugs its label; the grid is what gives it half a row" do
+      # The weight used to be baked into the button, and a weight is read by
+      # whatever Row or Column the node lands in: a compact button beside other
+      # content squeezed it, and one in a Column grew into a tall slab.
+      refute Map.has_key?(Kit.compact_button("Go", :go).props, :weight)
+
+      grid = Kit.grid(for label <- ~w(A B C), do: Kit.compact_button(label, :go))
+
+      assert Enum.map(find_all(grid, :button), & &1.props[:weight]) == [1, 1, 1]
+
+      # An odd count pads the last row with a flex slot, so C stays half-width.
+      [_, last] = find_all(grid, :row)
+
+      assert Enum.map(last.children, &{&1.type, &1.props[:weight]}) ==
+               [{:button, 1}, {:spacer, nil}, {:spacer, 1}]
     end
   end
 end

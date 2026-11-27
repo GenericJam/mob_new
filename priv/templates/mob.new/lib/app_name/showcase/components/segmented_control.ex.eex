@@ -167,8 +167,8 @@ defmodule <%= module_name %>.Showcase.Components.SegmentedControl do
             </MishkaSegmentedControl>
             <Spacer size={8} />
             <Text
-              text="Segments stay content-sized either way — equal widths would need
-                    layout weight, which iOS does not have."
+              text={"Segments stay content-sized either way — equal widths would need " <>
+                "layout weight, which iOS does not have."}
               text_size={:sm}
               text_color={:muted}
             />
@@ -183,7 +183,9 @@ defmodule <%= module_name %>.Showcase.Components.SegmentedControl do
         <MishkaSegmentedControl
           value={@v}
           color={0xFF7C3AED}
+          text_color={0xFFFFFFFF}
           background={0xFFEFEDF7}
+          label_color={0xFF4C1D95}
           corner_radius={20}
           segment_radius={17}
           padding={12}
@@ -201,7 +203,9 @@ defmodule <%= module_name %>.Showcase.Components.SegmentedControl do
                 value={@sc_view}
                 on_change={:sc_view}
                 color={0xFF7C3AED}
+                text_color={0xFFFFFFFF}
                 background={0xFFEFEDF7}
+                label_color={0xFF4C1D95}
                 corner_radius={20}
                 segment_radius={17}
                 padding={12}
@@ -218,8 +222,10 @@ defmodule <%= module_name %>.Showcase.Components.SegmentedControl do
                 value={@sc_view}
                 on_change={:sc_view}
                 color={0xFF111111}
-                background={:background}
-                border_color={:border}
+                text_color={0xFFFFFFFF}
+                background={0xFFFFFFFF}
+                label_color={0xFF111111}
+                border_color={0xFFD4D4D8}
                 border_width={1}
                 corner_radius={4}
                 segment_radius={2}

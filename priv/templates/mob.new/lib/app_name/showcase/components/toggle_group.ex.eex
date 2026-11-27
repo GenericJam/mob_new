@@ -203,8 +203,17 @@ defmodule <%= module_name %>.Showcase.Components.ToggleGroup do
         title: "Styled by props, not by a stylesheet",
         description: "The component ships no look. Same group, two different styles.",
         code: ~S"""
-        # Spaced pills
-        <MishkaToggleGroup space={8} corner_radius={20} padding={12} color={0xFF7C3AED} />
+        # Spaced pills. A literal fill does not follow the theme, so neither may
+        # the label on it: each hex fill gets a hex text colour to match.
+        <MishkaToggleGroup
+          space={8}
+          corner_radius={20}
+          padding={12}
+          color={0xFF7C3AED}
+          text_color={0xFFFFFFFF}
+          background={0xFFEFEDF7}
+          label_color={0xFF4C1D95}
+        />
 
         # Joined and square
         <MishkaToggleGroup space={0} corner_radius={2} border_width={1} />
@@ -221,7 +230,9 @@ defmodule <%= module_name %>.Showcase.Components.ToggleGroup do
                 padding={12}
                 border_width={0}
                 color={0xFF7C3AED}
+                text_color={0xFFFFFFFF}
                 background={0xFFEFEDF7}
+                label_color={0xFF4C1D95}
                 text_size={:sm}
               >
                 <MishkaToggleGroupItem id={:left} label="Left" />
@@ -239,6 +250,10 @@ defmodule <%= module_name %>.Showcase.Components.ToggleGroup do
                 padding={10}
                 border_width={1}
                 color={0xFF111111}
+                text_color={0xFFFFFFFF}
+                background={0xFFFFFFFF}
+                label_color={0xFF111111}
+                border_color={0xFFD4D4D8}
                 text_size={:sm}
               >
                 <MishkaToggleGroupItem id={:left} label="Left" />

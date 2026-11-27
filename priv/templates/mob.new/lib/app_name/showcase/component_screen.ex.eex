@@ -7,7 +7,8 @@ defmodule <%= module_name %>.Showcase.ComponentScreen do
     * renders each example (`title` + `description` + live `render.(assigns)` +
       `code` block),
     * renders the component's root `overlay/1` (for drawers/modals) over the page,
-    * forwards tap events to the component's `handle/2`.
+    * forwards taps, holds, submits, focus and blur to the component's
+      `handle/2`, and value changes and drags to its `handle_change/3`.
 
   One screen serves all 150+ components — the per-component logic lives in the
   showcase modules, not here.
@@ -108,6 +109,11 @@ defmodule <%= module_name %>.Showcase.ComponentScreen do
       entry -> {:noreply, entry.module.handle(tag, socket)}
     end
   end
+
+  # A hold arrives as {:long_press, tag} on both platforms, not as a tap.
+  # Without this clause every on_long_press in the gallery fell through to the
+  # catch-all below (tooltip "hold to reveal", theme icon labels, context menus).
+  def handle_info({:long_press, tag}, socket), do: {:noreply, route(socket, tag)}
 
   # Focus and blur arrive as {:focus, tag} / {:blur, tag} — NOT as taps, even
   # though the renderer registers them with register_tap/1. Without these clauses

@@ -52,7 +52,8 @@ defmodule <%= module_name %>.Showcase.Components.ContextMenu do
           <MishkaMenuItem id={:delete} label="Delete" icon="🗑" danger={true} />
         </MishkaContextMenu>
 
-        def handle_info({:tap, {:open_for, id}}, socket) do
+        # A hold arrives as {:long_press, _}, not as a tap.
+        def handle_info({:long_press, {:open_for, id}}, socket) do
           {:noreply, assign(socket, :open_for, id)}
         end
         """,

@@ -82,7 +82,7 @@ defmodule <%= module_name %>.Showcase.Components.PreviewCard do
         # The card owns no state. A hold ASKS for a change and the screen
         # decides — here holding the open one closes it and holding the other
         # moves the card, so only ever one is open.
-        def handle_info({:tap, {:hold, id}}, socket) do
+        def handle_info({:long_press, {:hold, id}}, socket) do
           next = if socket.assigns.open == id, do: nil, else: id
           {:noreply, Mob.Socket.assign(socket, :open, next)}
         end
@@ -139,7 +139,7 @@ defmodule <%= module_name %>.Showcase.Components.PreviewCard do
           </MishkaPreviewCardTrigger>
         </MishkaPreviewCard>
 
-        def handle_info({:tap, {:top_hold, _id}}, socket) do
+        def handle_info({:long_press, {:top_hold, _id}}, socket) do
           {:noreply, Mob.Socket.assign(socket, :top?, not socket.assigns.top?)}
         end
         """,
@@ -188,7 +188,7 @@ defmodule <%= module_name %>.Showcase.Components.PreviewCard do
           <MishkaPreviewCardTrigger>{hint("Hold me")}</MishkaPreviewCardTrigger>
         </MishkaPreviewCard>
 
-        def handle_info({:tap, {:side_hold, _id}}, socket) do
+        def handle_info({:long_press, {:side_hold, _id}}, socket) do
           {:noreply, Mob.Socket.assign(socket, :side?, not socket.assigns.side?)}
         end
         """,
@@ -330,7 +330,7 @@ defmodule <%= module_name %>.Showcase.Components.PreviewCard do
         name: "on_hold",
         type: "event tag",
         default: "nil",
-        description: "Long press on the trigger — {:tap, {tag, id}}. The touch hover."
+        description: "Long press on the trigger — {:long_press, {tag, id}}. The touch hover."
       },
       %{
         name: "on_tap",

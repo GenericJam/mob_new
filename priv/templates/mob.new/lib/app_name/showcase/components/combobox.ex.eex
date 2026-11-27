@@ -103,8 +103,8 @@ defmodule <%= module_name %>.Showcase.Components.Combobox do
             <Text text={chosen(@cb_value)} text_size={:sm} text_color={:muted} />
             <Spacer size={20} />
             <Text
-              text="Tap the field to open it, type to keep it open, and tap anywhere in this
-                    card to close it."
+              text={"Tap the field to open it, type to keep it open, and tap anywhere in this " <>
+                "card to close it."}
               text_size={:sm}
               text_color={:muted}
             />

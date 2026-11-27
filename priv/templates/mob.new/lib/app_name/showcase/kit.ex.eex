@@ -175,7 +175,10 @@ defmodule <%= module_name %>.Showcase.Kit do
   @doc "A dimmed placeholder card for a not-yet-built component."
   def skeleton_card, do: component_card(skeleton_preview(), "Soon", "coming soon", nil)
 
-  @doc "A compact button for the space-efficient default section. `weight: 1` for `grid/1`."
+  @doc """
+  A compact button for the space-efficient default section. It hugs its label;
+  `grid/1` is what gives it a share of a row.
+  """
   def compact_button(label, tag) do
     %{
       type: :button,
@@ -185,7 +188,6 @@ defmodule <%= module_name %>.Showcase.Kit do
         text_color: :on_surface,
         text_size: :sm,
         padding: :space_sm,
-        weight: 1,
         on_tap: {self(), tag}
       },
       children: []
@@ -193,11 +195,17 @@ defmodule <%= module_name %>.Showcase.Kit do
   end
 
   @doc """
-  Lay out `weight: 1` items two-per-row. Odd counts pad with an empty flex slot
-  so the last item stays half-width (not stretched).
+  Lay items out two-per-row, each taking half the row. Odd counts pad with an
+  empty flex slot so the last item stays half-width (not stretched).
+
+  The `weight: 1` is put on here, where the Row is, and not baked into the
+  items: a weight is read by whichever Row or Column the node lands in, so a
+  weighted button outside a grid squeezes its Row neighbours, or turns into a
+  tall button in a Column.
   """
   def grid(items) do
     items
+    |> Enum.map(&put_in(&1, [:props, :weight], 1))
     |> Enum.chunk_every(2)
     |> Enum.map(fn
       [a, b] -> row([a, gap_h(), b])

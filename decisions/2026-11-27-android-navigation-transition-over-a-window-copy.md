@@ -1,6 +1,6 @@
 # Android navigation: slide over a window copy of the outgoing screen
 - Date: 2026-11-27
-- Status: proposed (spike, branch `spike/nav-snapshot-material`)
+- Status: accepted
 
 ## Context
 
@@ -72,9 +72,46 @@ down over the copy sliding off), a push interrupted by a pop or a second push
 150ms in, a sheet and an alert (native animations, untouched), and a rotation
 during a push. No frame fell below normal contrast in any of them.
 
+### Dense screen
+
+A generated app (this template) with a ~1600-node screen: 260 tappable rows
+of Box > Row > 3 Text + Spacer in a plain Scroll, pushed onto a copy of
+itself (same shape, the MOB-129 favourable case) and popped. Master's
+template rendered into the same app is the baseline. moto g power 2021,
+release-compiled (`cmd package compile -m speed-profile`), no screen
+recorder, driven over dist with `Mob.Test.tap`, 10 samples per run.
+
+`Mob.RenderStats.native_summary/0`, p50:
+
+| | master (2 runs) | this change (3 runs) |
+| --- | --- | --- |
+| `none` (one field) | 89 / 77ms | 81 / 77 / 91ms |
+| `push` | 246 / 246ms | 285 / 291 / 312ms |
+| `pop` | 238 / 257ms | 286 / 285 / 309ms |
+| window copy (logcat) | n/a | 17–25ms, 50ms first |
+
+`dumpsys gfxinfo framestats`, every frame over 100ms (IntendedVsync to
+FrameCompleted), per navigation:
+
+| | master | this change |
+| --- | --- | --- |
+| long frames | 235–288ms (draw 85–91ms) **and** 128–169ms | one, 297–336ms (draw 17–22ms) |
+| where | the second lands inside the slide | before the slide, under the copy |
+
+The navigation `apply_us` reads ~40–60ms higher because the one build frame
+now carries work master splits into a second frame mid-slide. Main-thread
+stall per navigation is lower (~300–336ms against ~380–430ms) and none of it
+falls inside the animation. gfxinfo's 90th/95th percentile frame over a run:
+27–31 / 61–81ms against 89–105 / 200ms. A first recorded run, straight after
+install and with the recorder on, read 579ms for a push; that was the
+uncompiled app, not the change.
+
 ## Consequences
 
-- A navigation shows its first movement ~20–60ms later than before.
+- A navigation shows its first movement later than before: ~20–60ms on a
+  small screen (the copy and the postponed start), ~70–110ms on the dense one
+  (the copy plus the longer single build frame), in exchange for a slide with
+  no stall inside it.
 - One 720×1600 ARGB copy (4.6MB) per navigation, dropped when the transition
   ends.
 - `Mob.RenderStats` would have timed the held frame, not the incoming build,
@@ -99,6 +136,6 @@ during a push. No frame fell below normal contrast in any of them.
   (`styles.xml`), then `StartupStatus` on a stock dark scheme, then the app's
   theme once the BEAM pushes it (2.7s, 1.7s and 1.9s on the 2021). That is
   its own flash; the fix is a cached theme applied at `onCreate`.
-- Not measured on a dense (1600-node) screen. The copy costs per pixel, not
-  per node, and the held tree does not recompose, so neither should grow with
-  the node count; the incoming build does, as it did before.
+- The copy costs per pixel, not per node, and the held tree does not
+  recompose (confirmed with a temporary recomposition log), so neither grows
+  with the node count; the incoming build does, as it did before.

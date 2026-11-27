@@ -301,6 +301,12 @@ import androidx.lifecycle.LifecycleOwner
  * MainActivity keys the slide animation on it, and provides it as the frame
  * tracker epoch, so a same-screen BEAM re-render (transition == "none")
  * neither restarts an animation nor re-keys the trackers.
+ *
+ * `transition` is the transition of the navigation that set navKey, carried
+ * through the re-renders after it. A re-render can land before the frame that
+ * starts the navigation's animation (a screen re-rendering a few ms after its
+ * mount, as one loading data does); MainActivity reads only the latest state
+ * then, and with "none" there the push appeared without its slide.
  */
 data class RootState(
     val navKey: Int,
@@ -1884,7 +1890,10 @@ object MobBridge {
         // minutes. iOS's CACurrentMediaTime does not count sleep either.
         val startNanos = if (measuring) System.nanoTime() else 0L
 
-        _rootState.value = RootState(newKey, transition, parsed, _rootState.value.epoch + 1)
+        // A re-render keeps the transition of the navigation it follows: see
+        // RootState.transition.
+        val navTransition = if (transition != "none") transition else _rootState.value.transition
+        _rootState.value = RootState(newKey, navTransition, parsed, _rootState.value.epoch + 1)
 
         if (measuring) {
             if (transition != "none") pendingNav.set(PendingNav(newKey, transition))

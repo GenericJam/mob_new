@@ -11,20 +11,21 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Changed
-- **Android navigation transitions are Material 3's, with the outgoing screen
-  on screen throughout.** A push or pop is `MaterialSharedAxis(X)` (both
-  screens travel 30dp, the outgoing one fading out over the first 35%, the
-  incoming one fading in over the rest), a reset is `MaterialFadeThrough`
-  (the same fades, the incoming screen growing from 92%), 450ms on the
-  emphasized easing. Since MOB-146 the outgoing screen vanished on the first
-  frame and the incoming one slid in over the background. `MobNavHost` now
-  copies the window (`PixelCopy`) when a navigation lands, holding the
+- **Android navigation slides the incoming screen over the outgoing one,
+  which stays on screen throughout.** A push slides the incoming screen in
+  from the right over the outgoing one, which shifts a quarter-width left; a
+  pop slides the outgoing screen off to the right, uncovering the incoming
+  one; a reset cross-fades. 400ms on Material 3's emphasized easing, and no
+  opacity in a push or pop. Since MOB-146 the outgoing screen vanished on the
+  first frame and the incoming one slid in over the background. `MobNavHost`
+  now copies the window (`PixelCopy`) when a navigation lands, holding the
   outgoing tree unrecomposed until the copy is taken, and animates that copy
-  out while the live incoming tree animates in: no second tree is mounted,
-  so re-renders cost what they did. A copy is 18–32ms on a moto g power 2021
-  and a moto e (Android 10/11, 720px wide), 40–58ms the first time. The
-  animation starts only after the incoming tree has been drawn, so a slow
-  build delays the transition rather than eating its first frames.
+  against the live incoming tree: no second tree is mounted, so re-renders
+  cost what they did. A copy is 18–32ms on a moto g power 2021 and a moto e
+  (Android 10/11, 720px wide), 40–63ms the first time. The animation starts
+  only after the incoming tree has been drawn, so a slow build delays the
+  transition rather than eating its first frames. See
+  `decisions/2026-11-27-android-navigation-transition-over-a-window-copy.md`.
 
 ### Fixed
 - **The generated showcase test passes against mob_mishka 0.1.6.** 0.1.6

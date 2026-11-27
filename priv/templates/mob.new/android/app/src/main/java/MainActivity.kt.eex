@@ -13,7 +13,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +32,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,7 +66,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.zIndex
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -563,7 +564,7 @@ private fun colorFromMap(map: Map<String, Long>, key: String, fallback: Long): C
 // (below). A picture is what the platform itself animates for Activity
 // transitions: the window's surface, not its views.
 //
-// The motion is Material 3's, see NavMotion.
+// The motion is a slide over, see NavMotion.
 //
 // **Why one mount point and not two.** iOS uses two slots and keeps the
 // outgoing tree parked, which buys depth-1 retention: popping back diffs
@@ -578,9 +579,11 @@ private fun colorFromMap(map: Map<String, Long>, key: String, fallback: Long): C
 @Composable
 private fun MobNavHost(state: RootState) {
     val window = (LocalContext.current as? Activity)?.window
-    val slidePx = with(LocalDensity.current) { NavMotion.SLIDE.toPx() }
     var hostBounds by remember { mutableStateOf<Rect?>(null) }
-    val progress = remember { Animatable(0f) }
+    // Plain state, not an Animatable: Animatable.snapTo takes a mutex and can
+    // suspend while an interrupted transition is cancelled, which would let a
+    // frame through between the snap and the swap below.
+    var progress by remember { mutableFloatStateOf(0f) }
     var outgoing by remember { mutableStateOf<OutgoingScreen?>(null) }
 
     // The navigation the composed tree belongs to. It trails state.navKey
@@ -617,9 +620,10 @@ private fun MobNavHost(state: RootState) {
             } else {
                 null
             }
-        // All three land in the same frame: the incoming tree is composed
-        // under a copy that still covers it completely.
-        progress.snapTo(0f)
+        // All three land in the same frame, with no suspension between them:
+        // the incoming tree is composed under a copy that still covers it
+        // completely.
+        progress = 0f
         outgoing = picture?.let { OutgoingScreen(it, transition) }
         shownNavKey = state.navKey
         if (picture != null) {
@@ -634,18 +638,26 @@ private fun MobNavHost(state: RootState) {
             // has been drawn.
             withFrameNanos { }
             withFrameNanos { }
-            progress.animateTo(1f, tween(NavMotion.DURATION_MS, easing = NavMotion.emphasized))
+            animate(0f, 1f, animationSpec = tween(NavMotion.DURATION_MS, easing = NavMotion.emphasized)) { value, _ ->
+                progress = value
+            }
             outgoing = null
         }
     }
 
-    val out = outgoing
+    // A copy is only drawn at the size it was taken at. A rotation or a
+    // window resize mid-transition would otherwise stretch it across the new
+    // bounds; the incoming screen is shown as it is instead, under the
+    // platform's own rotation animation.
+    val out = outgoing?.takeIf { o ->
+        hostBounds?.let { it.width.roundToInt() == o.picture.width && it.height.roundToInt() == o.picture.height } == true
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
-            // Painted, not inherited: mid-transition both screens are partly
-            // transparent, and what shows through is the window background,
-            // hardcoded black in styles.xml.
+            // Painted, not inherited: wherever neither screen draws (a reset's
+            // cross-fade, a screen without its own background) the window
+            // background would show, and that is hardcoded black in styles.xml.
             .background(MaterialTheme.colorScheme.background)
             // Clips drawing AND hit-testing to the container.
             .clipToBounds()
@@ -654,7 +666,13 @@ private fun MobNavHost(state: RootState) {
         // `graphicsLayer`, not `offset`/`alpha` modifiers: the animated values
         // are read in the draw phase only, so a frame of the transition neither
         // recomposes nor re-places the 1600 mounted nodes of a dense screen.
-        Box(Modifier.fillMaxSize().graphicsLayer { if (out != null) NavMotion.enter(this, out.transition, progress.value, slidePx) }) {
+        val widthPx = hostBounds?.width ?: 0f
+        // Opaque, so the screen on top hides the one below wherever it covers.
+        Box(
+            Modifier.fillMaxSize()
+                .graphicsLayer { if (out != null) NavMotion.enter(this, out.transition, progress, widthPx) }
+                .background(MaterialTheme.colorScheme.background)
+        ) {
             NavScreen(shown)
         }
         if (out != null) {
@@ -662,7 +680,11 @@ private fun MobNavHost(state: RootState) {
                 bitmap = out.picture,
                 contentDescription = null,
                 contentScale = ContentScale.FillBounds,
-                modifier = Modifier.fillMaxSize().graphicsLayer { NavMotion.exit(this, out.transition, progress.value, slidePx) },
+                // A push covers the outgoing screen; a pop or a reset uncovers
+                // the incoming one.
+                modifier = Modifier.fillMaxSize()
+                    .zIndex(if (out.transition == "push") -1f else 1f)
+                    .graphicsLayer { NavMotion.exit(this, out.transition, progress, widthPx) },
             )
         }
     }
@@ -737,20 +759,21 @@ private suspend fun copyWindow(window: Window, bounds: Rect): ImageBitmap? {
     }
 }
 
-// Material 3 navigation motion, as Material Components for Android defines it.
-// push / pop are MaterialSharedAxis(X): both screens travel
-// mtrl_transition_shared_axis_slide_distance (30dp) in the direction of
-// travel, the outgoing one fading out over the first 35% of the progress and
-// the incoming one fading in over the rest (FadeThroughProvider). reset is
-// MaterialFadeThrough: the same fades, no travel, the incoming screen growing
-// from 92%. Both run for motionDurationLong1 (450ms) on
-// motionEasingEmphasizedInterpolator, whose path is copied below.
+// Slide over. A push slides the incoming screen in from the right, over the
+// outgoing one, while the outgoing one shifts a quarter of the width left (the
+// parallax UINavigationController uses); a pop reverses it, the outgoing copy
+// sliding off to the right to uncover the incoming screen. Nothing changes
+// opacity. Material's shared axis was tried first and dropped: it fades the
+// outgoing screen out before the incoming one fades in, so for a few frames
+// both are nearly transparent and a dark header flashed to the background
+// colour and back (moto e, moto g power 2021). A reset, which has no
+// direction, cross-fades the copy away over the incoming screen, opaque
+// beneath it, so nothing dips to the background either. 400ms on Material 3's
+// md.sys.motion.easing.emphasized, whose path is copied below.
 private object NavMotion {
-    const val DURATION_MS = 450
-    val SLIDE = 30.dp
+    const val DURATION_MS = 400
     val ANIMATED = setOf("push", "pop", "reset")
-    private const val FADE_THROUGH_THRESHOLD = 0.35f
-    private const val FADE_THROUGH_START_SCALE = 0.92f
+    private const val PARALLAX = 0.25f
 
     val emphasized: Easing = PathInterpolator(Path().apply {
         moveTo(0f, 0f)
@@ -758,26 +781,18 @@ private object NavMotion {
         cubicTo(0.208333f, 0.82f, 0.25f, 1f, 1f, 1f)
     }).let { interpolator -> Easing { interpolator.getInterpolation(it) } }
 
-    fun exit(layer: GraphicsLayerScope, transition: String, p: Float, slidePx: Float) {
-        layer.alpha = 1f - (p / FADE_THROUGH_THRESHOLD).coerceIn(0f, 1f)
-        layer.translationX = when (transition) {
-            "push" -> -slidePx * p
-            "pop" -> slidePx * p
-            else -> 0f
+    fun exit(layer: GraphicsLayerScope, transition: String, p: Float, width: Float) {
+        when (transition) {
+            "push" -> layer.translationX = -width * PARALLAX * p
+            "pop" -> layer.translationX = width * p
+            else -> layer.alpha = 1f - p
         }
     }
 
-    fun enter(layer: GraphicsLayerScope, transition: String, p: Float, slidePx: Float) {
-        layer.alpha = ((p - FADE_THROUGH_THRESHOLD) / (1f - FADE_THROUGH_THRESHOLD)).coerceIn(0f, 1f)
-        layer.translationX = when (transition) {
-            "push" -> slidePx * (1f - p)
-            "pop" -> -slidePx * (1f - p)
-            else -> 0f
-        }
-        if (transition == "reset") {
-            val scale = FADE_THROUGH_START_SCALE + (1f - FADE_THROUGH_START_SCALE) * p
-            layer.scaleX = scale
-            layer.scaleY = scale
+    fun enter(layer: GraphicsLayerScope, transition: String, p: Float, width: Float) {
+        when (transition) {
+            "push" -> layer.translationX = width * (1f - p)
+            "pop" -> layer.translationX = -width * PARALLAX * (1f - p)
         }
     }
 }

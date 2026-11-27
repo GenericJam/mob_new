@@ -63,12 +63,12 @@ defmodule MobNew.Templates.AndroidNavIdentityTest do
     assert has?(src, "Image( bitmap = out.picture"),
            "the outgoing screen must be drawn from the copy"
 
-    # A layer moves and fades pixels in the draw phase. Modifier.offset is a
-    # layout modifier, so it re-runs placement through every mounted node on
-    # each of the ~27 frames of the transition.
+    # A layer moves pixels in the draw phase. Modifier.offset is a layout
+    # modifier, so it re-runs placement through every mounted node on each of
+    # the ~24 frames of the transition.
     assert has?(
              src,
-             "graphicsLayer { if (out != null) NavMotion.enter(this, out.transition, progress.value, slidePx) }"
+             "graphicsLayer { if (out != null) NavMotion.enter(this, out.transition, progress, widthPx) }"
            ),
            "the incoming screen must animate in the draw phase, not re-place the tree"
   end
@@ -93,11 +93,12 @@ defmodule MobNew.Templates.AndroidNavIdentityTest do
     # MobNode trees structurally, on every recomposition.
     assert has?(src, "@Immutable private class ShownScreen(val node: MobNode?, val navKey: Int)")
 
-    # The three writes land in one frame: the incoming tree is composed under
-    # a copy that still covers it completely.
+    # The three writes land in one frame, with nothing that can suspend between
+    # them (Animatable.snapTo can): the incoming tree is composed under a copy
+    # that still covers it completely, even when it interrupts a transition.
     assert has?(
              src,
-             "progress.snapTo(0f) outgoing = picture?.let { OutgoingScreen(it, transition) } shownNavKey = state.navKey"
+             "progress = 0f outgoing = picture?.let { OutgoingScreen(it, transition) } shownNavKey = state.navKey"
            )
   end
 
@@ -107,18 +108,28 @@ defmodule MobNew.Templates.AndroidNavIdentityTest do
     # the outgoing screen vanished in one jump on a moto g power 2021.
     assert has?(
              src,
-             "withFrameNanos { } withFrameNanos { } progress.animateTo(1f, tween(NavMotion.DURATION_MS, easing = NavMotion.emphasized))"
+             "withFrameNanos { } withFrameNanos { } animate(0f, 1f, animationSpec = tween(NavMotion.DURATION_MS, easing = NavMotion.emphasized))"
            )
   end
 
-  test "the motion is Material 3's shared axis and fade through", %{main: src} do
-    # MaterialSharedAxis / MaterialFadeThrough as Material Components for
-    # Android defines them; changing one of these is a design decision, not a
-    # tweak.
-    assert has?(src, "const val DURATION_MS = 450")
-    assert has?(src, "val SLIDE = 30.dp")
-    assert has?(src, "private const val FADE_THROUGH_THRESHOLD = 0.35f")
-    assert has?(src, "private const val FADE_THROUGH_START_SCALE = 0.92f")
+  test "the motion is a slide over, with no opacity in a push or a pop", %{main: src} do
+    # Material's shared axis fades the outgoing screen out before the incoming
+    # one fades in; for a few frames both were nearly transparent and a dark
+    # header flashed to the background colour and back (moto e, moto g power
+    # 2021). A slide over moves opaque screens only.
+    assert has?(src, "\"push\" -> layer.translationX = width * (1f - p)")
+    assert has?(src, "\"push\" -> layer.translationX = -width * PARALLAX * p")
+    assert has?(src, "\"pop\" -> layer.translationX = width * p")
+    assert has?(src, "\"pop\" -> layer.translationX = -width * PARALLAX * (1f - p)")
+
+    # The incoming screen must be opaque, or the copy below shows through it.
+    assert has?(
+             src,
+             ".graphicsLayer { if (out != null) NavMotion.enter(this, out.transition, progress, widthPx) } .background(MaterialTheme.colorScheme.background)"
+           )
+
+    # A push covers the outgoing screen, a pop uncovers the incoming one.
+    assert has?(src, ".zIndex(if (out.transition == \"push\") -1f else 1f)")
 
     assert has?(
              src,
@@ -151,6 +162,15 @@ defmodule MobNew.Templates.AndroidNavIdentityTest do
     assert has?(src, "if (src.isEmpty) return null")
     assert has?(src, "if (state.navKey == shownNavKey) return@LaunchedEffect")
     assert has?(src, "if (cont.isActive) cont.resume(null)")
+  end
+
+  test "a copy is never drawn at a size other than the one it was taken at", %{main: src} do
+    # A rotation mid-transition (seen on a moto g power 2021) changes the
+    # host's bounds; FillBounds would stretch the portrait copy across them.
+    assert has?(
+             src,
+             "it.width.roundToInt() == o.picture.width && it.height.roundToInt() == o.picture.height"
+           )
   end
 
   test "navigation re-keys the frame trackers", %{main: main, bridge: bridge} do

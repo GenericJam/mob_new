@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -249,6 +250,14 @@ class MainActivity : ComponentActivity() {
         // bars. Must be called BEFORE super.onCreate() per AndroidX docs.
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+
+        // Android 12+ splash: it shows the same icon on the same background as
+        // the boot screen under it (values-v31/styles.xml), so it goes at once.
+        // Its default exit fades it out over the app, which dims the icon for
+        // a moment.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            splashScreen.setOnExitAnimationListener { it.remove() }
+        }
 
         MobBridge.init(this)
 

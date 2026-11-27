@@ -21,17 +21,23 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   description, and a failed boot still shows the error.
   - Android: the theme's window background is the launcher icon on the
     system's white or black (`res/drawable/mob_window_background.xml`, with
-    `values-night/colors.xml`), and the theme draws edge to edge from the
-    first frame, so the system's starting window shows the icon exactly
-    where `StartupStatus` then draws it. Once `Mob.Theme` is set the window
-    background becomes the theme's background colour, so the frame or two
-    of bare window on resume matches the app (it was always black).
+    `values(-night)/mob_window.xml`), and the theme draws edge to edge from
+    the first frame, so the system's starting window shows the icon exactly
+    where `StartupStatus` then draws it. On Android 12+, whose own splash
+    replaces the starting window, `values-v31/styles.xml` gives that splash
+    the same background and the same 96dp icon, and `MainActivity` removes
+    it without its default fade, which dimmed the icon for a moment.
+    Once `Mob.Theme` is set the window background becomes the theme's
+    background colour, so the frame or two of bare window on resume matches
+    the app (it was always black).
   - iOS: `Info.plist`'s `UILaunchScreen` shows `MobLaunchIcon`, which
     mob_dev now makes from `AppIcon` at build time; Mob's boot screen draws
     the same image in the same place.
-  - Existing apps: copy `StartupStatus`, `LauncherIcon` and `LoadingDots`
-    and the window background code from `MainActivity.kt`, the `res/` files
-    above, and the `UILaunchScreen` dict from `ios/Info.plist`.
+  - Existing apps: copy `StartupStatus`, `LauncherIcon` and `LoadingDots`,
+    the window background code and the splash exit from `MainActivity.kt`,
+    the `res/` files above (`values/styles.xml` now defines `MobBootTheme`
+    with `AppTheme` on top), and the `UILaunchScreen` dict from
+    `ios/Info.plist`.
 
 - **Android navigation slides the incoming screen over the outgoing one,
   which stays on screen throughout.** A push slides the incoming screen in

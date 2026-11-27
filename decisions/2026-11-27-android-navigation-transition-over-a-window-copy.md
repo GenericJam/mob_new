@@ -77,9 +77,13 @@ during a push. No frame fell below normal contrast in any of them.
 - A navigation shows its first movement ~20–60ms later than before.
 - One 720×1600 ARGB copy (4.6MB) per navigation, dropped when the transition
   ends.
-- `Mob.RenderStats`' navigation frame is now the held frame, not the incoming
-  build, so navigation timings would read too fast. Not yet verified or
-  fixed; the 2026-09-05 record warns about exactly this artifact.
+- `Mob.RenderStats` would have timed the held frame, not the incoming build,
+  and reported navigations cheaper than a re-render: the artifact the
+  2026-09-05 record warns about. A navigation's sample is now parked in
+  `setRootJson` and armed by `MobNavHost` (`MobBridge.navigationComposing`)
+  when it lets the incoming tree compose, so `apply_us` brackets the build
+  frame as before and excludes the copy, which is logged under the `MobNav`
+  tag instead. A navigation superseded during its copy records no sample.
 - A predictive-back preview needs the previous screen's pixels; this copy is
   the mechanism it would use. Not built.
 - The direction is not mirrored for right-to-left layouts, as before.

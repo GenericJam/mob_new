@@ -612,10 +612,18 @@ private fun MobNavHost(state: RootState) {
     // mid-transition blend included.
     LaunchedEffect(state.navKey) {
         if (state.navKey == shownNavKey) return@LaunchedEffect
+        // Nothing was held: the incoming tree composed straight away (the first
+        // screen after boot replaces no tree), so there is nothing to copy or
+        // animate. Its build has already been drawn, so no Mob.RenderStats
+        // sample can bracket it any more; it records none.
+        if (committed.value?.navKey == state.navKey) {
+            shownNavKey = state.navKey
+            return@LaunchedEffect
+        }
         val transition = state.transition
         val bounds = hostBounds
         val picture =
-            if (transition in NavMotion.ANIMATED && window != null && bounds != null && committed.value?.node != null) {
+            if (transition in NavMotion.ANIMATED && window != null && bounds != null) {
                 copyWindow(window, bounds)
             } else {
                 null
@@ -626,6 +634,9 @@ private fun MobNavHost(state: RootState) {
         progress = 0f
         outgoing = picture?.let { OutgoingScreen(it, transition) }
         shownNavKey = state.navKey
+        // The frame that builds the incoming tree is the next one: that is the
+        // one Mob.RenderStats times for a navigation, not the held frame.
+        MobBridge.navigationComposing(state.navKey)
         if (picture != null) {
             // Start the clock only once the incoming tree has been drawn. The
             // frame that composes it is the expensive one (a whole screen

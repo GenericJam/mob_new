@@ -26,6 +26,13 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   only after the incoming tree has been drawn, so a slow build delays the
   transition rather than eating its first frames. See
   `decisions/2026-11-27-android-navigation-transition-over-a-window-copy.md`.
+- **Android `Mob.RenderStats.native_*` times a navigation on the frame that
+  builds the incoming screen.** With the outgoing screen held for its copy,
+  the frame after a navigation's `set_root` is no longer the one that renders
+  it; `setRootJson` now parks the sample and `MobNavHost` arms it
+  (`MobBridge.navigationComposing/1`) when it lets the incoming tree in. The
+  copy is excluded and logged under the `MobNav` tag. Existing apps that copy
+  the new `MobNavHost` need the matching `MobBridge.kt` change as well.
 
 ### Fixed
 - **The generated showcase test passes against mob_mishka 0.1.6.** 0.1.6
@@ -43,7 +50,8 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   `adb screenrecord` on a moto g power 2021 and 2024; reported in
   gitlab.com/MegaJ/mob-exploration#1. Existing apps: copy `MobNavHost` and
   everything below it up to `StartupStatus` from the template into
-  `android/app/src/main/java/<package>/MainActivity.kt`, with the imports.
+  `android/app/src/main/java/<package>/MainActivity.kt`, with the imports,
+  and `navigationComposing` plus the end of `setRootJson` into `MobBridge.kt`.
 
 ## [0.6.21] - 2026-11-21
 

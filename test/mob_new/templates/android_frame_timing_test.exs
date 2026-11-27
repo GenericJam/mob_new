@@ -10,8 +10,13 @@ defmodule MobNew.Templates.AndroidFrameTimingTest do
             "priv/templates/mob.new/android/app/src/main/java/MobBridge.kt.eex"
           )
 
+  @main Application.app_dir(
+          :mob_new,
+          "priv/templates/mob.new/android/app/src/main/java/MainActivity.kt.eex"
+        )
+
   setup_all do
-    {:ok, bridge: File.read!(@bridge)}
+    {:ok, bridge: File.read!(@bridge), main: File.read!(@main)}
   end
 
   defp squish(s), do: s |> String.replace(~r/\s+/, " ") |> String.trim()
@@ -99,5 +104,19 @@ defmodule MobNew.Templates.AndroidFrameTimingTest do
     # unparseable and costs the reader the whole window, not the one sample.
     assert has?(src, "append(jsonEscape(sample.transition))"),
            "an unescaped transition can invalidate the entire payload"
+  end
+
+  test "a navigation is timed on the frame that builds it, not the held one", %{bridge: src, main: main} do
+    # MobNavHost holds the outgoing tree for the frame after a navigation's
+    # state write while it copies the window. Bracketed from setRootJson, a
+    # navigation would report the copy frame: cheaper than a re-render of the
+    # same tree, the artifact the MOB-146 record warns about.
+    assert has?(
+             src,
+             "if (transition != \"none\") pendingNav = PendingNav(newKey, transition) else measureApply(startNanos, transition)"
+           )
+
+    # Armed where the incoming tree is let in, in the same step.
+    assert has?(main, "shownNavKey = state.navKey MobBridge.navigationComposing(state.navKey)")
   end
 end

@@ -299,8 +299,8 @@ import androidx.lifecycle.LifecycleOwner
  *
  * navKey only increments on actual navigation transitions (push/pop/reset).
  * MainActivity keys the slide animation on it, and provides it as the frame
- * tracker epoch, so a same-screen BEAM re-render (transition == "none")
- * neither restarts an animation nor re-keys the trackers.
+ * tracker epoch, so a same-screen BEAM re-render (setRootJson's `transition`
+ * argument is "none") neither restarts an animation nor re-keys the trackers.
  *
  * `transition` is the transition of the navigation that set navKey, carried
  * through the re-renders after it. A re-render can land before the frame that

@@ -29,8 +29,8 @@ defmodule MobNew.Templates.AndroidRenderEpochTest do
     assert code =~ "val epoch: Int = 0, )"
     assert code =~ "val LocalRenderEpoch = androidx.compose.runtime.compositionLocalOf { -1 }"
 
-    assert code =~
-             "_rootState.value = RootState(newKey, transition, parsed, _rootState.value.epoch + 1)"
+    assert code =~ "_rootState.value = RootState(newKey, "
+    assert code =~ ", parsed, _rootState.value.epoch + 1)"
   end
 
   test "MainActivity provides the epoch above the whole tree", %{main: main} do

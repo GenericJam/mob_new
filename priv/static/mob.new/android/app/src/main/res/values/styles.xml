@@ -1,7 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme" parent="android:style/Theme.NoTitleBar">
-        <item name="android:windowBackground">@android:color/black</item>
+        <!-- The launcher icon centred on white, or black in night mode
+             (drawable/mob_window_background.xml): what the boot screen
+             (StartupStatus) then draws over it, and on Android 12+ the
+             colour behind the system splash. -->
+        <item name="android:windowBackground">@drawable/mob_window_background</item>
+        <!-- Edge to edge from the first frame. The system draws the starting
+             window from this theme before the app runs; without these its
+             background stops at the navigation bar, centring the icon higher
+             than the edge-to-edge boot screen that replaces it. Dark bar
+             icons on the white background, light ones in night mode
+             (values-night/colors.xml). -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">@bool/mob_light_system_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/mob_light_system_bars</item>
         <item name="android:windowAnimationStyle">@null</item>
         <item name="android:windowNoTitle">true</item>
     </style>

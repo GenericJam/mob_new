@@ -55,8 +55,14 @@
     </array>
     <key>NSMicrophoneUsageDescription</key>
     <string><%= display_name %> uses the microphone for audio recording.</string>
+    <!-- The app icon, centred on the system background, from the tap until
+         the first frame: mob_dev makes MobLaunchIcon from AppIcon at build
+         time, and Mob's boot screen draws it in the same place. -->
     <key>UILaunchScreen</key>
-    <dict/>
+    <dict>
+        <key>UIImageName</key>
+        <string>MobLaunchIcon</string>
+    </dict>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <!-- mob.exs `multi_window: true` sets this in the built app, so iPad

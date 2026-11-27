@@ -11,6 +11,28 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 ## [Unreleased]
 
 ### Changed
+- **The boot screen is the app's own icon with a loading indicator, from the
+  tap on.** It used to be a spinner and the startup phase ("Starting BEAM…")
+  on a dark screen, shown only once the app's first frame was up. Now the
+  app's launcher icon sits at the centre of a white screen (black in dark
+  mode) from the moment the system shows the app, and three dots pulse
+  under it once the app has drawn, until the first screen renders. Nothing
+  of Mob's shows. The startup phase is still the screen's accessibility
+  description, and a failed boot still shows the error.
+  - Android: the theme's window background is the launcher icon on the
+    system's white or black (`res/drawable/mob_window_background.xml`, with
+    `values-night/colors.xml`), and the theme draws edge to edge from the
+    first frame, so the system's starting window shows the icon exactly
+    where `StartupStatus` then draws it. Once `Mob.Theme` is set the window
+    background becomes the theme's background colour, so the frame or two
+    of bare window on resume matches the app (it was always black).
+  - iOS: `Info.plist`'s `UILaunchScreen` shows `MobLaunchIcon`, which
+    mob_dev now makes from `AppIcon` at build time; Mob's boot screen draws
+    the same image in the same place.
+  - Existing apps: copy `StartupStatus`, `LauncherIcon` and `LoadingDots`
+    and the window background code from `MainActivity.kt`, the `res/` files
+    above, and the `UILaunchScreen` dict from `ios/Info.plist`.
+
 - **Android navigation slides the incoming screen over the outgoing one,
   which stays on screen throughout.** A push slides the incoming screen in
   from the right over the outgoing one, which shifts a quarter-width left; a

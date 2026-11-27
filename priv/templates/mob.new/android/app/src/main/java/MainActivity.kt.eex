@@ -39,12 +39,36 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import android.graphics.Bitmap
+import android.graphics.Path
+import android.os.Handler
+import android.os.Looper
+import android.view.PixelCopy
+import android.view.Window
+import android.view.animation.PathInterpolator
+import androidx.compose.animation.core.Easing
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.GraphicsLayerScope
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.coroutines.resume
+import kotlin.math.roundToInt
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 class MainActivity : ComponentActivity() {
 
@@ -529,9 +553,17 @@ private fun colorFromMap(map: Map<String, Long>, key: String, fallback: Long): C
 // "re-render" stops being a difference in kind and becomes a difference in how
 // many nodes changed.
 //
-// The slide is driven by an animated offset on that mount point rather than by
-// an enter/exit transition, because those only fire on insert/remove and
-// insert/remove is precisely what costs the time.
+// A navigation animates two things: the live incoming tree, and a PICTURE of
+// the outgoing screen. When a navigation lands, the screen still on display is
+// copied out of the window (PixelCopy) before the incoming tree is composed;
+// that copy then animates out while the incoming tree animates in, so the
+// outgoing screen stays visible for the whole transition, as every platform
+// convention has it. The cost is one window copy per navigation. No second
+// tree is mounted or recomposed, which is what made two slots too expensive
+// (below). A picture is what the platform itself animates for Activity
+// transitions: the window's surface, not its views.
+//
+// The motion is Material 3's, see NavMotion.
 //
 // **Why one mount point and not two.** iOS uses two slots and keeps the
 // outgoing tree parked, which buys depth-1 retention: popping back diffs
@@ -540,124 +572,214 @@ private fun colorFromMap(map: Map<String, Long>, key: String, fallback: Long): C
 // active screen — 6 recompositions of the parked node across 6 re-renders —
 // which took a steady-state re-render from 151ms to 273ms. Re-renders are far
 // more frequent than navigations, so retention cost more than it saved. One
-// slot keeps the whole win of identity preservation and none of that.
-//
-// The visible trade is that the outgoing screen does not slide out
-// simultaneously; the incoming one slides in over the background. See mob's
-// decisions/2026-09-04-two-slot-screen-presentation.md for the iOS original.
+// slot keeps the whole win of identity preservation and none of that. See
+// mob's decisions/2026-09-04-two-slot-screen-presentation.md for the iOS
+// original.
 @Composable
 private fun MobNavHost(state: RootState) {
-    var containerWidth by remember { mutableIntStateOf(0) }
-    val offset = remember { Animatable(0f) }
+    val window = (LocalContext.current as? Activity)?.window
+    val slidePx = with(LocalDensity.current) { NavMotion.SLIDE.toPx() }
+    var hostBounds by remember { mutableStateOf<Rect?>(null) }
+    val progress = remember { Animatable(0f) }
+    var outgoing by remember { mutableStateOf<OutgoingScreen?>(null) }
 
-    // The navigation whose slide has been started. It trails state.navKey for
-    // the first frame of every navigation: set_root composes, lays out and
-    // DRAWS the incoming tree before the LaunchedEffect below gets to run, and
-    // `offset` is still at rest then, so that frame showed the incoming screen
-    // in place. The effect then snapped it off-canvas and slid it back in:
-    // on a pop, home flashed, vanished, and slid in from the left. Recorded
-    // with `adb screenrecord` on a moto g power 2021 and 2024, push and pop
-    // alike (reported in gitlab.com/MegaJ/mob-exploration#1).
-    //
-    // While the two differ, the start position is applied from composition,
-    // so the incoming tree's first frame is already drawn off-canvas.
-    var slidNavKey by remember { mutableIntStateOf(state.navKey) }
-    val pendingFrom =
-        if (slidNavKey != state.navKey) slideFrom(state.transition, containerWidth) else null
+    // The navigation the composed tree belongs to. It trails state.navKey
+    // while the outgoing screen is being copied: until the copy is taken, the
+    // tree on screen must stay exactly as it is, so the composition keeps the
+    // last committed ShownScreen — the same instance, which NavScreen skips.
+    var shownNavKey by remember { mutableIntStateOf(state.navKey) }
+    val committed = remember { ShownRef() }
+    val held = committed.value
+    val copying = state.navKey != shownNavKey && held?.node != null
+    val shown = if (copying) held!! else remember(state) { ShownScreen(state.node, state.navKey) }
+    SideEffect { committed.value = shown }
 
     // Keyed on navKey, NOT on `state`.
     //
     // `LaunchedEffect` cancels its coroutine when the key changes, and `state`
     // is a new RootState on every render. Keying on it meant any re-render
-    // arriving during the 300ms slide — a timer, an async mount, a
-    // subscription — cancelled `animateTo` and left the offset frozen wherever
-    // it had reached. The screen stayed parked off-canvas and the app rendered
-    // BLANK, while the BEAM went on reporting the correct screen and assigns:
-    // an agent driving over dist would see nothing wrong. Reproduced on device
-    // by sending one re-render 100ms after a navigation.
+    // arriving during a transition — a timer, an async mount, a subscription —
+    // cancelled the animation and left it frozen wherever it had reached; the
+    // app rendered BLANK while the BEAM went on reporting the correct screen.
+    // Reproduced on device by sending one re-render 100ms after a navigation.
     //
     // navKey changes only on a real navigation, so an ordinary re-render
-    // cannot cancel the slide, and a second navigation correctly interrupts
-    // and restarts it.
+    // cannot cancel the transition, and a second navigation correctly
+    // interrupts it: the copy it takes is of whatever is on screen then,
+    // mid-transition blend included.
     LaunchedEffect(state.navKey) {
-        // Always snapped, even with no slide (a reset, a first mount, a width
-        // not known yet): an interrupted slide must not leave the screen
-        // displaced.
-        val from = slideFrom(state.transition, containerWidth)
-        offset.snapTo(from)
-        // Only after the snap, so the frame that stops using `pendingFrom`
-        // reads the same position from `offset`.
-        slidNavKey = state.navKey
-        if (from != 0f) offset.animateTo(0f, tween(durationMillis = 300))
+        if (state.navKey == shownNavKey) return@LaunchedEffect
+        val transition = state.transition
+        val bounds = hostBounds
+        val picture =
+            if (transition in NavMotion.ANIMATED && window != null && bounds != null && committed.value?.node != null) {
+                copyWindow(window, bounds)
+            } else {
+                null
+            }
+        // All three land in the same frame: the incoming tree is composed
+        // under a copy that still covers it completely.
+        progress.snapTo(0f)
+        outgoing = picture?.let { OutgoingScreen(it, transition) }
+        shownNavKey = state.navKey
+        if (picture != null) {
+            // Start the clock only once the incoming tree has been drawn. The
+            // frame that composes it is the expensive one (a whole screen
+            // built), and an animation started before it spends its first
+            // ~150ms inside that frame: on a moto g power 2021 the outgoing
+            // screen vanished in one jump. The copy covers everything
+            // meanwhile, so the wait is invisible. Fragment and Activity
+            // transitions postpone to pre-draw for the same reason.
+            // One frame builds the incoming tree; the next starts after it
+            // has been drawn.
+            withFrameNanos { }
+            withFrameNanos { }
+            progress.animateTo(1f, tween(NavMotion.DURATION_MS, easing = NavMotion.emphasized))
+            outgoing = null
+        }
     }
 
+    val out = outgoing
     Box(
         modifier = Modifier
             .fillMaxSize()
-            // Painted, not inherited. Only one screen is mounted now, so the
-            // strip the incoming screen has not covered yet shows whatever is
-            // behind the composition — and that is the window background,
-            // hardcoded black in styles.xml. Without this a light-themed app
-            // gets a black wedge sweeping across it for the whole slide.
+            // Painted, not inherited: mid-transition both screens are partly
+            // transparent, and what shows through is the window background,
+            // hardcoded black in styles.xml.
             .background(MaterialTheme.colorScheme.background)
-            // Clips drawing AND hit-testing to the container, so a screen
-            // parked off-screen mid-slide cannot be tapped.
+            // Clips drawing AND hit-testing to the container.
             .clipToBounds()
-            .onSizeChanged { containerWidth = it.width }
+            .onGloballyPositioned { hostBounds = it.boundsInWindow() }
     ) {
-        // `graphicsLayer`, not `offset`. Both read the animating value in a
-        // lambda, so neither recomposes the tree per frame — but
-        // `Modifier.offset {}` is a layout modifier, so every frame of the
-        // slide re-runs the placement pass down through 1600 mounted nodes.
-        // A layer translation moves the same pixels in the draw phase with no
-        // layout invalidation at all, which on a performance ticket is the
-        // difference worth having.
-        Box(Modifier.fillMaxSize().graphicsLayer { translationX = pendingFrom ?: offset.value }) {
-            // Rendered straight from `state`, exactly as the AnimatedContent
-            // version was. Routing it through a state variable set by a
-            // LaunchedEffect would leave the first frame after every set_root
-            // showing nothing, because effects run after composition.
-            state.node?.let { node ->
-                // navKey IS the epoch, and needs to be nothing more.
-                //
-                // The frame-registry gate has each tracked node remember the
-                // generation current when it first composed, and refuses
-                // writes stamped older than the current one. That used to work
-                // for free: AnimatedContent made the incoming tree a fresh
-                // composition, so it always captured the bumped value. With
-                // the mount point preserved it is not free — nodes Compose
-                // reuses across a navigation keep the generation they captured
-                // for the PREVIOUS screen, which setRootJson has just
-                // superseded, and their frame writes would be refused for
-                // ever. element_frames would quietly lose those ids and tap_id
-                // would stop finding them, with nothing raised.
-                //
-                // navKey moves on exactly the right events — every non-"none"
-                // transition and nothing else — so re-keying the trackers on
-                // it re-captures the generation on navigation and leaves a
-                // same-screen re-render alone. Providing it through a
-                // CompositionLocal is what keeps trackers from reading the
-                // root state directly, which would resubscribe every tagged
-                // node to every root update.
-                CompositionLocalProvider(MobBridge.LocalSlotEpoch provides state.navKey) {
-                    RenderNode(node, modifier = Modifier.fillMaxSize().safeDrawingPadding())
-                }
-            }
-            // Nothing rendered yet: show what the boot is doing, and why it
-            // stopped if it failed (mob_set_startup_error), instead of a blank
-            // screen.
-            if (state.node == null) StartupStatus()
+        // `graphicsLayer`, not `offset`/`alpha` modifiers: the animated values
+        // are read in the draw phase only, so a frame of the transition neither
+        // recomposes nor re-places the 1600 mounted nodes of a dense screen.
+        Box(Modifier.fillMaxSize().graphicsLayer { if (out != null) NavMotion.enter(this, out.transition, progress.value, slidePx) }) {
+            NavScreen(shown)
+        }
+        if (out != null) {
+            Image(
+                bitmap = out.picture,
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier.fillMaxSize().graphicsLayer { NavMotion.exit(this, out.transition, progress.value, slidePx) },
+            )
         }
     }
 }
 
-// Where a navigation's incoming screen starts its slide: 0 for none, or before
-// the width is known.
-private fun slideFrom(transition: String, width: Int): Float = when {
-    width <= 0 -> 0f
-    transition == "push" -> width.toFloat()
-    transition == "pop" -> -width.toFloat()
-    else -> 0f
+// Rendered straight from the RootState it came from, exactly as the
+// AnimatedContent version was. Skippable on purpose: while the outgoing
+// screen is copied, MobNavHost passes the same instance and the mounted tree
+// is not recomposed at all.
+@Composable
+private fun NavScreen(shown: ShownScreen) {
+    shown.node?.let { node ->
+        // navKey IS the epoch, and needs to be nothing more.
+        //
+        // The frame-registry gate has each tracked node remember the
+        // generation current when it first composed, and refuses writes
+        // stamped older than the current one. Nodes Compose reuses across a
+        // navigation keep the generation they captured for the PREVIOUS
+        // screen, which setRootJson has just superseded, and their frame
+        // writes would be refused for ever. element_frames would quietly lose
+        // those ids and tap_id would stop finding them, with nothing raised.
+        //
+        // navKey moves on exactly the right events — every non-"none"
+        // transition and nothing else — so re-keying the trackers on it
+        // re-captures the generation on navigation and leaves a same-screen
+        // re-render alone. Providing it through a CompositionLocal is what
+        // keeps trackers from reading the root state directly, which would
+        // resubscribe every tagged node to every root update. While a copy is
+        // being taken this is still the OUTGOING navKey, so the held tree's
+        // remembered lists and scroll positions stay put.
+        CompositionLocalProvider(MobBridge.LocalSlotEpoch provides shown.navKey) {
+            RenderNode(node, modifier = Modifier.fillMaxSize().safeDrawingPadding())
+        }
+    }
+    // Nothing rendered yet: show what the boot is doing, and why it stopped if
+    // it failed (mob_set_startup_error), instead of a blank screen.
+    if (shown.node == null) StartupStatus()
+}
+
+// A plain class, so equality is identity: a new instance per RootState, the
+// same one while a copy is being taken.
+@Immutable
+private class ShownScreen(val node: MobNode?, val navKey: Int)
+
+// The ShownScreen of the last APPLIED composition; written from SideEffect,
+// so a discarded composition never leaves its choice behind.
+private class ShownRef { var value: ShownScreen? = null }
+
+private class OutgoingScreen(val picture: ImageBitmap, val transition: String)
+
+// Copies what the window currently shows inside `bounds`. Null if the window
+// has no surface to copy from, or the copy fails: the navigation then simply
+// shows the incoming screen without a transition.
+private suspend fun copyWindow(window: Window, bounds: Rect): ImageBitmap? {
+    val src = android.graphics.Rect(
+        bounds.left.roundToInt(), bounds.top.roundToInt(),
+        bounds.right.roundToInt(), bounds.bottom.roundToInt(),
+    )
+    if (src.isEmpty) return null
+    val bitmap = Bitmap.createBitmap(src.width(), src.height(), Bitmap.Config.ARGB_8888)
+    val started = System.nanoTime()
+    return suspendCancellableCoroutine { cont ->
+        try {
+            PixelCopy.request(window, src, bitmap, { result ->
+                Log.i("MobNav", "window copy ${src.width()}x${src.height()} result=$result in ${(System.nanoTime() - started) / 1000}us")
+                if (cont.isActive) cont.resume(if (result == PixelCopy.SUCCESS) bitmap.asImageBitmap() else null)
+            }, Handler(Looper.getMainLooper()))
+        } catch (e: IllegalArgumentException) {
+            // "Window doesn't have a backing surface!" before the first frame.
+            if (cont.isActive) cont.resume(null)
+        }
+    }
+}
+
+// Material 3 navigation motion, as Material Components for Android defines it.
+// push / pop are MaterialSharedAxis(X): both screens travel
+// mtrl_transition_shared_axis_slide_distance (30dp) in the direction of
+// travel, the outgoing one fading out over the first 35% of the progress and
+// the incoming one fading in over the rest (FadeThroughProvider). reset is
+// MaterialFadeThrough: the same fades, no travel, the incoming screen growing
+// from 92%. Both run for motionDurationLong1 (450ms) on
+// motionEasingEmphasizedInterpolator, whose path is copied below.
+private object NavMotion {
+    const val DURATION_MS = 450
+    val SLIDE = 30.dp
+    val ANIMATED = setOf("push", "pop", "reset")
+    private const val FADE_THROUGH_THRESHOLD = 0.35f
+    private const val FADE_THROUGH_START_SCALE = 0.92f
+
+    val emphasized: Easing = PathInterpolator(Path().apply {
+        moveTo(0f, 0f)
+        cubicTo(0.05f, 0f, 0.133333f, 0.06f, 0.166666f, 0.4f)
+        cubicTo(0.208333f, 0.82f, 0.25f, 1f, 1f, 1f)
+    }).let { interpolator -> Easing { interpolator.getInterpolation(it) } }
+
+    fun exit(layer: GraphicsLayerScope, transition: String, p: Float, slidePx: Float) {
+        layer.alpha = 1f - (p / FADE_THROUGH_THRESHOLD).coerceIn(0f, 1f)
+        layer.translationX = when (transition) {
+            "push" -> -slidePx * p
+            "pop" -> slidePx * p
+            else -> 0f
+        }
+    }
+
+    fun enter(layer: GraphicsLayerScope, transition: String, p: Float, slidePx: Float) {
+        layer.alpha = ((p - FADE_THROUGH_THRESHOLD) / (1f - FADE_THROUGH_THRESHOLD)).coerceIn(0f, 1f)
+        layer.translationX = when (transition) {
+            "push" -> slidePx * (1f - p)
+            "pop" -> -slidePx * (1f - p)
+            else -> 0f
+        }
+        if (transition == "reset") {
+            val scale = FADE_THROUGH_START_SCALE + (1f - FADE_THROUGH_START_SCALE) * p
+            layer.scaleX = scale
+            layer.scaleY = scale
+        }
+    }
 }
 
 // The boot screen, iOS MobRootView's startup ZStack: phase text and a spinner

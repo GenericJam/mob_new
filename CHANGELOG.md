@@ -10,6 +10,22 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Changed
+- **Android navigation transitions are Material 3's, with the outgoing screen
+  on screen throughout.** A push or pop is `MaterialSharedAxis(X)` (both
+  screens travel 30dp, the outgoing one fading out over the first 35%, the
+  incoming one fading in over the rest), a reset is `MaterialFadeThrough`
+  (the same fades, the incoming screen growing from 92%), 450ms on the
+  emphasized easing. Since MOB-146 the outgoing screen vanished on the first
+  frame and the incoming one slid in over the background. `MobNavHost` now
+  copies the window (`PixelCopy`) when a navigation lands, holding the
+  outgoing tree unrecomposed until the copy is taken, and animates that copy
+  out while the live incoming tree animates in: no second tree is mounted,
+  so re-renders cost what they did. A copy is 18–32ms on a moto g power 2021
+  and a moto e (Android 10/11, 720px wide), 40–58ms the first time. The
+  animation starts only after the incoming tree has been drawn, so a slow
+  build delays the transition rather than eating its first frames.
+
 ### Fixed
 - **The generated showcase test passes against mob_mishka 0.1.6.** 0.1.6
   draws a `MishkaDrawer.trigger/2` string trigger as a tappable Box holding
@@ -20,16 +36,13 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   test, failed with a `BadMapError`. It now finds the trigger by its
   `test_id` and checks the label. Generated apps require
   `{:mob_mishka, "~> 0.1.6"}`, the release the showcase relies on.
-- **Android: no one-frame flash at the start of a push or pop.** `MobNavHost`
-  parked the incoming screen off-canvas from a `LaunchedEffect`, which runs
-  only after the frame that first composes the new tree has been drawn, so
-  that frame showed the incoming screen in place before it vanished and slid
-  back in (on a pop, home flashed, went blank and slid in from the left). The
-  start position now comes from composition until the effect has parked
-  `offset`. Seen with `adb screenrecord` on a moto g power 2021 and 2024;
-  reported in gitlab.com/MegaJ/mob-exploration#1. Existing apps: copy
-  `MobNavHost` and `slideFrom` from the template into
-  `android/app/src/main/java/<package>/MainActivity.kt`.
+- **Android: no flash at the start of a push or pop.** The incoming screen
+  was drawn in place for one frame before its slide began, because the
+  `LaunchedEffect` that parked it runs after that frame. Seen with
+  `adb screenrecord` on a moto g power 2021 and 2024; reported in
+  gitlab.com/MegaJ/mob-exploration#1. Existing apps: copy `MobNavHost` and
+  everything below it up to `StartupStatus` from the template into
+  `android/app/src/main/java/<package>/MainActivity.kt`, with the imports.
 
 ## [0.6.21] - 2026-11-21
 

@@ -165,7 +165,7 @@ defmodule MobNew.Templates.AndroidFrameGenerationTest do
     # into. The EPOCH — "was a new tree installed here", which decides when a
     # tracker re-captures — is navKey, handed down by MainActivity through a
     # CompositionLocal. The registry must not reach for navKey itself.
-    assert has?(main, "LocalSlotEpoch provides state.navKey")
+    assert has?(main, "LocalSlotEpoch provides shown.navKey")
     assert has?(code_only(src), "private var frameGeneration = 1L")
 
     refute has?(registry(src), "navKey")

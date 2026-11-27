@@ -106,7 +106,10 @@ defmodule MobNew.Templates.AndroidFrameTimingTest do
            "an unescaped transition can invalidate the entire payload"
   end
 
-  test "a navigation is timed on the frame that builds it, not the held one", %{bridge: src, main: main} do
+  test "a navigation is timed on the frame that builds it, not the held one", %{
+    bridge: src,
+    main: main
+  } do
     # MobNavHost holds the outgoing tree for the frame after a navigation's
     # state write while it copies the window. Bracketed from setRootJson, a
     # navigation would report the copy frame: cheaper than a re-render of the

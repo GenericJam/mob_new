@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The window background until the first theme arrives: the launcher icon,
+     96dp, centred on white (black in night mode). It shows the moment the
+     window does, before Compose has drawn anything; the boot screen
+     (StartupStatus in MainActivity.kt) then draws the same icon in the same
+     place and adds the loading dots under it. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/mob_window_background" />
+    <item
+        android:drawable="@mipmap/ic_launcher"
+        android:gravity="center"
+        android:width="96dp"
+        android:height="96dp" />
+</layer-list>

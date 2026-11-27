@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ shows its own splash instead of the starting window: the
+         launcher icon, cut to a circle and larger than the boot screen's. Here
+         it is the same 96dp icon, uncut, on the same white or black, so the
+         boot screen (StartupStatus) takes over without the icon changing. -->
+    <style name="AppTheme" parent="MobBootTheme">
+        <item name="android:windowSplashScreenBackground">@color/mob_window_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/mob_splash_icon</item>
+    </style>
+</resources>

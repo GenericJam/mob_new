@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Android 12+ splash icon (values-v31/styles.xml): the launcher icon
+     inset so it shows at 96dp, inside the circle the splash cuts its icon to,
+     the size and place the boot screen (StartupStatus) draws it. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@mipmap/ic_launcher"
+    android:inset="33.33%" />

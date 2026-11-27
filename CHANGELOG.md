@@ -23,6 +23,13 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [0.6.22] - 2026-11-27
 
+### Security
+- **Generated apps no longer name a distribution cookie** (MOB-554, #124).
+  `Mob.Dist.ensure_started/1` is called without `cookie: :mob_secret`; every
+  mob the generated `mix.exs` allows already uses the private per-app cookie
+  mob_dev manages (MOB-49), so nothing changes at runtime. The AGENTS.md IEx
+  example loads that cookie with `MobDev.DistCookie.for_project!/0`.
+
 ### Changed
 - **Generated apps take mob_location 0.3 and mob_biometric 0.2.** The
   showcase pinned `mob_location ~> 0.1.5` and `mob_biometric ~> 0.1`, which

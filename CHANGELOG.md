@@ -10,7 +10,14 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.22] - 2026-11-27
+
 ### Changed
+- **Generated apps take mob_location 0.3 and mob_biometric 0.2.** The
+  showcase pinned `mob_location ~> 0.1.5` and `mob_biometric ~> 0.1`, which
+  kept new apps on the 0.1 releases. mob_location 0.3 adds `speed`, `course`
+  and `time` to every fix; mob_biometric 0.2 adds `MobBiometric.availability/0`.
+  Both need mob ≥ 0.9.15, which every generated app has.
 - **The boot screen is the app's own icon with a loading indicator, from the
   tap on.** It used to be a spinner and the startup phase ("Starting BEAM…")
   on a dark screen, shown only once the app's first frame was up. Now the

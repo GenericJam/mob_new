@@ -13,9 +13,12 @@ Include what you can of:
 - steps or a proof of concept that reproduce it;
 - what it lets the attacker do.
 
-The same address covers the related packages: `mob`, `mob_dev` and the `mob_*`
-plugins. If a problem spans several of them, send one report and I'll coordinate
-the fixes.
+The same address covers the related packages I maintain: `mob`, `mob_dev` and
+the `mob_*` plugins published from
+[github.com/GenericJam](https://github.com/GenericJam). If a problem spans
+several of them, send one report and I'll coordinate the fixes. Bugs in the
+over-the-air update implementation itself belong to the `mob_deliver` packages;
+report them the same way and name the package.
 
 ## What happens next
 
@@ -66,5 +69,5 @@ as much as the generator in `lib/`.
   design.
 - An authenticated development peer running arbitrary code. That access is the
   point of distribution.
-- Bugs in the over-the-air update implementation itself, which lives in the
-  `mob_deliver` packages. Report those the same way and name the package.
+- Bugs in Erlang/OTP, Elixir, Android, Xcode or a third-party library. Report
+  those upstream.

@@ -116,7 +116,14 @@ defmodule MobNew.Templates.AndroidFrameTimingTest do
     # same tree, the artifact the MOB-146 record warns about.
     assert has?(
              src,
-             "if (transition != \"none\") pendingNav = PendingNav(newKey, transition) else measureApply(startNanos, transition)"
+             "if (transition != \"none\") pendingNav.set(PendingNav(newKey, transition)) else measureApply(startNanos, transition)"
+           )
+
+    # Taken with a compare-and-set: a navigation parked on the NIF thread
+    # between the main thread's read and its clear must not be wiped.
+    assert has?(
+             src,
+             "if (pending.navKey != navKey || !pendingNav.compareAndSet(pending, null)) return"
            )
 
     # Armed where the incoming tree is let in, in the same step.

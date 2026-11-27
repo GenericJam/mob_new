@@ -974,7 +974,7 @@ object MobBridge {
         return out
     }
 
-    private fun collectSurfaceViews(
+    internal fun collectSurfaceViews(
         view: android.view.View,
         out: MutableList<Pair<android.view.SurfaceView, IntArray>>,
     ) {
@@ -1825,13 +1825,14 @@ object MobBridge {
     // copy) records no sample: its tree is never built.
     private class PendingNav(val navKey: Int, val transition: String)
 
-    @Volatile private var pendingNav: PendingNav? = null
+    // Set on the NIF thread, taken on the main thread. A compare-and-set, so a
+    // navigation parked between the read and the clear is not wiped.
+    private val pendingNav = java.util.concurrent.atomic.AtomicReference<PendingNav?>(null)
 
     @JvmStatic
     fun navigationComposing(navKey: Int) {
-        val pending = pendingNav ?: return
-        if (pending.navKey != navKey) return
-        pendingNav = null
+        val pending = pendingNav.get() ?: return
+        if (pending.navKey != navKey || !pendingNav.compareAndSet(pending, null)) return
         measureApply(System.nanoTime(), pending.transition)
     }
 
@@ -1886,7 +1887,7 @@ object MobBridge {
         _rootState.value = RootState(newKey, transition, parsed, _rootState.value.epoch + 1)
 
         if (measuring) {
-            if (transition != "none") pendingNav = PendingNav(newKey, transition)
+            if (transition != "none") pendingNav.set(PendingNav(newKey, transition))
             else measureApply(startNanos, transition)
         }
     }

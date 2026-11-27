@@ -81,7 +81,7 @@ defmodule MobNew.Templates.AndroidNavIdentityTest do
     # held instead, as the same instance, so NavScreen skips it entirely.
     assert has?(
              src,
-             "val shown = if (copying) held!! else remember(state) { ShownScreen(state.node, state.navKey) }"
+             "val shown = if (copying) held!! else remember(state) { ShownScreen(state.node, state.navKey, state.epoch) }"
            ),
            "the held screen must be the same ShownScreen instance, or the copy " <>
              "frame rebuilds the outgoing tree"
@@ -91,7 +91,10 @@ defmodule MobNew.Templates.AndroidNavIdentityTest do
 
     # Equality is identity only for a plain class. A data class compares
     # MobNode trees structurally, on every recomposition.
-    assert has?(src, "@Immutable private class ShownScreen(val node: MobNode?, val navKey: Int)")
+    assert has?(
+             src,
+             "@Immutable private class ShownScreen(val node: MobNode?, val navKey: Int, val epoch: Int)"
+           )
 
     # The three writes land in one frame, with nothing that can suspend between
     # them (Animatable.snapTo can): the incoming tree is composed under a copy
@@ -173,6 +176,22 @@ defmodule MobNew.Templates.AndroidNavIdentityTest do
            )
   end
 
+  test "nothing under a transition takes input or accessibility focus", %{main: src} do
+    # On a pop or a reset the copy is drawn over the live incoming screen, so
+    # without a shield every tap during the 400ms reached a control nobody
+    # could see.
+    assert has?(src, "Modifier.matchParentSize().zIndex(2f).pointerInput(Unit)")
+    assert has?(src, ".then(if (out != null) Modifier.clearAndSetSemantics {} else Modifier)")
+  end
+
+  test "a SurfaceView is in the copy, not a hole", %{main: src} do
+    # A window PixelCopy leaves a transparent hole where a SurfaceView (a
+    # gpu_view, a camera preview) composites; the copy would carry it through
+    # the transition.
+    assert has?(src, "MobBridge.collectSurfaceViews(window.decorView, surfaces)")
+    assert has?(src, "PixelCopy.request(view, bitmap, listener, handler)")
+  end
+
   test "navigation re-keys the frame trackers", %{main: main, bridge: bridge} do
     # Without this the failure is silent and delayed. The mount point now
     # persists across navigation, so nodes Compose reuses keep the generation
@@ -189,9 +208,9 @@ defmodule MobNew.Templates.AndroidNavIdentityTest do
     # finds nothing, with no error anywhere.
     assert has?(
              main,
-             "CompositionLocalProvider(MobBridge.LocalSlotEpoch provides shown.navKey) { RenderNode(node"
+             "CompositionLocalProvider( MobBridge.LocalSlotEpoch provides shown.navKey, LocalRenderEpoch provides shown.epoch, ) { RenderNode(node"
            ),
-           "RenderNode must be INSIDE the epoch provider"
+           "RenderNode must be INSIDE the epoch providers"
 
     assert has?(bridge, "val epoch = LocalSlotEpoch.current"),
            "frameTrackingModifier must read the epoch"

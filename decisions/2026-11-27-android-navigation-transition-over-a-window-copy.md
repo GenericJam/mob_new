@@ -38,6 +38,22 @@ skippable.
   from the right while the outgoing one shifts a quarter-width left; a pop
   reverses it; a reset cross-fades the copy away over the opaque incoming
   screen. 400ms on `md.sys.motion.easing.emphasized`.
+- The held tree keeps its own render epoch (`LocalRenderEpoch` provided from
+  `ShownScreen` inside `NavScreen`), not the root's. The root already carries
+  the navigation's epoch while the outgoing tree is held, and a slider that
+  saw that epoch with its old value then ignored the incoming screen's value
+  when the incoming screen reused its slot: on a moto e a push from 0.15 to
+  0.85 left the thumb at 0.15 while the BEAM held 0.85 (found in review).
+- Nothing takes input while a transition runs, and the moving live tree is
+  out of the accessibility tree: on a pop or a reset the copy covers the live
+  incoming screen, and a tap 0.8s into a slow-motion pop reached that hidden
+  screen's Push button (moto e). UINavigationController ignores touches
+  during its transitions too.
+- The copy includes SurfaceViews (gpu_view, camera previews, video): a
+  window PixelCopy leaves a hole where one composites, which the copy
+  carried through the whole transition. Each visible SurfaceView is copied
+  and laid under the window copy, as `screenshotOf` does (MOB-422), without
+  blocking the main thread; 40–57ms on the moto e with one GL view.
 
 ### Material's shared axis, tried first
 

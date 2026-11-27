@@ -24,7 +24,10 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   cost what they did. A copy is 18–32ms on a moto g power 2021 and a moto e
   (Android 10/11, 720px wide), 40–63ms the first time. The animation starts
   only after the incoming tree has been drawn, so a slow build delays the
-  transition rather than eating its first frames. See
+  transition rather than eating its first frames. Nothing takes input during
+  the transition, the copy includes SurfaceViews (gpu_view, camera preview),
+  and the held tree keeps its own render epoch, so a slider reused across a
+  navigation takes the incoming screen's value. See
   `decisions/2026-11-27-android-navigation-transition-over-a-window-copy.md`.
 - **Android `Mob.RenderStats.native_*` times a navigation on the frame that
   builds the incoming screen.** With the outgoing screen held for its copy,

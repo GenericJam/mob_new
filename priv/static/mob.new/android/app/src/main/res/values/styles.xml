@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- The boot look AppTheme builds on; values-v31/styles.xml adds the
-         Android 12+ splash to it. -->
+         Android 12+ splash to it. Add your own theme items here, in
+         MobBootTheme: on Android 12+ the AppTheme of values-v31 is used, so
+         items on the AppTheme below would be lost there. -->
     <style name="MobBootTheme" parent="android:style/Theme.NoTitleBar">
         <!-- The launcher icon centred on white, or black in night mode
              (drawable/mob_window_background.xml): what the boot screen

@@ -1,0 +1,184 @@
+defmodule <%= module_name %>.Showcase.Components.Card do
+  @moduledoc """
+  Gallery entry for `MobMishka.Components.MishkaCard`, with its three slot tags
+  (`MishkaCardFigure`, `MishkaCardTitle`, `MishkaCardActions`).
+  """
+  use <%= module_name %>.Showcase
+
+  import Mob.Sigil
+
+  alias <%= module_name %>.Showcase.Example
+
+  @impl true
+  def entry do
+    %{
+      slug: :card,
+      name: "Card",
+      category: "Layout",
+      order: 10,
+      description: "A surface with an optional figure, a title, content and actions."
+    }
+  end
+
+  @impl true
+  def mount(socket) do
+    socket
+    |> Mob.Socket.assign(:cd_last, nil)
+    |> Mob.Socket.assign(:cd_taps, 0)
+  end
+
+  @impl true
+  def examples do
+    [
+      %Example{
+        title: "Slots",
+        description: "Figure, title, content and actions, written as tags.",
+        code: ~S"""
+        <MishkaCard background={:surface_raised} corner_radius={16} padding={16}>
+          <MishkaCardFigure><Box width={56} height={56} background={:primary} /></MishkaCardFigure>
+          <MishkaCardTitle><Text text="Your rating" /></MishkaCardTitle>
+          <MishkaRating value={4.5} />
+          <MishkaCardActions><MishkaPill label="Edit" on_tap={:edit} /></MishkaCardActions>
+        </MishkaCard>
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaCard
+              background={:surface_raised}
+              corner_radius={16}
+              padding={16}
+              direction={:row}
+              align={:center}
+            >
+              <MishkaCardFigure>
+                <Box width={56} height={56} background={:primary} corner_radius={12} />
+              </MishkaCardFigure>
+              <MishkaCardTitle>
+                <Text text="Your rating" text_size={:lg} font_weight={:semibold} text_color={:on_surface} />
+              </MishkaCardTitle>
+              <MishkaRating value={4.5} size={18} />
+              <MishkaCardActions>
+                <Row>
+                  <MishkaPill label="Edit" on_tap={:cd_edit} />
+                  <Spacer size={8} />
+                  <MishkaPill label="Share" on_tap={:cd_share} />
+                </Row>
+              </MishkaCardActions>
+            </MishkaCard>
+            <Spacer size={8} />
+            <Text text={"Last action: #{inspect(@cd_last)}"} text_size={:sm} text_color={:muted} />
+          </Column>
+          """
+        end
+      },
+      %Example{
+        title: "Props instead of slots, figure at the end",
+        description:
+          "title and figure as props; figure_position={:end} moves the figure after the body.",
+        code: ~S"""
+        <MishkaCard title="Weekly report" figure={chart} figure_position={:end} />
+        """,
+        render: fn _assigns ->
+          ~MOB"""
+          <MishkaCard
+            title="Weekly report"
+            figure={bar_chart()}
+            figure_position={:end}
+            background={:surface_raised}
+            border_color={:border}
+            border_width={1}
+            corner_radius={12}
+            padding={14}
+          >
+            <Text text="Throughput is up 12% on last week." text_size={:sm} text_color={:muted} />
+            <Spacer size={10} />
+          </MishkaCard>
+          """
+        end
+      },
+      %Example{
+        title: "Tappable, with a shadow",
+        description: "on_tap makes the whole surface one target.",
+        code: ~S"""
+        <MishkaCard on_tap={:open} shadow="0 4 12 0x33000000" padding={16}>…</MishkaCard>
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <MishkaCard
+            on_tap={:cd_card_tap}
+            shadow="0 4 12 0x33000000"
+            background={:surface}
+            corner_radius={14}
+            padding={16}
+            id="card_tappable"
+          >
+            <Text text="Tap anywhere on this card" text_color={:on_surface} />
+            <Text text={"Taps: #{@cd_taps}"} text_size={:sm} text_color={:muted} />
+          </MishkaCard>
+          """
+        end
+      }
+    ]
+  end
+
+  defp bar_chart do
+    ~MOB"""
+    <Row align={:bottom}>
+      <Box width={10} height={18} background={:primary} />
+      <Spacer size={4} />
+      <Box width={10} height={30} background={:primary} />
+      <Spacer size={4} />
+      <Box width={10} height={24} background={:primary} />
+      <Spacer size={4} />
+      <Box width={10} height={40} background={:primary} />
+    </Row>
+    """
+  end
+
+  @impl true
+  def handle(:cd_edit, socket), do: Mob.Socket.assign(socket, :cd_last, :edit)
+  def handle(:cd_share, socket), do: Mob.Socket.assign(socket, :cd_last, :share)
+
+  def handle(:cd_card_tap, socket),
+    do: Mob.Socket.assign(socket, :cd_taps, socket.assigns.cd_taps + 1)
+
+  def handle(_tag, socket), do: socket
+
+  @impl true
+  def props do
+    [
+      %{
+        name: "direction",
+        type: ":column / :row",
+        default: ":column",
+        description: "Root layout."
+      },
+      %{
+        name: "title",
+        type: "string / node",
+        default: "unset",
+        description: "First in the body."
+      },
+      %{name: "figure", type: "node", default: "unset", description: "Beside the body."},
+      %{
+        name: "figure_position",
+        type: ":start / :end",
+        default: ":start",
+        description: "Figure side."
+      },
+      %{name: "actions", type: "node", default: "unset", description: "Last in the body."},
+      %{name: "background", type: "color", default: "unset", description: "Surface fill."},
+      %{name: "corner_radius", type: "number", default: "unset", description: "Corners."},
+      %{name: "shadow", type: "string", default: "unset", description: "Drop shadow."},
+      %{name: "on_tap", type: "event tag", default: "unset", description: "Whole-card target."}
+    ]
+  end
+
+  @impl true
+  def card_preview do
+    ~MOB"""
+    <Box fill_width={true} height={40} background={:surface_raised} corner_radius={10} />
+    """
+  end
+end

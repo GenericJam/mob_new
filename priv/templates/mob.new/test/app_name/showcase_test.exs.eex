@@ -2,7 +2,7 @@ defmodule <%= module_name %>.ShowcaseTest do
   # async: false — the registry and composite registry are global (persistent_term).
   use Mob.ScreenCase, async: false
 
-  alias MobMishka.Components.MishkaMark
+  alias MobMishka.Components.{MishkaCalendar, MishkaMark}
   alias <%= module_name %>.Showcase
   alias <%= module_name %>.Showcase.{ComponentScreen, GalleryScreen, Kit}
 
@@ -58,6 +58,19 @@ defmodule <%= module_name %>.ShowcaseTest do
       pills == [] or not Enum.all?(pills, &(text(&1) =~ "Item "))
     end)
   end
+
+  # The Calendar page's range example, as the tag the page wrote.
+  defp range_calendar(view) do
+    [range] =
+      view |> tree() |> find_all(:mishka_calendar) |> Enum.filter(&(&1.props[:mode] == :range))
+
+    range
+  end
+
+  # Run its expander directly: Mob.Composite renders an expander that raises as
+  # an empty node, so expanded/1 would hide a crash.
+  defp expand_calendar(node),
+    do: MishkaCalendar.expand(node.props, [], %{screen: self()})
 
   describe "registry" do
     test "register + lookup augments the entry with its module" do
@@ -291,40 +304,42 @@ defmodule <%= module_name %>.ShowcaseTest do
   end
 
   describe "the props table" do
-    # A long prop name used to starve the type/default column to ~0pt: Compose
-    # measures UNWEIGHTED row children first, so an unweighted name Text took
-    # the whole row and the meta wrapped one character per line, leaving a tall
-    # and mostly empty box. The flexible part must carry the weight instead.
-    test "BOTH columns are weighted, so neither can starve the other" do
+    # Compose's Row, and mob's iOS Row once a child is weighted (MOB-569),
+    # measure the UNWEIGHTED children first and split what is left among the
+    # weighted ones. An unweighted name starved the meta to one character per
+    # line; a 2:1 ratio left the meta a third of the row, too narrow for
+    # "default :surface_raised", which broke mid-word on every page.
+    test "the name takes the rest of the row and the meta hugs, a fact per line" do
       [box] =
-        <%= module_name %>.Showcase.Kit.props_table([
+        Kit.props_table([
           %{name: "a", type: "b", default: "c", description: "d"}
         ]).children
 
-      header = box |> find_all(:row) |> hd()
-      weights = header.children |> Enum.map(& &1.props[:weight]) |> Enum.reject(&is_nil/1)
+      [name, _gap, meta] = box |> find_all(:row) |> hd() |> Map.fetch!(:children)
 
-      # Compose measures UNWEIGHTED row children first against the full width, so
-      # an unweighted column takes what it wants and the other gets the scraps.
-      # Weighting one and not the other only reverses which one suffers.
-      assert weights == [2, 1]
-      assert text(hd(header.children)) =~ "a"
+      assert name.props[:weight] == 1
+      assert text(name) =~ "a"
+
+      refute Map.has_key?(meta.props, :weight)
+      assert meta.props.text == "b\ndefault c"
+      # MobBridge.kt fills the width of any aligned Text unless told not to,
+      # which would hand the meta the whole row and the name nothing.
+      assert meta.props.fill_width == false
+      # Both renderers read "right"; neither reads "end".
+      assert meta.props.text_align == "right"
     end
 
-    test "no prop's type/default line is long enough to crowd the name" do
-      # The ratio bounds the damage, but a meta this long still wraps to three
-      # lines in its third of the row. Shorten the string, not the layout.
-      # Build the string prop_row actually renders, separator and all — not an
-      # approximation of it, or the check passes while the row is still tall.
+    test "no meta line is long enough to crowd the name" do
+      # The meta hugs, so its longest line is what the name loses. At 360dp
+      # the header row is ~294 wide inside the page and card padding; 30
+      # characters of :xs text is ~185 of it, which leaves the name ~95.
+      # Shorten the string, not the layout.
       long =
         for entry <- Showcase.all(),
             p <- entry.module.props(),
-            meta =
-              [Map.get(p, :type), Map.get(p, :default) && "default #{p.default}"]
-              |> Enum.reject(&is_nil/1)
-              |> Enum.join("   ·   "),
-            String.length(meta) > 60,
-            do: "#{entry.slug}: #{p.name} — #{meta}"
+            line <- String.split(Kit.prop_meta(p), "\n"),
+            String.length(line) > 30,
+            do: "#{entry.slug}: #{p.name} — #{line}"
 
       assert long == []
     end
@@ -789,7 +804,8 @@ defmodule <%= module_name %>.ShowcaseTest do
       cases = [
         {:theme_icon, {:ti_hold, "Deploy"}, &(&1.ti_held == "Deploy")},
         {:tooltip, {{:tip_hold, :copy}, true}, &(&1.tip_hold == :copy)},
-        {:context_menu, {:cm_open, :report}, &(&1.cm_for == :report)}
+        {:context_menu, {:cm_open, :report}, &(&1.cm_for == :report)},
+        {:list_item, {:li_long, "wifi"}, &(&1.li_long == "wifi")}
       ]
 
       for {slug, hold, held?} <- cases do
@@ -819,6 +835,75 @@ defmodule <%= module_name %>.ShowcaseTest do
       assert offenders == [], "a hold handled as a tap: " <> inspect(offenders)
     end
 
+    test "the rating stepper's buttons share their row, weighted where they are placed" do
+      # compact_button carries no weight of its own, so the page gives one to
+      # each button in the Row that holds them; unweighted they hugged the left.
+      view = mount_screen(ComponentScreen, %{slug: :rating})
+
+      [row] =
+        view
+        |> tree()
+        |> find_all(:row)
+        |> Enum.filter(fn row -> Enum.count(row.children, &(&1.type == :button)) == 2 end)
+
+      assert for(b <- row.children, b.type == :button, do: b.props[:weight]) == [1, 1]
+
+      up = render_info(view, {:tap, :rating_up})
+      assert assigns(up).rt_value == 4.0
+      assert assigns(render_info(up, {:tap, :rating_up})).rt_value == 4.5
+    end
+
+    test "the calendar's range example starts its weeks on Sunday and inks the range" do
+      view = mount_screen(ComponentScreen, %{slug: :calendar})
+      range = range_calendar(view)
+
+      # The labels are the caller's, so they have to start where the grid does.
+      assert range.props.first_day_of_week == 7
+      assert hd(range.props.weekday_labels) == "Su"
+      # in_range_color pairs with in_range_background; unset, the days between
+      # took the selected ink, :on_primary, on a :surface_raised fill.
+      assert range.props.in_range_color == :on_surface
+
+      # The first tap leaves the range open-ended. Handed a nil end date, the
+      # calendar's expander raised, and Mob.Composite renders a raising
+      # expander as an empty node: the calendar silently drew nothing. So the
+      # expander is called directly; through expanded/1 this passes either way.
+      ranged = render_info(view, {:tap, {:cal_range, ~D[2026-11-20]}})
+      assert assigns(ranged).cal_range == {~D[2026-11-20], nil}
+      assert %{type: :column} = expand_calendar(range_calendar(ranged))
+
+      closed = render_info(ranged, {:tap, {:cal_range, ~D[2026-11-18]}})
+      assert assigns(closed).cal_range == {~D[2026-11-18], ~D[2026-11-20]}
+      assert %{type: :column} = expand_calendar(range_calendar(closed))
+    end
+
+    test "the dismiss pair's triggers sit far enough apart for both hints" do
+      # Both can be open at once, each bubble centred under its own trigger;
+      # at 20 apart the two bubbles were wider than the gap between triggers.
+      [row] =
+        ComponentScreen
+        |> mount_screen(%{slug: :tooltip})
+        |> tree()
+        |> find_all(:row)
+        |> Enum.filter(fn row ->
+          Enum.map(row.children, &Map.get(&1.props, :id)) |> Enum.member?("dismiss-soft")
+        end)
+
+      assert [_soft, %{type: :spacer, props: %{size: 88}}, _sticky, _flex] = row.children
+    end
+
+    test "the text input page empties its field on submit" do
+      # iOS adopts a new value only while the field is unfocused, so a Clear
+      # button tapped mid-edit left the text in the field and the readout
+      # disagreeing with it. Return drops focus before the submit arrives.
+      view = mount_screen(ComponentScreen, %{slug: :text_input})
+      typed = render_info(view, {:change, :tx_name, "Ada"})
+      submitted = render_info(typed, {:submit, :tx_name_submit})
+
+      assert assigns(submitted).tx_submitted == "Ada"
+      assert assigns(submitted).tx_name == ""
+    end
+
     test "the tooltip page opens no dismissible hint until one is held" do
       # Open at mount, both bubbles of the dismissal example floated over the
       # page before anyone asked, and one sat on top of — and swallowed taps
@@ -833,6 +918,57 @@ defmodule <%= module_name %>.ShowcaseTest do
 
       held = render_info(view, {:long_press, {:tip_sticky, true}})
       assert open_hints.(held) == ["dismiss-sticky-open"]
+    end
+
+    test "a tooltip held open among others has room on its bubble's side" do
+      # An open bubble floats and takes no space, so the page has to leave it
+      # side_offset + 52 on its side (MishkaTooltip's docs). Packed 14 apart,
+      # the bubble of one trigger covered the next trigger.
+      columns = ComponentScreen |> mount_screen(%{slug: :tooltip}) |> tree() |> find_all(:column)
+
+      checked =
+        for column <- columns,
+            {prev, row, next} <-
+              Enum.zip([[nil | column.children], column.children, tl(column.children) ++ [nil]]),
+            row.type == :row,
+            [tip] <- [Enum.filter(row.children, &(&1.type == :mishka_tooltip))],
+            tip.props[:open] == true and tip.props[:id] =~ ~r/^(side|align|style)-/ do
+          # Centred, so a bubble beside the trigger has room either way.
+          assert [%{type: :spacer}, ^tip, %{type: :spacer}] = row.children
+
+          need = (tip.props[:side_offset] || 6) + 52
+
+          neighbour =
+            case Map.get(tip.props, :side, :top) do
+              :top -> prev
+              :bottom -> next
+              _beside -> nil
+            end
+
+          if neighbour do
+            assert %{type: :spacer, props: %{size: size}} = neighbour
+            assert size >= need, "#{tip.props[:id]}: #{size} of room, needs #{need}"
+          end
+
+          tip.props[:id]
+        end
+
+      assert Enum.count(checked) == 10
+    end
+
+    test "no box with a fixed size carries padding" do
+      # iOS lays a padded node's padding OUTSIDE its width and height, so the
+      # overflow list's rail came out 16 wider and taller than its size. Pad a
+      # child instead. Read off the pages as written: the boxes a composite
+      # builds are mob_mishka's.
+      offenders =
+        for {slug, tree} <- gallery_pages(&tree/1),
+            node <- find_all(tree, :box),
+            is_number(node.props[:width]) or is_number(node.props[:height]),
+            Map.has_key?(node.props, :padding),
+            do: {slug, node.props[:id], node.props[:width], node.props[:height]}
+
+      assert offenders == [], "padding on a fixed-size box: " <> inspect(offenders)
     end
 
     test "the disabled action icons wire no handler, even though one is given" do

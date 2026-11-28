@@ -424,21 +424,22 @@ defmodule <%= module_name %>.Showcase.Components.FloatingWindow do
   end
 
   # A Box with neither width nor fill_width FILLS its parent, so this one is
-  # sized — otherwise "Reset" is a full-width bar.
+  # sized — otherwise "Reset" is a full-width bar. The padding is on the label:
+  # iOS lays a padded node's padding outside its width, so a padded 104 Box
+  # drew 120 wide.
   defp button(label, tag, id) do
     ~MOB"""
     <Box
       width={104}
       background={:surface}
       corner_radius={:radius_sm}
-      padding={:space_sm}
       align={:center}
       border_color={:border}
       border_width={1}
       on_tap={{self(), tag}}
       id={id}
     >
-      <Text text={label} text_size={:sm} text_color={:on_surface} max_lines={1} />
+      <Text text={label} text_size={:sm} text_color={:on_surface} max_lines={1} padding={:space_sm} />
     </Box>
     """
   end
@@ -517,9 +518,9 @@ defmodule <%= module_name %>.Showcase.Components.FloatingWindow do
       },
       %{
         name: "Indicator: orientation / color",
-        type: "—",
-        default: ":horizontal · :surface_raised",
-        description: "Row or stack; the highlight."
+        type: "atom · color",
+        description:
+          "Row or stack (default :horizontal); the highlight (default :surface_raised)."
       },
       %{
         name: "Indicator: active?/2",

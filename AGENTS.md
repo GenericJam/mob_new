@@ -557,6 +557,15 @@ git config core.hooksPath .githooks
   template fails lint for a line that looks harmless. Section banners go
   above the first import or below the last.
 
+- **Gallery layout: three renderer details that bite.** iOS lays a
+  node's `padding` OUTSIDE its fixed `width`/`height` (mob's `MobBox` frames,
+  then pads), so pad a child of a fixed-size Box, never the Box itself. Neither
+  renderer reads `text_align: "end"`; use `"right"`. And `MobBridge.kt`
+  fills the width of any Text with a `text_align` unless it says
+  `fill_width: false`, which in a Row hands that Text the space its weighted
+  siblings were meant to share. The showcase template test pins the first
+  and the props table's use of the other two.
+
 - **`WindowInsets` is two classes.** `MobBridge.kt.eex` imports
   `android.view.WindowInsets` for the decor-view inset reads; the Compose
   one (`WindowInsets.safeDrawing`, used by `MobAnchored`) comes in as

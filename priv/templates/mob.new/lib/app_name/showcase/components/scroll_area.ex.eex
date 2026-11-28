@@ -72,16 +72,12 @@ defmodule <%= module_name %>.Showcase.Components.ScrollArea do
         """,
         render: fn _assigns ->
           ~MOB"""
-          <Box
-            fill_width={true}
-            height={120}
-            background={:surface_raised}
-            corner_radius={:radius_md}
-            padding={:space_md}
-          >
-            <MishkaScrollArea>
-              {rows(8)}
-            </MishkaScrollArea>
+          <Box fill_width={true} height={120} background={:surface_raised} corner_radius={:radius_md}>
+            <Box fill_width={true} fill_height={true} padding={:space_md}>
+              <MishkaScrollArea>
+                {rows(8)}
+              </MishkaScrollArea>
+            </Box>
           </Box>
           """
         end

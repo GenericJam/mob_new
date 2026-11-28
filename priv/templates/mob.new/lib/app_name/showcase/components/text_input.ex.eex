@@ -1,0 +1,230 @@
+defmodule <%= module_name %>.Showcase.Components.TextInput do
+  @moduledoc """
+  Gallery entry for `MobMishka.Components.MishkaTextInput`.
+
+  The field is controlled: every keystroke comes back as `{:change, tag, text}`
+  and the page echoes it into `value`. The readouts under each field show what
+  the screen holds, so a dropped or doubled event is visible on the device.
+
+  A field adopts a new `value` the screen assigns, but iOS only while the field
+  is not focused, so the page replaces text on submit (Return drops focus
+  first) rather than from a button tapped mid-edit.
+  """
+  use <%= module_name %>.Showcase
+
+  import Mob.Sigil
+
+  alias <%= module_name %>.Showcase.Example
+
+  @impl true
+  def entry do
+    %{
+      slug: :text_input,
+      name: "Text input",
+      category: "Forms",
+      order: 30,
+      description: "A single- or multi-line field the screen controls."
+    }
+  end
+
+  @impl true
+  def mount(socket) do
+    socket
+    |> Mob.Socket.assign(:tx_name, "")
+    |> Mob.Socket.assign(:tx_submitted, nil)
+    |> Mob.Socket.assign(:tx_email, "")
+    |> Mob.Socket.assign(:tx_secret, "")
+    |> Mob.Socket.assign(:tx_note, "")
+    |> Mob.Socket.assign(:tx_search, "")
+    |> Mob.Socket.assign(:tx_focus, nil)
+  end
+
+  @impl true
+  def examples do
+    [
+      %Example{
+        title: "Controlled, with submit",
+        description:
+          "Return sends {:submit, tag}; the page keeps the text and empties the field.",
+        code: ~S"""
+        <MishkaTextInput value={@name} placeholder="Your name" return_key="done"
+                         on_change={:name} on_submit={:name_submit} />
+
+        def handle_info({:change, :name, text}, socket),
+          do: {:noreply, assign(socket, :name, text)}
+
+        # Return has dropped focus by now, so the field adopts the "".
+        def handle_info({:submit, :name_submit}, socket) do
+          {:noreply, socket |> assign(:submitted, socket.assigns.name) |> assign(:name, "")}
+        end
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaTextInput
+              value={@tx_name}
+              placeholder="Your name"
+              return_key="done"
+              id="ti_name"
+              on_change={:tx_name}
+              on_submit={:tx_name_submit}
+              on_focus={:tx_name_focus}
+              on_blur={:tx_name_blur}
+            />
+            <Spacer size={8} />
+            <Text text={"Value: \"#{@tx_name}\""} text_size={:sm} text_color={:muted} />
+            <Text text={"Submitted: #{inspect(@tx_submitted)}"} text_size={:sm} text_color={:muted} />
+            <Text text={"Focus: #{inspect(@tx_focus)}"} text_size={:sm} text_color={:muted} />
+          </Column>
+          """
+        end
+      },
+      %Example{
+        title: "Keyboards and secure entry",
+        description: "keyboard_type picks the keyboard; secure masks the text.",
+        code: ~S"""
+        <MishkaTextInput value={@email} keyboard_type={:email} placeholder="Email" on_change={:email} />
+        <MishkaTextInput value={@pin} secure={true} keyboard_type={:number} max_length={6} on_change={:pin} />
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaTextInput
+              value={@tx_email}
+              keyboard_type={:email}
+              placeholder="Email"
+              on_change={:tx_email}
+            />
+            <Spacer size={8} />
+            <MishkaTextInput
+              value={@tx_secret}
+              secure={true}
+              keyboard_type={:number}
+              max_length={6}
+              placeholder="6-digit PIN"
+              on_change={:tx_secret}
+            />
+            <Spacer size={6} />
+            <Text
+              text={"PIN length: #{String.length(@tx_secret)} / 6"}
+              text_size={:sm}
+              text_color={:muted}
+            />
+          </Column>
+          """
+        end
+      },
+      %Example{
+        title: "Multiline",
+        description: "Three rows; Return inserts a newline instead of submitting.",
+        code: ~S"""
+        <MishkaTextInput value={@note} multiline={true} placeholder="Notes" on_change={:note} />
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaTextInput value={@tx_note} multiline={true} placeholder="Notes" on_change={:tx_note} />
+            <Spacer size={6} />
+            <Text
+              text={"Lines: #{length(String.split(@tx_note, "\n"))}"}
+              text_size={:sm}
+              text_color={:muted}
+            />
+          </Column>
+          """
+        end
+      },
+      %Example{
+        title: "Leading and trailing, styled",
+        description: "Nodes either side of the field; the field keeps its own styling props.",
+        code: ~S"""
+        <MishkaTextInput value={@q} placeholder="Search"
+                         leading={search_icon} trailing={char_count}
+                         border_color={:primary} border_width={1} corner_radius={:radius_pill} />
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaTextInput
+              value={@tx_search}
+              placeholder="Search"
+              leading={search_glyph()}
+              trailing={char_count(@tx_search)}
+              border_color={:primary}
+              border_width={1}
+              corner_radius={:radius_pill}
+              text_size={:lg}
+              on_change={:tx_search}
+            />
+          </Column>
+          """
+        end
+      }
+    ]
+  end
+
+  defp search_glyph do
+    ~MOB"""
+    <Text text="⌕" text_size={:xl} text_color={:muted} />
+    """
+  end
+
+  defp char_count(text) do
+    ~MOB"""
+    <Text text={Integer.to_string(String.length(text))} text_size={:sm} text_color={:muted} />
+    """
+  end
+
+  @impl true
+  def handle_change(:tx_name, v, socket), do: Mob.Socket.assign(socket, :tx_name, v)
+  def handle_change(:tx_email, v, socket), do: Mob.Socket.assign(socket, :tx_email, v)
+  def handle_change(:tx_secret, v, socket), do: Mob.Socket.assign(socket, :tx_secret, v)
+  def handle_change(:tx_note, v, socket), do: Mob.Socket.assign(socket, :tx_note, v)
+  def handle_change(:tx_search, v, socket), do: Mob.Socket.assign(socket, :tx_search, v)
+  def handle_change(_tag, _value, socket), do: socket
+
+  @impl true
+  def handle(:tx_name_submit, socket) do
+    socket
+    |> Mob.Socket.assign(:tx_submitted, socket.assigns.tx_name)
+    |> Mob.Socket.assign(:tx_name, "")
+  end
+
+  def handle(:tx_name_focus, socket), do: Mob.Socket.assign(socket, :tx_focus, :focused)
+  def handle(:tx_name_blur, socket), do: Mob.Socket.assign(socket, :tx_focus, :blurred)
+  def handle(_tag, socket), do: socket
+
+  @impl true
+  def props do
+    [
+      %{name: "value", type: "string", default: "unset", description: "The current text."},
+      %{name: "placeholder", type: "string", default: "unset", description: "Hint while empty."},
+      %{name: "multiline", type: "boolean", default: "false", description: "Three rows."},
+      %{
+        name: "lines",
+        type: "integer",
+        default: "unset",
+        description: "Rows; wins over multiline."
+      },
+      %{
+        name: "max_length",
+        type: "integer",
+        default: "unset",
+        description: "Rejects longer edits."
+      },
+      %{name: "secure", type: "boolean", default: "false", description: "Masks the text."},
+      %{name: "keyboard_type", type: "atom", default: "unset", description: "Keyboard variant."},
+      %{name: "leading", type: "node", default: "unset", description: "Before the field."},
+      %{name: "trailing", type: "node", default: "unset", description: "After the field."},
+      %{name: "on_change", type: "event tag", default: "—", description: "{:change, tag, text}."},
+      %{name: "on_submit", type: "event tag", default: "—", description: "{:submit, tag}."}
+    ]
+  end
+
+  @impl true
+  def card_preview do
+    ~MOB"""
+    <Box fill_width={true} height={28} background={:surface_raised} corner_radius={:radius_sm} />
+    """
+  end
+end

@@ -231,7 +231,17 @@ defmodule <%= module_name %>.Showcase do
      ]},
     {<%= module_name %>.Showcase.Components.FloatingWindow, :mishka_floating_window,
      MobMishka.Components.MishkaFloatingWindow,
-     [mishka_floating_indicator: MobMishka.Components.MishkaFloatingIndicator]}
+     [mishka_floating_indicator: MobMishka.Components.MishkaFloatingIndicator]},
+    {<%= module_name %>.Showcase.Components.Rating, :mishka_rating, MobMishka.Components.MishkaRating},
+    {<%= module_name %>.Showcase.Components.TextInput, :mishka_text_input,
+     MobMishka.Components.MishkaTextInput},
+    {<%= module_name %>.Showcase.Components.Card, :mishka_card, MobMishka.Components.MishkaCard},
+    {<%= module_name %>.Showcase.Components.ListItem, :mishka_list_item,
+     MobMishka.Components.MishkaListItem},
+    {<%= module_name %>.Showcase.Components.Dock, :mishka_dock, MobMishka.Components.MishkaDock,
+     [mishka_dock_item: MobMishka.Components.MishkaDockItem]},
+    {<%= module_name %>.Showcase.Components.Calendar, :mishka_calendar,
+     MobMishka.Components.MishkaCalendar}
   ]
 
   # Primitive node types this app renders ITSELF in MobBridge.kt, which mob's own
@@ -292,7 +302,10 @@ defmodule <%= module_name %>.Showcase do
     :mishka_empty_state_actions,
     :mishka_empty_state_indicator,
     :mishka_toast_close,
-    :mishka_toast_item
+    :mishka_toast_item,
+    :mishka_card_actions,
+    :mishka_card_figure,
+    :mishka_card_title
   ]
 
   @doc "Every slot tag — a child tag consumed by its parent composite's `expand/3`."

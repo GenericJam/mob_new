@@ -334,7 +334,7 @@ defmodule <%= module_name %>.Showcase.Components.Drawer do
       },
       %{
         name: "side",
-        type: ":left · :right · :top · :bottom",
+        type: ":left :right :top :bottom",
         default: ":right",
         description: "Edge the panel is pinned to."
       },
@@ -877,6 +877,8 @@ defmodule <%= module_name %>.Showcase.Components.Drawer do
   end
 
   # A brand-coloured header card: avatar + name + email on violet.
+  # The avatar centres its initials with `align`, not padding: iOS lays a
+  # padded node's padding outside its width and height, so 48 came out 70.
   defp account_card do
     avatar = %{
       type: :box,
@@ -885,7 +887,7 @@ defmodule <%= module_name %>.Showcase.Components.Drawer do
         height: 48,
         background: 0x33_FF_FF_FF,
         corner_radius: :radius_pill,
-        padding: 11
+        align: :center
       },
       children: [
         %{

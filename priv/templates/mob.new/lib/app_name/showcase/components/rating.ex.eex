@@ -1,0 +1,145 @@
+defmodule <%= module_name %>.Showcase.Components.Rating do
+  @moduledoc """
+  Gallery entry for `MobMishka.Components.MishkaRating`.
+
+  The half star is the one to look at on a device: it is the filled glyph
+  clipped to half its width over the empty one (`clip_width`, mob 0.9.32+).
+  """
+  use <%= module_name %>.Showcase
+
+  import Mob.Sigil
+
+  alias <%= module_name %>.Showcase.{Example, Kit}
+
+  @impl true
+  def entry do
+    %{
+      slug: :rating,
+      name: "Rating",
+      category: "Data display",
+      order: 20,
+      description: "A row of stars, with a real half star."
+    }
+  end
+
+  @impl true
+  def mount(socket), do: Mob.Socket.assign(socket, :rt_value, 3.5)
+
+  @impl true
+  def examples do
+    [
+      %Example{
+        title: "Half steps",
+        description: "The screen owns the value; the buttons move it by half a star.",
+        code: ~S"""
+        <MishkaRating value={@rating} />
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaRating value={@rt_value} id="rating_main" />
+            <Spacer size={8} />
+            <Text text={"#{@rt_value} of 5"} text_size={:sm} text_color={:muted} />
+            <Spacer size={8} />
+            {stepper()}
+          </Column>
+          """
+        end
+      },
+      %Example{
+        title: "Every value from 0 to 5",
+        description: "One row per half step, so a clip that misses shows up at once.",
+        code: ~S"""
+        <MishkaRating value={2.5} />
+        """,
+        render: fn _assigns ->
+          rows =
+            for v <- Enum.map(0..10, &(&1 / 2)) do
+              ~MOB"""
+              <Row fill_width={true} align={:center}>
+                <Text text={"#{v}"} width={36} text_size={:sm} text_color={:muted} />
+                <MishkaRating value={v} size={18} />
+              </Row>
+              """
+            end
+
+          Kit.column(rows)
+        end
+      },
+      %Example{
+        title: "Count, size, colours",
+        description: "count sets the cells; color and empty_color ink the glyphs.",
+        code: ~S"""
+        <MishkaRating value={7} count={10} size={16} color={:primary} empty_color={:muted} />
+        """,
+        render: fn _assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaRating value={7} count={10} size={16} color={:primary} empty_color={:muted} />
+            <Spacer size={10} />
+            <MishkaRating value={2.5} size={32} color={0xFFE11D48} />
+          </Column>
+          """
+        end
+      },
+      %Example{
+        title: "Custom glyphs, no half",
+        description: "icon and empty_icon take any string; half={false} rounds down.",
+        code: ~S"""
+        <MishkaRating value={3.5} icon="♥" empty_icon="♡" half={false} color={0xFFE11D48} />
+        """,
+        render: fn _assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaRating value={3.5} icon="♥" empty_icon="♡" half={false} color={0xFFE11D48} />
+            <Spacer size={10} />
+            <MishkaRating value={3.5} icon="♥" empty_icon="♡" color={0xFFE11D48} />
+          </Column>
+          """
+        end
+      }
+    ]
+  end
+
+  # Two half-row buttons: grid/1 puts the weight on each, so the pair shares
+  # the row instead of hugging its left edge.
+  defp stepper do
+    Kit.grid([Kit.compact_button("− ½", :rating_down), Kit.compact_button("+ ½", :rating_up)])
+  end
+
+  @impl true
+  def handle(:rating_up, socket),
+    do: Mob.Socket.assign(socket, :rt_value, min(socket.assigns.rt_value + 0.5, 5.0))
+
+  def handle(:rating_down, socket),
+    do: Mob.Socket.assign(socket, :rt_value, max(socket.assigns.rt_value - 0.5, 0.0))
+
+  def handle(_tag, socket), do: socket
+
+  @impl true
+  def props do
+    [
+      %{
+        name: "value",
+        type: "number",
+        default: "0",
+        description: "The rating; 3.5 is three and a half."
+      },
+      %{name: "count", type: "integer", default: "5", description: "How many cells."},
+      %{name: "size", type: "number", default: "22", description: "Glyph text size."},
+      %{name: "gap", type: "number", default: "2", description: "Space between cells."},
+      %{name: "icon", type: "string / node", default: "★", description: "A full cell."},
+      %{name: "empty_icon", type: "string / node", default: "☆", description: "An empty cell."},
+      %{name: "color", type: "color", default: ":amber_500", description: "Full glyph ink."},
+      %{name: "empty_color", type: "color", default: "color", description: "Empty glyph ink."},
+      %{name: "half", type: "boolean", default: "true", description: "Draw the half step."}
+    ]
+  end
+
+  @impl true
+  def card_preview do
+    ~MOB"""
+    <MishkaRating value={3.5} size={18} />
+    """
+  end
+end

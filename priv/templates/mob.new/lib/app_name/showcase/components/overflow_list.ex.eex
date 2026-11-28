@@ -219,17 +219,25 @@ defmodule <%= module_name %>.Showcase.Components.OverflowList do
       type: :box,
       props: %{width: @surface_width, height: @rail_height},
       children: [
+        # The padding is on a child, not on this fixed-size box: iOS lays a
+        # padded node's padding OUTSIDE its width and height, so the box came
+        # out 16 wider and taller than `width` says.
         %{
           type: :box,
           props: %{
             width: width,
             height: @rail_height,
             background: :surface_raised,
-            corner_radius: :radius_md,
-            padding: :space_sm
+            corner_radius: :radius_md
           },
           children: [
-            MishkaOverflowList.overflow_list(%{visible: fit(width), id: "rail"}, rail_pills())
+            %{
+              type: :box,
+              props: %{fill_width: true, padding: :space_sm},
+              children: [
+                MishkaOverflowList.overflow_list(%{visible: fit(width), id: "rail"}, rail_pills())
+              ]
+            }
           ]
         },
         edge(width)

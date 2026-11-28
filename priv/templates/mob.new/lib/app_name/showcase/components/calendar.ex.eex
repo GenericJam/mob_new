@@ -1,0 +1,312 @@
+defmodule <%= module_name %>.Showcase.Components.Calendar do
+  @moduledoc """
+  Gallery entry for `MobMishka.Components.MishkaCalendar`: the month grid in
+  each selection mode, and the week, day and agenda views.
+  """
+  use <%= module_name %>.Showcase
+
+  import Mob.Sigil
+
+  alias <%= module_name %>.Showcase.Example
+
+  @weekdays ~w(Mo Tu We Th Fr Sa Su)
+  @today ~D[2026-11-27]
+
+  @impl true
+  def entry do
+    %{
+      slug: :calendar,
+      name: "Calendar",
+      category: "Forms",
+      order: 31,
+      description: "A month grid with selection and navigation, plus week, day and agenda views."
+    }
+  end
+
+  @impl true
+  def mount(socket) do
+    socket
+    |> Mob.Socket.assign(:cal_month, @today)
+    |> Mob.Socket.assign(:cal_single, @today)
+    |> Mob.Socket.assign(:cal_multi, [~D[2026-11-03], ~D[2026-11-17]])
+    |> Mob.Socket.assign(:cal_range, {~D[2026-11-10], ~D[2026-11-14]})
+  end
+
+  @impl true
+  def examples do
+    [
+      %Example{
+        title: "Single date, month navigation",
+        description: "Tap a day; the arrows move the month.",
+        code: ~S"""
+        <MishkaCalendar month={@month} value={@picked} today={@today}
+                        weekday_labels={~w(Mo Tu We Th Fr Sa Su)}
+                        month_label={Calendar.strftime(@month, "%B %Y")}
+                        on_select={:pick} on_prev={:prev} on_next={:next} />
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaCalendar
+              month={@cal_month}
+              value={@cal_single}
+              today={today()}
+              weekday_labels={weekdays()}
+              month_label={Calendar.strftime(@cal_month, "%B %Y")}
+              on_select={:cal_single}
+              on_prev={:cal_prev}
+              on_next={:cal_next}
+              cell_id_prefix="cal-"
+              id="calendar_single"
+            />
+            <Spacer size={8} />
+            <Text text={"Picked: #{@cal_single}"} text_size={:sm} text_color={:muted} />
+          </Column>
+          """
+        end
+      },
+      %Example{
+        title: "Multiple dates, bounds and disabled days",
+        description:
+          "mode={:multiple} toggles days; min, max and disabled_dates make cells inert.",
+        code: ~S"""
+        <MishkaCalendar mode={:multiple} value={@days} min={~D[2026-11-02]} max={~D[2026-11-26]}
+                        disabled_dates={[~D[2026-11-11]]} on_select={:toggle} />
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaCalendar
+              month={today()}
+              mode={:multiple}
+              value={@cal_multi}
+              today={today()}
+              min={~D[2026-11-02]}
+              max={~D[2026-11-26]}
+              disabled_dates={[~D[2026-11-11]]}
+              weekday_labels={weekdays()}
+              on_select={:cal_multi}
+            />
+            <Spacer size={8} />
+            <Text
+              text={"Picked: #{Enum.map_join(Enum.sort(@cal_multi, Date), ", ", &Date.to_string/1)}"}
+              text_size={:sm}
+              text_color={:muted}
+            />
+          </Column>
+          """
+        end
+      },
+      %Example{
+        title: "Range",
+        description: "Two taps make a range; the days between take the in-range look.",
+        code: ~S"""
+        <MishkaCalendar mode={:range} value={range_value(@range)} on_select={:range}
+                        weekday_labels={~w(Su Mo Tu We Th Fr Sa)} first_day_of_week={7}
+                        in_range_background={:surface_raised} in_range_color={:on_surface} />
+
+        # After the first tap the range has no end yet, and the calendar reads
+        # a range as two dates: hand it the start twice, a one-day range.
+        defp range_value({from, nil}), do: {from, from}
+        defp range_value(range), do: range
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaCalendar
+              month={today()}
+              mode={:range}
+              value={range_value(@cal_range)}
+              today={today()}
+              weekday_labels={~w(Su Mo Tu We Th Fr Sa)}
+              first_day_of_week={7}
+              in_range_background={:surface_raised}
+              in_range_color={:on_surface}
+              selected_background={:primary}
+              selected_color={:on_primary}
+              on_select={:cal_range}
+            />
+            <Spacer size={8} />
+            <Text text={range_text(@cal_range)} text_size={:sm} text_color={:muted} />
+          </Column>
+          """
+        end
+      },
+      %Example{
+        title: "Week view",
+        description: "Seven lanes of blocks the app lays out.",
+        code: ~S"""
+        <MishkaCalendar view={:week} lanes={@lanes} />
+        """,
+        render: fn _assigns ->
+          ~MOB"""
+          <MishkaCalendar view={:week} lanes={lanes()} />
+          """
+        end
+      },
+      %Example{
+        title: "Day and agenda views",
+        description:
+          "A day's timeline rows, then the same rows grouped by day. The time column is " <>
+            "52 wide by default: room for a 12-hour time.",
+        code: ~S"""
+        <MishkaCalendar view={:day} rows={@rows} />
+        <MishkaCalendar view={:agenda} sections={@sections} />
+        """,
+        render: fn _assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaCalendar view={:day} rows={day_rows()} />
+            <Spacer size={12} />
+            <MishkaCalendar view={:agenda} sections={sections()} />
+          </Column>
+          """
+        end
+      }
+    ]
+  end
+
+  defp today, do: @today
+  defp weekdays, do: @weekdays
+
+  defp range_value({from, nil}), do: {from, from}
+  defp range_value(range), do: range
+
+  defp range_text({from, nil}), do: "From #{from} — pick the end"
+  defp range_text({from, to}), do: "#{from} → #{to}"
+
+  defp day_rows do
+    [
+      %{
+        time: "9:00 AM",
+        title: "Stand-up",
+        meta: "Room 2",
+        duration: "15m",
+        colour: 0xFF2563EB,
+        tag: {:cal_row, 1}
+      },
+      %{
+        time: "11:30 AM",
+        title: "Design review",
+        meta: "Video",
+        duration: "1h",
+        colour: 0xFF16A34A,
+        tag: {:cal_row, 2}
+      },
+      %{
+        time: "3:00 PM",
+        title: "1:1",
+        meta: "Café",
+        duration: "30m",
+        colour: 0xFFE11D48,
+        tag: {:cal_row, 3}
+      }
+    ]
+  end
+
+  defp sections do
+    [
+      %{label: "Thursday 26", items: Enum.take(day_rows(), 2)},
+      %{label: "Friday 27", items: Enum.drop(day_rows(), 2)}
+    ]
+  end
+
+  defp lanes do
+    for {wd, day} <- Enum.zip(@weekdays, 23..29) do
+      %{
+        weekday: wd,
+        day: Integer.to_string(day),
+        state: if(day == 27, do: :today, else: :default),
+        tag: {:cal_lane, day},
+        blocks: [lane_block(day)]
+      }
+    end
+  end
+
+  # A literal fill is the same in both themes, so the label on it is literal too:
+  # the default :muted ink is a theme token and washes out on a light hex block.
+  defp lane_block(day) when rem(day, 2) == 0 do
+    %{
+      label: "Gym",
+      height: 36,
+      tag: {:cal_block, day},
+      background: 0xFFDBEAFE,
+      text_color: 0xFF1E40AF
+    }
+  end
+
+  defp lane_block(day) do
+    %{
+      label: "Focus",
+      height: 52,
+      tag: {:cal_block, day},
+      background: 0xFFDCFCE7,
+      text_color: 0xFF166534
+    }
+  end
+
+  @impl true
+  def handle(:cal_prev, socket), do: shift_month(socket, -1)
+  def handle(:cal_next, socket), do: shift_month(socket, 1)
+
+  def handle({:cal_single, %Date{} = d}, socket), do: Mob.Socket.assign(socket, :cal_single, d)
+
+  def handle({:cal_multi, %Date{} = d}, socket) do
+    days = socket.assigns.cal_multi
+    next = if d in days, do: List.delete(days, d), else: [d | days]
+    Mob.Socket.assign(socket, :cal_multi, next)
+  end
+
+  def handle({:cal_range, %Date{} = d}, socket) do
+    next =
+      case socket.assigns.cal_range do
+        {from, nil} -> if Date.compare(d, from) == :lt, do: {d, from}, else: {from, d}
+        _ -> {d, nil}
+      end
+
+    Mob.Socket.assign(socket, :cal_range, next)
+  end
+
+  def handle(_tag, socket), do: socket
+
+  defp shift_month(socket, delta) do
+    m = socket.assigns.cal_month
+    first = Date.beginning_of_month(m)
+    shifted = if delta < 0, do: Date.add(first, -1), else: Date.add(Date.end_of_month(m), 1)
+    Mob.Socket.assign(socket, :cal_month, Date.beginning_of_month(shifted))
+  end
+
+  @impl true
+  def props do
+    [
+      %{name: "view", type: "atom", default: ":month", description: ":month :week :day :agenda."},
+      %{name: "month", type: "Date", default: "today", description: "The month to draw."},
+      %{name: "value", type: "Date / list / tuple", default: "nil", description: "Selection."},
+      %{name: "mode", type: "atom", default: ":single", description: ":single :multiple :range."},
+      %{name: "min / max", type: "Date", default: "nil", description: "Bounds."},
+      %{name: "disabled_dates", type: "[Date]", default: "[]", description: "Inert days."},
+      %{name: "first_day_of_week", type: "1..7", default: "1", description: "First column."},
+      %{
+        name: "in_range_*",
+        type: "color",
+        default: "selected_*",
+        description: "Days in a range."
+      },
+      %{
+        name: "time_width",
+        type: "number",
+        default: "52",
+        description: "Day/agenda time column."
+      },
+      %{name: "on_select", type: "event tag", default: "—", description: "{:tap, {tag, date}}."},
+      %{name: "on_prev / on_next", type: "event tag", default: "—", description: "Month arrows."}
+    ]
+  end
+
+  @impl true
+  def card_preview do
+    ~MOB"""
+    <Box fill_width={true} height={44} background={:surface_raised} corner_radius={8} />
+    """
+  end
+end

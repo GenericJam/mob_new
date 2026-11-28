@@ -221,9 +221,10 @@ defmodule <%= module_name %>.Showcase.Kit do
   end
 
   @doc """
-  A props reference: one bordered row per prop — name (left) + type/default
-  (right) + description below. Mirrors the web showcase's attribute table. Each
-  prop is `%{name:, type:, default:, description:}` (all but `name` optional).
+  A props reference: one bordered row per prop — name (left) + type over
+  default (right) + description below. Mirrors the web showcase's attribute
+  table. Each prop is `%{name:, type:, default:, description:}` (all but `name`
+  optional).
   """
   def props_table(props) do
     props
@@ -232,38 +233,48 @@ defmodule <%= module_name %>.Showcase.Kit do
     |> column()
   end
 
-  defp prop_row(p) do
-    meta =
-      [Map.get(p, :type), Map.get(p, :default) && "default #{p.default}"]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.join("   ·   ")
+  @doc false
+  def prop_meta(p) do
+    [Map.get(p, :type), Map.get(p, :default) && "default #{p.default}"]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
 
-    # BOTH columns are weighted, and that is the whole point.
+  defp prop_row(p) do
+    # The name takes the rest of the row; the meta hugs its content.
     #
-    # Compose measures unweighted row children first, against the row's full
-    # width, so whichever of these two is unweighted starves the other. It was
-    # name-then-spacer-then-meta, and a long NAME left the meta ~0pt wide, one
-    # character per line. Weighting the name alone just reversed it: a long META
-    # ("colour / number · default :surface / :border / 1 / :radius_sm") then took
-    # the row and squeezed the name into a sliver that wrapped down a dozen
-    # lines, which is the tall, mostly-empty box in the number field's table.
-    #
-    # Two weights share the row in a fixed ratio instead, so neither can starve
-    # the other however long the strings get. 2:1 because a name is the thing
-    # you scan for.
+    # Compose's Row, and mob's iOS Row once a child is weighted (MOB-569),
+    # measure the unweighted children first and divide what is left among the
+    # weighted ones. A name that hugged and a meta that took the rest: a long
+    # name left the meta ~0pt wide, one character per line. A fixed 2:1 ratio:
+    # the meta's third broke "default :surface_raised" mid-word on every page.
+    # So the meta hugs, kept narrow by putting the type and the default on
+    # lines of their own, and the showcase test bounds how long either line
+    # may be, so the name always keeps enough of the row.
     header =
       row([
-        weighted(2, %{
+        weighted(1, %{
           type: :text,
           props: %{text: p.name, text_size: :base, text_color: :on_surface},
           children: []
         }),
         gap_h(),
-        weighted(1, %{
+        # "right", not "end": neither renderer reads "end" (MobBridge.kt's
+        # textAlignProp, mob's iOS textAlignEnum), so the lines sat left.
+        # fill_width: false, or MobBridge.kt fills an aligned Text's width and
+        # the meta takes the whole row; iOS's weighted Row offers an unweighted
+        # child no more than its ideal width either way.
+        %{
           type: :text,
-          props: %{text: meta, text_size: :xs, text_color: :muted, text_align: "end"},
+          props: %{
+            text: prop_meta(p),
+            text_size: :xs,
+            text_color: :muted,
+            text_align: "right",
+            fill_width: false
+          },
           children: []
-        })
+        }
       ])
 
     body = [header] ++ if(Map.get(p, :description), do: [gap(4), muted(p.description)], else: [])

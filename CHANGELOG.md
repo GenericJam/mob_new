@@ -10,6 +10,42 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Added
+- **Gallery pages for the seven mob_mishka composites the default app
+  lacked (MOB-561):** Rating, Text input, Card, List item, Dock (with
+  `MishkaDockItem`) and Calendar, six pages registered in `Showcase`'s catalog.
+  Ported from pages run on iOS in a generated app, then updated for
+  mob_mishka 0.2 (List item's top alignment is `align: :top`; Calendar's day
+  and agenda rows use 12-hour times, which the 52-wide time column now fits)
+  and fixed in review: the range calendar no longer crashes on its first
+  tap (it hands the calendar a one-day range until the end is picked), and
+  the text input empties its field on submit rather than from a Clear
+  button, which iOS ignores while the field has focus. Existing apps: copy
+  the six `showcase/components/*.ex` files and their catalog entries.
+
+### Fixed
+- **Gallery props tables no longer break a default mid-word.** The
+  type/default column had a fixed third of the row, too narrow for
+  `default :surface_raised` once mob's iOS Row divides weights by ratio
+  (MOB-569), as Compose always did. The name now takes the rest of the row
+  and the type and default hug their content on a line each, right-aligned
+  with `text_align: "right"` (neither renderer reads `"end"`, so they sat
+  left); a template test caps either line at 30 characters. Existing apps:
+  `prop_row/1` in `showcase/kit.ex`.
+- **Tooltip page: open bubbles no longer cover the triggers next to them.**
+  A bubble floats and takes no space, so the side, align and colour examples
+  now leave each trigger the clearance mob_mishka's `MishkaTooltip` docs give
+  (`side_offset` + 52 on the bubble's side) and centre it, so a bubble beside
+  one has room too. The `side` prop row says the bubble floats rather than
+  stacks.
+- **No page-authored fixed-size Box carries padding.** iOS lays padding
+  outside a node's width and height, so the overflow list's resizable rail
+  came out 16 wider and taller than its `width` × 56 (also the floating
+  window's 104-wide buttons, the drawer's account avatar and the scroll
+  area's 120-tall box).
+  The padding moved to a child, or the avatar centres with `align`; a
+  template test sweeps every page.
+
 ## [0.6.23] - 2026-11-27
 
 ### Changed

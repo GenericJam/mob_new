@@ -1,0 +1,144 @@
+defmodule <%= module_name %>.Showcase.Components.Dock do
+  @moduledoc """
+  Gallery entry for `MobMishka.Components.MishkaDock` and its items,
+  `MobMishka.Components.MishkaDockItem`.
+  """
+  use <%= module_name %>.Showcase
+
+  import Mob.Sigil
+
+  alias <%= module_name %>.Showcase.Example
+
+  @items [{:home, "⌂"}, {:search, "⌕"}, {:likes, "♡"}, {:settings, "⚙"}]
+
+  @impl true
+  def entry do
+    %{
+      slug: :dock,
+      name: "Dock",
+      category: "Navigation",
+      order: 10,
+      description: "A floating bottom bar of icon items, with an optional action beside it."
+    }
+  end
+
+  @impl true
+  def mount(socket) do
+    socket
+    |> Mob.Socket.assign(:dk_active, :home)
+    |> Mob.Socket.assign(:dk_fab, 0)
+  end
+
+  @impl true
+  def examples do
+    [
+      %Example{
+        title: "Active item",
+        description: "Tap an item: the screen owns which one is active.",
+        code: ~S"""
+        <MishkaDock>
+          <MishkaDockItem icon="⌂" active={@tab == :home} active_background={:primary}
+                          active_color={:on_primary} on_tap={{:tab, :home}} />
+          …
+        </MishkaDock>
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaDock shadow="0 6 16 0x33000000" padding={4}>
+              {items(@dk_active)}
+            </MishkaDock>
+            <Spacer size={8} />
+            <Text text={"Active: #{@dk_active}"} text_size={:sm} text_color={:muted} />
+          </Column>
+          """
+        end
+      },
+      %Example{
+        title: "With an action disc",
+        description: "fab is drawn after the bar, in the same row.",
+        code: ~S"""
+        <MishkaDock fab={plus_button} height={56}>…</MishkaDock>
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaDock fab={fab()} height={56}>
+              {items(@dk_active)}
+            </MishkaDock>
+            <Spacer size={8} />
+            <Text text={"Action taps: #{@dk_fab}"} text_size={:sm} text_color={:muted} />
+          </Column>
+          """
+        end
+      }
+    ]
+  end
+
+  defp items(active) do
+    for {id, glyph} <- @items do
+      ~MOB"""
+      <MishkaDockItem
+        icon={glyph}
+        active={active == id}
+        active_background={:primary}
+        active_color={:on_primary}
+        on_tap={{:dk_tab, id}}
+        id={"dock_" <> Atom.to_string(id)}
+      />
+      """
+    end
+  end
+
+  defp fab do
+    ~MOB"""
+    <Box
+      width={52}
+      height={52}
+      background={:primary}
+      corner_radius={26}
+      align={:center}
+      on_tap={{self(), :dk_fab}}
+    >
+      <Text text="+" text_size={:xl} text_color={:on_primary} />
+    </Box>
+    """
+  end
+
+  @impl true
+  def handle({:dk_tab, id}, socket), do: Mob.Socket.assign(socket, :dk_active, id)
+  def handle(:dk_fab, socket), do: Mob.Socket.assign(socket, :dk_fab, socket.assigns.dk_fab + 1)
+  def handle(_tag, socket), do: socket
+
+  @impl true
+  def props do
+    [
+      %{name: "background", type: "color", default: ":surface_raised", description: "Bar fill."},
+      %{name: "height", type: "number", default: "64", description: "Bar height."},
+      %{
+        name: "corner_radius",
+        type: "radius",
+        default: ":radius_pill",
+        description: "Bar corners."
+      },
+      %{name: "shadow", type: "string", default: "unset", description: "Bar shadow."},
+      %{name: "fab", type: "node", default: "unset", description: "Action beside the bar."},
+      %{name: "item: icon", type: "string", default: "nil", description: "The glyph."},
+      %{name: "item: active", type: "boolean", default: "false", description: "Active look."},
+      %{
+        name: "item: active_*",
+        type: "color",
+        default: "inactive",
+        description: "Active colours."
+      },
+      %{name: "item: on_tap", type: "event tag", default: "—", description: "{:tap, tag}."}
+    ]
+  end
+
+  @impl true
+  def card_preview do
+    ~MOB"""
+    <Box fill_width={true} height={22} background={:surface_raised} corner_radius={11} />
+    """
+  end
+end

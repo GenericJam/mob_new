@@ -16,6 +16,13 @@ defmodule <%= module_name %>.Showcase.Components.Tooltip do
 
   @dark_fill 0xFF_11_18_27
 
+  # An open bubble floats over the page and takes no space, so nothing in the
+  # layout makes way for it. MishkaTooltip's docs give the clearance one needs
+  # on its side of the trigger: side_offset + 52dp above or below, side_offset
+  # + 96dp beside. The examples that hold several open at once are spaced by
+  # it, and their triggers are centred so a bubble beside one has room too.
+  @clearance 52
+
   @impl true
   def entry do
     %{
@@ -177,7 +184,7 @@ defmodule <%= module_name %>.Showcase.Components.Tooltip do
               >
                 <MishkaActionIcon icon="✕" variant={:filled} />
               </MishkaTooltip>
-              <Spacer size={20} />
+              <Spacer size={88} />
               <MishkaTooltip
                 id="dismiss-sticky"
                 text="Hold to close"
@@ -301,7 +308,7 @@ defmodule <%= module_name %>.Showcase.Components.Tooltip do
         name: "side",
         type: ":top :bottom :left :right",
         default: ":top",
-        description: "Which side of the trigger the bubble is stacked on."
+        description: "Which side of the trigger the bubble floats on."
       },
       %{
         name: "align",
@@ -425,69 +432,105 @@ defmodule <%= module_name %>.Showcase.Components.Tooltip do
     """
   end
 
+  # Top first and bottom last, each with the clearance on its own side: the
+  # bubble above ▲ sits in the room under the description, the one below ▼ in
+  # the room before the code. ◀ and ▶ are beside, so they need no more than a
+  # gap between rows.
   defp sides do
-    [{:top, "▲"}, {:bottom, "▼"}, {:left, "◀"}, {:right, "▶"}]
-    |> Enum.map(fn {side, glyph} ->
-      ~MOB"""
-      <MishkaTooltip id={"side-#{side}"} text={"side #{side}"} open={true} side={side} arrow={true}>
-        <MishkaActionIcon icon={glyph} variant={:filled} />
-      </MishkaTooltip>
-      """
-    end)
-    |> Enum.intersperse(%{type: :spacer, props: %{size: 14}, children: []})
+    [
+      room(6),
+      side_trigger(:top, "▲"),
+      gap(14),
+      side_trigger(:left, "◀"),
+      gap(14),
+      side_trigger(:right, "▶"),
+      gap(14),
+      side_trigger(:bottom, "▼"),
+      room(6)
+    ]
   end
 
+  defp side_trigger(side, glyph) do
+    centred(~MOB"""
+    <MishkaTooltip
+      id={"side-#{side}"}
+      text={"side #{side}"}
+      open={true}
+      side={side}
+      arrow={true}
+      fill_width={false}
+    >
+      <MishkaActionIcon icon={glyph} variant={:filled} />
+    </MishkaTooltip>
+    """)
+  end
+
+  # Every bubble here is above its trigger (side defaults to :top), so each
+  # trigger has the clearance above it, the description's or the last trigger's.
   defp alignments do
     [
       {"align-start", :start, "start", 0, 6},
       {"align-center", :center, "center", 0, 6},
       {"align-end", :end, "end", -12, 16}
     ]
-    |> Enum.map(fn {id, align, label, nudge, gap} ->
-      ~MOB"""
-      <MishkaTooltip
-        id={id}
-        text={label}
-        open={true}
-        align={align}
-        align_offset={nudge}
-        side_offset={gap}
-        arrow={true}
-      >
-        <MishkaActionIcon icon="◆" variant={:filled} />
-      </MishkaTooltip>
-      """
+    |> Enum.flat_map(fn {id, align, label, nudge, side_gap} ->
+      [
+        room(side_gap),
+        centred(~MOB"""
+        <MishkaTooltip
+          id={id}
+          text={label}
+          open={true}
+          align={align}
+          align_offset={nudge}
+          side_offset={side_gap}
+          arrow={true}
+          fill_width={false}
+        >
+          <MishkaActionIcon icon="◆" variant={:filled} />
+        </MishkaTooltip>
+        """)
+      ]
     end)
-    |> Enum.intersperse(%{type: :spacer, props: %{size: 14}, children: []})
   end
 
   # The fill is read out of the attribute HERE, not inside the ~MOB below:
   # within the sigil a leading @ means an assign, so @dark_fill would be
   # rewritten to assigns.dark_fill and blow up naming the sigil, not the
-  # attribute.
+  # attribute. Above their triggers, like the alignments, and spaced the same.
   defp styles do
     [
       {"style-dark", "Dark by default", @dark_fill, 0xFF_FF_FF_FF, :sm, nil},
       {"style-token", "Themed", :primary, :on_primary, :base, 12},
       {"style-plum", "A literal, when no token fits", 0xFF7C3AED, 0xFF_FF_FF_FF, :sm, nil}
     ]
-    |> Enum.map(fn {id, label, fill, ink, size, nudge} ->
-      ~MOB"""
-      <MishkaTooltip
-        id={id}
-        text={label}
-        open={true}
-        background={fill}
-        color={ink}
-        text_size={size}
-        offset_x={nudge}
-      >
-        <MishkaActionIcon icon="◐" variant={:filled} />
-      </MishkaTooltip>
-      """
+    |> Enum.flat_map(fn {id, label, fill, ink, size, nudge} ->
+      [
+        room(6),
+        centred(~MOB"""
+        <MishkaTooltip
+          id={id}
+          text={label}
+          open={true}
+          background={fill}
+          color={ink}
+          text_size={size}
+          offset_x={nudge}
+          fill_width={false}
+        >
+          <MishkaActionIcon icon="◐" variant={:filled} />
+        </MishkaTooltip>
+        """)
+      ]
     end)
-    |> Enum.intersperse(%{type: :spacer, props: %{size: 14}, children: []})
   end
+
+  defp centred(node),
+    do: %{type: :row, props: %{fill_width: true}, children: [flex(), node, flex()]}
+
+  defp flex, do: %{type: :spacer, props: %{weight: 1}, children: []}
+  defp gap(size), do: %{type: :spacer, props: %{size: size}, children: []}
+  defp room(side_offset), do: gap(side_offset + @clearance)
 
   defp tapped(nil), do: "Tap a control to use it; hold one to see what it does"
   defp tapped(which), do: "tapped #{which}"

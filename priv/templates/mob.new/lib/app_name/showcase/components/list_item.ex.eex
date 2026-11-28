@@ -1,0 +1,163 @@
+defmodule <%= module_name %>.Showcase.Components.ListItem do
+  @moduledoc "Gallery entry for `MobMishka.Components.MishkaListItem`."
+  use <%= module_name %>.Showcase
+
+  import Mob.Sigil
+
+  alias <%= module_name %>.Showcase.Example
+
+  @rows [
+    {"wifi", "Wi-Fi", "Home network", "On"},
+    {"bt", "Bluetooth", "2 devices", "On"},
+    {"air", "Airplane mode", "Radios off", "Off"}
+  ]
+
+  @impl true
+  def entry do
+    %{
+      slug: :list_item,
+      name: "List item",
+      category: "Data display",
+      order: 21,
+      description: "A row: leading · body · trailing, with the body taking the rest."
+    }
+  end
+
+  @impl true
+  def mount(socket) do
+    socket
+    |> Mob.Socket.assign(:li_picked, nil)
+    |> Mob.Socket.assign(:li_long, nil)
+  end
+
+  @impl true
+  def examples do
+    [
+      %Example{
+        title: "Settings rows",
+        description: "Tap a row; long-press one too. Separators sit between rows.",
+        code: ~S"""
+        <MishkaListItem leading={icon} trailing={value}
+                        on_tap={{:row, id}} on_long_press={{:hold, id}}>
+          <Text text="Wi-Fi" />
+        </MishkaListItem>
+
+        def handle_info({:tap, {:row, id}}, socket),
+          do: {:noreply, Mob.Socket.assign(socket, :picked, id)}
+
+        # A hold arrives as {:long_press, _}, not as a tap.
+        def handle_info({:long_press, {:hold, id}}, socket),
+          do: {:noreply, Mob.Socket.assign(socket, :held, id)}
+        """,
+        render: fn assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            {settings_rows()}
+            <Spacer size={8} />
+            <Text text={"Tapped: #{inspect(@li_picked)}"} text_size={:sm} text_color={:muted} />
+            <Text text={"Long-pressed: #{inspect(@li_long)}"} text_size={:sm} text_color={:muted} />
+          </Column>
+          """
+        end
+      },
+      %Example{
+        title: "Body only, and custom gaps",
+        description: "No leading or trailing slot leaves no spacer behind.",
+        code: ~S"""
+        <MishkaListItem><Text text="Just a body" /></MishkaListItem>
+        <MishkaListItem leading={avatar} gap={24} padding={12} align={:top}>…</MishkaListItem>
+        """,
+        render: fn _assigns ->
+          ~MOB"""
+          <Column fill_width={true}>
+            <MishkaListItem padding={8}>
+              <Text text="Just a body, edge to edge" text_color={:on_surface} />
+            </MishkaListItem>
+            <MishkaSeparator />
+            <MishkaListItem leading={dot(0xFF16A34A)} gap={24} padding={8} align={:top}>
+              <Column>
+                <Text text="Wide gap, top-aligned" text_color={:on_surface} />
+                <Text text="A second line pushes the row taller" text_size={:sm} text_color={:muted} />
+              </Column>
+            </MishkaListItem>
+          </Column>
+          """
+        end
+      }
+    ]
+  end
+
+  defp settings_rows do
+    @rows
+    |> Enum.map(fn {id, title, subtitle, value} ->
+      ~MOB"""
+      <MishkaListItem
+        leading={dot(0xFF2563EB)}
+        trailing={trailing(value)}
+        padding={10}
+        on_tap={{:li_row, id}}
+        on_long_press={{:li_long, id}}
+        id={"li_" <> id}
+      >
+        <Column>
+          <Text text={title} text_color={:on_surface} />
+          <Text text={subtitle} text_size={:sm} text_color={:muted} />
+        </Column>
+      </MishkaListItem>
+      """
+    end)
+    |> Enum.intersperse(~MOB"<MishkaSeparator />")
+    |> then(&%{type: :column, props: %{fill_width: true}, children: &1})
+  end
+
+  defp dot(color) do
+    ~MOB"""
+    <Box width={28} height={28} background={color} corner_radius={14} />
+    """
+  end
+
+  defp trailing(value) do
+    ~MOB"""
+    <Text text={value <> "  ›"} text_color={:muted} />
+    """
+  end
+
+  @impl true
+  def handle({:li_row, id}, socket), do: Mob.Socket.assign(socket, :li_picked, id)
+  def handle({:li_long, id}, socket), do: Mob.Socket.assign(socket, :li_long, id)
+  def handle(_tag, socket), do: socket
+
+  @impl true
+  def props do
+    [
+      %{name: "leading", type: "node", default: "unset", description: "Before the body."},
+      %{name: "trailing", type: "node", default: "unset", description: "After the body."},
+      %{name: "gap", type: "number", default: "13", description: "Leading → body."},
+      %{name: "trailing_gap", type: "number", default: "12", description: "Body → trailing."},
+      %{
+        name: "align",
+        type: ":center / :top / :bottom",
+        default: ":center",
+        description: "Slots against the body."
+      },
+      %{name: "on_tap", type: "event tag", default: "unset", description: "{:tap, tag}."},
+      %{
+        name: "on_long_press",
+        type: "event tag",
+        default: "unset",
+        description: "{:long_press, tag} on a hold."
+      }
+    ]
+  end
+
+  @impl true
+  def card_preview do
+    ~MOB"""
+    <Row fill_width={true} align={:center}>
+      <Box width={18} height={18} background={:primary} corner_radius={9} />
+      <Spacer size={8} />
+      <Box weight={1.0} height={8} background={:surface_raised} corner_radius={4} />
+    </Row>
+    """
+  end
+end

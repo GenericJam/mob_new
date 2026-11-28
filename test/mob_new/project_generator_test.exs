@@ -349,9 +349,9 @@ defmodule MobNew.ProjectGeneratorTest do
       # call (MOB-379); mob_dev 0.7.12 turns mob.exs's url_schemes into the
       # native URL registrations. 0.9.8 already required the notification
       # envelope (MOB-316) and the private dist cookie (MOB-49).
-      assert content =~ ~s({:mob,     "~> 0.9.32"})
-      assert content =~ ~s({:mob_dev, "~> 0.7.31", only: :dev, runtime: false})
-      assert content =~ ~s({:mob_mishka, "~> 0.1.6"})
+      assert content =~ ~s({:mob,     "~> 0.9.33"})
+      assert content =~ ~s({:mob_dev, "~> 0.7.32", only: :dev, runtime: false})
+      assert content =~ ~s({:mob_mishka, "~> 0.2"})
     end
 
     test "AGENTS.md points an agent at version-matched Mob docs and the app rules",

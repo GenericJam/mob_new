@@ -10,7 +10,15 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+## [0.6.23] - 2026-11-27
+
 ### Changed
+- **Generated apps take mob ≥ 0.9.33, mob_dev ≥ 0.7.32 and mob_mishka 0.2.**
+  The app-icon boot screen (0.6.22) needs both halves: mob_dev 0.7.32 makes
+  the `MobLaunchIcon` the iOS launch screen shows, and mob 0.9.33's boot
+  screen draws it in the same place. mob_mishka 0.2 carries the MOB-571
+  composite fixes (a `MishkaTooltip` no longer eats the next tap anywhere on
+  the page; opt back in with `close_on_outside_tap`).
 - **Dice screen: the Rolls and Average cards share their row equally.**
   Each stat Column carries `weight: 1` and the Row `fill_width`. On iOS the
   cards used to fill only because every iOS Column filled its parent; mob

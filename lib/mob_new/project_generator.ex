@@ -1357,10 +1357,13 @@ defmodule MobNew.ProjectGenerator do
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, mob_dir}
     else
-      # Floor at 0.9.32, not "~> 0.9". Generated code depends on a specific
+      # Floor at 0.9.33, not "~> 0.9". Generated code depends on a specific
       # mob, and each dependency fails late and confusingly under a looser
       # constraint:
       #
+      #   * The template's iOS launch screen shows MobLaunchIcon, and mob's
+      #     boot screen draws the same icon in the same place from 0.9.33; an
+      #     older mob hands the icon over to a spinner on black.
       #   * The template's MobBridge draws `clip_width` / `clip_height`, which
       #     mob encodes from 0.9.32 (MOB-536); on an older mob, iOS ignores
       #     them and the two platforms disagree.
@@ -1423,7 +1426,9 @@ defmodule MobNew.ProjectGenerator do
       #     Box accessibility props are validated and encoded from 0.7.32.
       #
       # `~>` still allows the whole 0.9.x line above the floor.
-      mob_dep = ~s({:mob,     "~> 0.9.32"})
+      mob_dep = ~s({:mob,     "~> 0.9.33"})
+      # mob_dev 0.7.32 makes the MobLaunchIcon image the template's
+      # UILaunchScreen names; an older one leaves the launch screen blank.
       # mob_dev 0.7.31 requires exactly the Zig 0.17.0 the generated
       # .tool-versions pins (older ones require the 0.17.0-dev.269 nightly,
       # so their native build rejects it), and it is the first to accept the
@@ -1438,13 +1443,15 @@ defmodule MobNew.ProjectGenerator do
       # mob 0.9.8 also accepts only the private per-app distribution cookie
       # that mob_dev 0.7.7 hands over (MOB-49), and 0.7.4 is where mob_dev
       # builds config/*.exs into `mob_app_config`, which mob loads on device.
-      mob_dev_dep = ~s({:mob_dev, "~> 0.7.31", only: :dev, runtime: false})
+      mob_dev_dep = ~s({:mob_dev, "~> 0.7.32", only: :dev, runtime: false})
       # 0.1.3 is the first release signed with a v2 envelope (0.1.2's v1
       # signature is refused by current mob_dev); mob.exs activates the
       # plugin, and the trust gate refuses an unsigned or v1-signed one.
       # 0.1.6 is where MishkaDrawer.trigger/2 draws a string trigger as a Box
-      # with a label, which the generated showcase and its test rely on.
-      mob_mishka_dep = ~s({:mob_mishka, "~> 0.1.6"})
+      # with a label, which the generated showcase and its test rely on; 0.2
+      # carries the MOB-571 composite fixes (a tooltip no longer eats the
+      # next tap anywhere on the page).
+      mob_mishka_dep = ~s({:mob_mishka, "~> 0.2"})
 
       {mob_dep, mob_dev_dep, mob_mishka_dep, nil}
     end
@@ -1485,7 +1492,7 @@ defmodule MobNew.ProjectGenerator do
         ~s({:mob_mishka, path: "#{sibling}"})
 
       true ->
-        ~s({:mob_mishka, "~> 0.1.6"})
+        ~s({:mob_mishka, "~> 0.2"})
     end
   end
 

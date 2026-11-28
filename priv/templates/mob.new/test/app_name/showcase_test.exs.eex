@@ -2,7 +2,7 @@ defmodule <%= module_name %>.ShowcaseTest do
   # async: false — the registry and composite registry are global (persistent_term).
   use Mob.ScreenCase, async: false
 
-  alias MobMishka.Components.MishkaMark
+  alias MobMishka.Components.{MishkaCalendar, MishkaMark}
   alias <%= module_name %>.Showcase
   alias <%= module_name %>.Showcase.{ComponentScreen, GalleryScreen, Kit}
 
@@ -58,6 +58,19 @@ defmodule <%= module_name %>.ShowcaseTest do
       pills == [] or not Enum.all?(pills, &(text(&1) =~ "Item "))
     end)
   end
+
+  # The Calendar page's range example, as the tag the page wrote.
+  defp range_calendar(view) do
+    [range] =
+      view |> tree() |> find_all(:mishka_calendar) |> Enum.filter(&(&1.props[:mode] == :range))
+
+    range
+  end
+
+  # Run its expander directly: Mob.Composite renders an expander that raises as
+  # an empty node, so expanded/1 would hide a crash.
+  defp expand_calendar(node),
+    do: MishkaCalendar.expand(node.props, [], %{screen: self()})
 
   describe "registry" do
     test "register + lookup augments the entry with its module" do
@@ -298,7 +311,7 @@ defmodule <%= module_name %>.ShowcaseTest do
     # "default :surface_raised", which broke mid-word on every page.
     test "the name takes the rest of the row and the meta hugs, a fact per line" do
       [box] =
-        <%= module_name %>.Showcase.Kit.props_table([
+        Kit.props_table([
           %{name: "a", type: "b", default: "c", description: "d"}
         ]).children
 
@@ -324,7 +337,7 @@ defmodule <%= module_name %>.ShowcaseTest do
       long =
         for entry <- Showcase.all(),
             p <- entry.module.props(),
-            line <- String.split(<%= module_name %>.Showcase.Kit.prop_meta(p), "\n"),
+            line <- String.split(Kit.prop_meta(p), "\n"),
             String.length(line) > 30,
             do: "#{entry.slug}: #{p.name} — #{line}"
 
@@ -842,9 +855,7 @@ defmodule <%= module_name %>.ShowcaseTest do
 
     test "the calendar's range example starts its weeks on Sunday and inks the range" do
       view = mount_screen(ComponentScreen, %{slug: :calendar})
-
-      [range] =
-        view |> tree() |> find_all(:mishka_calendar) |> Enum.filter(&(&1.props[:mode] == :range))
+      range = range_calendar(view)
 
       # The labels are the caller's, so they have to start where the grid does.
       assert range.props.first_day_of_week == 7
@@ -853,15 +864,32 @@ defmodule <%= module_name %>.ShowcaseTest do
       # took the selected ink, :on_primary, on a :surface_raised fill.
       assert range.props.in_range_color == :on_surface
 
-      # The first tap leaves the range open-ended; the page must still draw,
-      # which it did not while it handed the calendar a nil end date.
+      # The first tap leaves the range open-ended. Handed a nil end date, the
+      # calendar's expander raised, and Mob.Composite renders a raising
+      # expander as an empty node: the calendar silently drew nothing. So the
+      # expander is called directly; through expanded/1 this passes either way.
       ranged = render_info(view, {:tap, {:cal_range, ~D[2026-11-20]}})
       assert assigns(ranged).cal_range == {~D[2026-11-20], nil}
-      assert_renderable(expanded(ranged), extra: [:canvas])
+      assert %{type: :column} = expand_calendar(range_calendar(ranged))
 
       closed = render_info(ranged, {:tap, {:cal_range, ~D[2026-11-18]}})
       assert assigns(closed).cal_range == {~D[2026-11-18], ~D[2026-11-20]}
-      assert_renderable(expanded(closed), extra: [:canvas])
+      assert %{type: :column} = expand_calendar(range_calendar(closed))
+    end
+
+    test "the dismiss pair's triggers sit far enough apart for both hints" do
+      # Both can be open at once, each bubble centred under its own trigger;
+      # at 20 apart the two bubbles were wider than the gap between triggers.
+      [row] =
+        ComponentScreen
+        |> mount_screen(%{slug: :tooltip})
+        |> tree()
+        |> find_all(:row)
+        |> Enum.filter(fn row ->
+          Enum.map(row.children, &Map.get(&1.props, :id)) |> Enum.member?("dismiss-soft")
+        end)
+
+      assert [_soft, %{type: :spacer, props: %{size: 88}}, _sticky, _flex] = row.children
     end
 
     test "the text input page empties its field on submit" do
@@ -925,7 +953,7 @@ defmodule <%= module_name %>.ShowcaseTest do
           tip.props[:id]
         end
 
-      assert length(checked) == 10
+      assert Enum.count(checked) == 10
     end
 
     test "no box with a fixed size carries padding" do

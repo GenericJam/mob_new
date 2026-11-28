@@ -17,10 +17,11 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
   Ported from pages run on iOS in a generated app, then updated for
   mob_mishka 0.2 (List item's top alignment is `align: :top`; Calendar's day
   and agenda rows use 12-hour times, which the 52-wide time column now fits)
-  and fixed in review: the range calendar no longer crashes on its first
-  tap (it hands the calendar a one-day range until the end is picked), and
-  the text input empties its field on submit rather than from a Clear
-  button, which iOS ignores while the field has focus. Existing apps: copy
+  and fixed in review: the range calendar no longer vanishes after its first
+  tap (handed a nil end date its expander raised, which `Mob.Composite`
+  renders as an empty node; it now gets a one-day range until the end is
+  picked), and the text input empties its field on submit rather than from
+  a Clear button, which iOS ignores while the field has focus. Existing apps: copy
   the six `showcase/components/*.ex` files and their catalog entries.
 
 ### Fixed

@@ -302,7 +302,10 @@ defmodule <%= module_name %>.Showcase do
     :mishka_empty_state_actions,
     :mishka_empty_state_indicator,
     :mishka_toast_close,
-    :mishka_toast_item
+    :mishka_toast_item,
+    :mishka_card_actions,
+    :mishka_card_figure,
+    :mishka_card_title
   ]
 
   @doc "Every slot tag — a child tag consumed by its parent composite's `expand/3`."

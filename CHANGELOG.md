@@ -10,6 +10,14 @@ Full module documentation: [hexdocs.pm/mob_new](https://hexdocs.pm/mob_new).
 
 ## [Unreleased]
 
+### Changed
+- **Dice screen: the Rolls and Average cards share their row equally.**
+  Each stat Column carries `weight: 1` and the Row `fill_width`. On iOS the
+  cards used to fill only because every iOS Column filled its parent; mob
+  MOB-564 makes a Column hug its content as on Android, where these cards
+  were already only as wide as their text. Existing apps: the `stat/2`
+  helper and the stats Row in `dice_screen.ex`. (MOB-564)
+
 ### Fixed
 - **Android: a push no longer sometimes appears without its slide.** A
   screen that re-renders a few ms after its mount, as one loading its data

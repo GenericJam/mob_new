@@ -107,9 +107,11 @@ defmodule <%= module_name %>.DiceScreen do
         %{type: :spacer, props: %{size: 16}, children: []},
 
         # ── Stats ─────────────────────────────────────────────────────
+        # Two equal cards. `weight: 1` shares the row between them; a Column
+        # is only as wide as its text otherwise (on iOS too since mob MOB-564).
         %{
           type: :row,
-          props: %{padding: 0},
+          props: %{padding: 0, fill_width: true},
           children: [
             stat("Rolls", "#{assigns.total_rolls}"),
             %{type: :spacer, props: %{size: 16}, children: []},
@@ -155,7 +157,7 @@ defmodule <%= module_name %>.DiceScreen do
   defp stat(label, value) do
     %{
       type: :column,
-      props: %{background: :surface_raised, padding: :space_md},
+      props: %{background: :surface_raised, padding: :space_md, weight: 1},
       children: [
         %{type: :text, props: %{text: value, text_size: :xl, text_color: :primary, padding: 0}, children: []},
         %{type: :text, props: %{text: label, text_size: :sm, text_color: :muted, padding: 0}, children: []}

@@ -2036,6 +2036,15 @@ defmodule MobNew.ProjectGeneratorTest do
       assert content =~ ":reveal"
     end
 
+    # MOB-564: an iOS Column now hugs its content like Android's, so the two
+    # stat cards shrank to their text. Each takes half the row by weight.
+    test "dice_screen.ex stat cards share the row by weight", %{tmp: tmp} do
+      {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
+      content = File.read!(Path.join(dir, "lib/test_app/dice_screen.ex"))
+      assert content =~ "props: %{background: :surface_raised, padding: :space_md, weight: 1}"
+      assert content =~ "props: %{padding: 0, fill_width: true}"
+    end
+
     test "home_screen.ex nav button label is Rock Paper Scissors", %{tmp: tmp} do
       {:ok, dir} = ProjectGenerator.generate("test_app", tmp)
       content = File.read!(Path.join(dir, "lib/test_app/home_screen.ex"))
